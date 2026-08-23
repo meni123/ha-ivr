@@ -1,0 +1,380 @@
+{
+  "exceptions": {
+    "tts_only": {
+      "message": "Only an alert generated from text is supported. Ready media does not go through the pipeline, so there is nothing to build the playback from."
+    },
+    "provider_no_alerts": {
+      "message": "The provider {provider} does not support outgoing voice alerts."
+    },
+    "no_valid_numbers": {
+      "message": "No valid phone numbers were found."
+    },
+    "no_valid_numbers_in": {
+      "message": "No valid phone numbers were found in {input}."
+    },
+    "speech_not_wav": {
+      "message": "The speech did not come back as usable WAV audio."
+    },
+    "speech_no_token": {
+      "message": "The speech did not come back as a token."
+    },
+    "alert_partly_delivered": {
+      "message": "The alert was played to {summary} recipients. {detail}"
+    },
+    "alert_not_delivered": {
+      "message": "The alert was dispatched but was not played. {detail}"
+    },
+    "alert_failed": {
+      "message": "The alert failed: {detail}"
+    },
+    "no_driver": {
+      "message": "No driver is registered for the provider {provider}."
+    },
+    "no_satellite": {
+      "message": "There is no satellite entity for this entry. The assist_satellite platform did not load."
+    },
+    "contact_no_phone": {
+      "message": "The recipient {name} has no phone number configured."
+    },
+    "outbound_failed": {
+      "message": "The outgoing call failed: {error}"
+    },
+    "missing_api_key": {
+      "message": "The Technoline API key is missing. Enter it in the integration options."
+    },
+    "provider_rejected": {
+      "message": "The provider rejected the request (errorCode {code}): {detail}"
+    },
+    "unknown_entry": {
+      "message": "That configuration entry no longer exists."
+    },
+    "provider_ip_denied": {
+      "message": "The provider rejected the request: the server's outbound IP address is not approved. Ask their technical team to approve it."
+    },
+    "provider_missing_info": {
+      "message": "The provider is missing connection information for this account. {detail}"
+    },
+    "provider_bad_response": {
+      "message": "The provider returned something that is not a valid response: {body}"
+    },
+    "extension_ambiguous": {
+      "message": "Found {count} streaming extensions in the account. Set the extension ID in the \"Streaming extension for alerts\" option."
+    },
+    "missing_yemot_token": {
+      "message": "The Yemot management token is missing. Enter it in the integration options."
+    },
+    "provider_http_error": {
+      "message": "The provider returned HTTP {status}: {body}"
+    },
+    "no_call_placed": {
+      "message": "The provider accepted the request but placed no call. Errors: {errors}"
+    }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "title": "Phone provider",
+        "description": "Which provider is this entry for?",
+        "data": {
+          "provider": "Provider",
+          "intro": "Message played when the menu opens",
+          "provider_ips": "Technoline IP ranges",
+          "allowed_phones": "Allowed caller numbers",
+          "technoline_api_key": "Technoline API key",
+          "technoline_campaign_base": "Campaign API base URL",
+          "technoline_files_base": "Extensions API base URL",
+          "technoline_announce_extension": "Streaming extension for alerts",
+          "technoline_announce_hours": "Do not call at night",
+          "yemot_token": "Yemot management token"
+        },
+        "data_description": {
+          "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
+          "allowed_phones": "Comma separated. Leave empty to allow every caller.",
+          "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
+          "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
+          "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
+          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it."
+        }
+      },
+      "settings": {
+        "title": "Menu settings",
+        "data": {
+          "intro": "Message played when the menu opens",
+          "provider_ips": "Provider IP ranges",
+          "allowed_phones": "Allowed caller numbers",
+          "technoline_api_key": "Technoline API key",
+          "technoline_campaign_base": "Campaign API base URL",
+          "technoline_files_base": "Extensions API base URL",
+          "technoline_announce_extension": "Streaming extension for alerts",
+          "technoline_announce_hours": "Do not call at night",
+          "yemot_token": "Yemot management token"
+        },
+        "data_description": {
+          "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
+          "allowed_phones": "Comma separated. Leave empty to allow every caller.",
+          "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
+          "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
+          "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
+          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This provider is already configured."
+    },
+    "error": {
+      "invalid_network": "Invalid IP range. Enter comma separated ranges."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "IVR settings",
+        "menu_options": {
+          "menu_settings": "Phone menu",
+          "stream_settings": "Voice assistant"
+        },
+        "description": "Paste this URL at your provider:\n`{api_url}`\n\n{stream_url}"
+      },
+      "menu_settings": {
+        "data": {
+          "intro": "Message played when the menu opens",
+          "provider_ips": "Provider IP ranges",
+          "allowed_phones": "Allowed caller numbers",
+          "technoline_api_key": "Technoline API key",
+          "technoline_campaign_base": "Campaign API base URL",
+          "technoline_files_base": "Extensions API base URL",
+          "technoline_announce_extension": "Streaming extension for alerts",
+          "technoline_announce_hours": "Do not call at night",
+          "yemot_token": "Yemot management token"
+        },
+        "data_description": {
+          "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
+          "allowed_phones": "Comma separated. Leave empty to allow every caller.",
+          "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
+          "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
+          "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
+          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it."
+        },
+        "title": "Phone menu"
+      },
+      "stream_settings": {
+        "data": {
+          "stream_tones": "Feedback tones",
+          "stream_channel_token": "Channel ID",
+          "stream_exit": "Exit phrases",
+          "stream_exit_keys": "Exit keys",
+          "stream_return_path": "Return path on exit",
+          "stream_max_minutes": "Maximum call length",
+          "stream_echo_tail": "Echo tail",
+          "stream_rate": "Sample rate"
+        },
+        "data_description": {
+          "stream_exit": "Comma separated. A phrase must end on a word boundary, so that \"bye\" is not matched inside \"byebye\".",
+          "stream_exit_keys": "Keys that close the assistant. On Technoline it has not yet been verified that the PBX forwards key presses to the streaming channel.",
+          "stream_return_path": "A path in the extension tree, such as / or /2 — not an extension ID.",
+          "stream_tones": "A short tone before the microphone opens, and one while the answer is being processed. Without them the caller cannot tell when to speak.",
+          "stream_rate": "The streaming URL is not configured at Vonage — it is sent inside the NCCO during the call. Make sure the Event URL does not point at the Answer URL, or every status event is handled as a new call."
+        },
+        "title": "Voice assistant"
+      }
+    },
+    "error": {
+      "invalid_network": "Invalid IP range."
+    }
+  },
+  "config_subentries": {
+    "menu_item": {
+      "title": "Menu item",
+      "step": {
+        "user": {
+          "title": "New item",
+          "data": {
+            "entity_id": "Device",
+            "menu_path": "Menu position",
+            "label": "Spoken name"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit item",
+          "data": {
+            "entity_id": "Device",
+            "menu_path": "Menu position",
+            "label": "Spoken name"
+          }
+        },
+        "action": {
+          "title": "Action",
+          "description": "What happens when {entity} is selected",
+          "data": {
+            "action": "Action",
+            "confirm_risky": "Confirmation for sensitive actions"
+          }
+        },
+        "params": {
+          "title": "Action values",
+          "description": "{action}"
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu.",
+        "confirm_required": "This action is sensitive and needs confirmation."
+      },
+      "initiate_flow": {
+        "user": "Add item"
+      },
+      "entry_type": "Item"
+    },
+    "submenu": {
+      "title": "Submenu",
+      "step": {
+        "user": {
+          "title": "New submenu",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "intro": "Intro message"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit submenu",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "intro": "Intro message"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu."
+      },
+      "initiate_flow": {
+        "user": "Add submenu"
+      },
+      "entry_type": "Submenu"
+    },
+    "goto": {
+      "title": "Transfer to extension",
+      "step": {
+        "user": {
+          "title": "New transfer",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "goto_target": "Target"
+          },
+          "description": "Target: {hint}"
+        },
+        "reconfigure": {
+          "title": "Edit transfer",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "goto_target": "Target"
+          },
+          "description": "Target: {hint}"
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu.",
+        "target_required": "A target is required."
+      },
+      "initiate_flow": {
+        "user": "Add transfer"
+      },
+      "entry_type": "Transfer"
+    },
+    "contact": {
+      "title": "Alert recipient",
+      "step": {
+        "user": {
+          "title": "Add recipient",
+          "data": {
+            "label": "Name",
+            "phone": "Phone number"
+          },
+          "data_description": {
+            "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
+            "phone": "The number that is called when a message is sent to this recipient."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit recipient",
+          "data": {
+            "label": "Name",
+            "phone": "Phone number"
+          },
+          "data_description": {
+            "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
+            "phone": "The number that is called when a message is sent to this recipient."
+          }
+        }
+      },
+      "error": {
+        "name_required": "A name is required.",
+        "invalid_phone": "That is not a valid phone number."
+      },
+      "initiate_flow": {
+        "user": "Add recipient",
+        "reconfigure": "Edit recipient"
+      },
+      "entry_type": "Recipient"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_call": {
+        "name": "Last call"
+      },
+      "call_count": {
+        "name": "Selection count"
+      }
+    },
+    "select": {
+      "pipeline": {
+        "name": "Assistant pipeline",
+        "state": {
+          "preferred": "Home Assistant default"
+        }
+      },
+      "vad_sensitivity": {
+        "name": "End-of-speech sensitivity",
+        "state": {
+          "aggressive": "Aggressive",
+          "default": "Normal",
+          "relaxed": "Relaxed"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_call": {
+      "name": "Voice alert",
+      "description": "Calls the recipients and plays a message. The speech is generated in Home Assistant using the voice of the pipeline you selected. Use this service when the recipients change from alert to alert; for a fixed list you can also use assist_satellite.announce, which has no recipients field and always calls the numbers configured in the integration.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "The text that is read out on the call."
+        },
+        "phones": {
+          "name": "Phone numbers",
+          "description": "A single number, or several separated by commas. Each recipient gets its own call. Empty calls the numbers configured in the integration."
+        },
+        "config_entry_id": {
+          "name": "Provider",
+          "description": "Which provider entry places the call."
+        },
+        "caller_id": {
+          "name": "Caller ID",
+          "description": "A number pre-approved at Yemot. Empty uses the system number."
+        }
+      }
+    }
+  }
+}

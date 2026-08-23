@@ -1,0 +1,52 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # שבועי: hassfest ו-HACS משתנים מתחתינו, ותקלה שם אינה
+    # קשורה לדחיפה שלנו — עדיף לגלות אותה בשקט מאשר בהתקנה.
+    - cron: "0 4 * * 1"
+
+jobs:
+  gate:
+    name: השער
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # בלי pip install ובלי דרישות: הבדיקות רצות על פייתון נקי
+      # מול Home Assistant מזויף. זו הסיבה שהן מהירות כאן.
+      - name: run_live
+        run: python3 tests/run_live.py
+
+      - name: check_names
+        run: python3 tests/check_names.py
+
+      - name: check_flow
+        run: python3 tests/check_flow.py
+
+      - name: check_gate
+        run: python3 tests/check_gate.py
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration

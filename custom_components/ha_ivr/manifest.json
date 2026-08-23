@@ -1,0 +1,22 @@
+{
+  "domain": "ha_ivr",
+  "name": "IVR",
+  "after_dependencies": [
+    "assist_pipeline",
+    "tts",
+    "stt",
+    "assist_satellite"
+  ],
+  "codeowners": [
+    "@meni123"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
+  "documentation": "https://github.com/meni123/ha-ivr",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/meni123/ha-ivr/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

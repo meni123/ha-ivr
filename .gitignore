@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+*.log
+.DS_Store
+.deploy.local
+
+# מסמכי עבודה אישיים — לא לפרסום
+HANDOFF.md
+PROCESS.md

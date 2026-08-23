@@ -1,0 +1,73 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        עברית או אנגלית — שתיהן בסדר גמור.
+        Hebrew or English are both fine.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - Yemot HaMashiach
+        - Technoline
+        - Vonage
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: What is affected
+      options:
+        - DTMF menu
+        - Voice assistant
+        - Voice alerts
+        - Setup / configuration
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        **This is the most useful thing you can attach.** Almost every bug
+        in this project was found in a log, not in the code.
+
+        Enable debug logging and reproduce the problem:
+
+        ```yaml
+        logger:
+          logs:
+            custom_components.ha_ivr: debug
+        ```
+
+        Then copy the lines from around the call. The integration masks
+        tokens and API keys, but **check the output before pasting** —
+        phone numbers are not masked.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the integration card, or the "is running" line in the log.
+      placeholder: "1.0.0+a548ae17"
+    validations:
+      required: true

@@ -1,0 +1,380 @@
+{
+  "exceptions": {
+    "tts_only": {
+      "message": "רק התראה שנוצרה מטקסט נתמכת. מדיה מוכנה אינה עוברת דרך הצינור, ולכן אין ממה לייצר את ההשמעה."
+    },
+    "provider_no_alerts": {
+      "message": "הספק {provider} אינו תומך בהתראה קולית יזומה."
+    },
+    "no_valid_numbers": {
+      "message": "לא נמצאו מספרי טלפון תקינים."
+    },
+    "no_valid_numbers_in": {
+      "message": "לא נמצאו מספרי טלפון תקינים ב-{input}."
+    },
+    "speech_not_wav": {
+      "message": "ההקראה לא הוחזרה כ-WAV שמיש."
+    },
+    "speech_no_token": {
+      "message": "ההקראה לא הוחזרה כטוקן."
+    },
+    "alert_partly_delivered": {
+      "message": "ההתראה נשמעה ל-{summary} נמענים. {detail}"
+    },
+    "alert_not_delivered": {
+      "message": "ההתראה שוגרה אך לא נשמעה. {detail}"
+    },
+    "alert_failed": {
+      "message": "ההתראה נכשלה: {detail}"
+    },
+    "no_driver": {
+      "message": "אין דרייבר רשום לספק {provider}."
+    },
+    "no_satellite": {
+      "message": "אין ישות לוויין לרשומה. הפלטפורמה assist_satellite לא נטענה."
+    },
+    "contact_no_phone": {
+      "message": "לנמען {name} לא הוגדר מספר טלפון."
+    },
+    "outbound_failed": {
+      "message": "השיחה היוצאת נכשלה: {error}"
+    },
+    "missing_api_key": {
+      "message": "חסר מפתח ה-API של טכנוליין. יש להזין אותו בהגדרות."
+    },
+    "provider_rejected": {
+      "message": "הספק דחה את הבקשה (errorCode {code}): {detail}"
+    },
+    "unknown_entry": {
+      "message": "רשומת ההגדרה הזו אינה קיימת עוד."
+    },
+    "provider_ip_denied": {
+      "message": "הספק דחה את הבקשה: כתובת ה-IP היוצאת של השרת אינה מאושרת. יש לבקש מהצוות הטכני שלהם לאשר אותה."
+    },
+    "provider_missing_info": {
+      "message": "חסר לספק מידע חיבור לחשבון הזה. {detail}"
+    },
+    "provider_bad_response": {
+      "message": "הספק החזיר תשובה שאינה תקינה: {body}"
+    },
+    "extension_ambiguous": {
+      "message": "נמצאו {count} שלוחות סטרימינג בחשבון. יש להגדיר את מזהה השלוחה בשדה \"שלוחת הסטרימינג להתראות\"."
+    },
+    "missing_yemot_token": {
+      "message": "חסר טוקן הניהול של ימות. יש להזין אותו בהגדרות האינטגרציה."
+    },
+    "provider_http_error": {
+      "message": "הספק החזיר HTTP {status}: {body}"
+    },
+    "no_call_placed": {
+      "message": "הספק קיבל את הבקשה אך לא יצאה אף שיחה. שגיאות: {errors}"
+    }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "title": "ספק הטלפוניה",
+        "description": "לאיזה ספק הרשומה הזו?",
+        "data": {
+          "provider": "ספק",
+          "intro": "משפט פתיחה בכניסה לתפריט",
+          "provider_ips": "טווחי IP של טכנוליין",
+          "allowed_phones": "מספרי טלפון מורשים",
+          "technoline_api_key": "מפתח API של טכנוליין",
+          "technoline_campaign_base": "כתובת בסיס לקמפיינים",
+          "technoline_files_base": "כתובת בסיס לניהול שלוחות",
+          "technoline_announce_extension": "שלוחת הסטרימינג להתראות",
+          "technoline_announce_hours": "לא להתקשר בלילה",
+          "yemot_token": "טוקן ניהול של ימות"
+        },
+        "data_description": {
+          "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
+          "allowed_phones": "מופרדים בפסיקים. ריק מתיר לכל מתקשר.",
+          "technoline_api_key": "נדרש להתראה קולית. בנוסף יש לבקש מהצוות הטכני שלהם לאשר את כתובת ה-IP היוצאת של השרת.",
+          "technoline_announce_extension": "מזהה השלוחה שאליה מחוברת ההתראה. ריק = גילוי אוטומטי, אם יש בחשבון שלוחת סטרימינג אחת בלבד.",
+          "technoline_announce_hours": "עצירה אוטומטית בין 23:00 ל-08:00. כבוי כברירת מחדל — התראת בית שנחסמת בלילה מפספסת בדיוק את מה שהיא נועדה לו.",
+          "yemot_token": "נדרש רק לשירות ההתראה הקולית. התפריט עצמו אינו זקוק לו."
+        }
+      },
+      "settings": {
+        "title": "הגדרות התפריט",
+        "data": {
+          "intro": "משפט פתיחה בכניסה לתפריט",
+          "provider_ips": "טווחי IP של הספק",
+          "allowed_phones": "מספרי טלפון מורשים",
+          "technoline_api_key": "מפתח API של טכנוליין",
+          "technoline_campaign_base": "כתובת בסיס לקמפיינים",
+          "technoline_files_base": "כתובת בסיס לניהול שלוחות",
+          "technoline_announce_extension": "שלוחת הסטרימינג להתראות",
+          "technoline_announce_hours": "לא להתקשר בלילה",
+          "yemot_token": "טוקן ניהול של ימות"
+        },
+        "data_description": {
+          "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
+          "allowed_phones": "מופרדים בפסיקים. ריק מתיר לכל מתקשר.",
+          "technoline_api_key": "נדרש להתראה קולית. בנוסף יש לבקש מהצוות הטכני שלהם לאשר את כתובת ה-IP היוצאת של השרת.",
+          "technoline_announce_extension": "מזהה השלוחה שאליה מחוברת ההתראה. ריק = גילוי אוטומטי, אם יש בחשבון שלוחת סטרימינג אחת בלבד.",
+          "technoline_announce_hours": "עצירה אוטומטית בין 23:00 ל-08:00. כבוי כברירת מחדל — התראת בית שנחסמת בלילה מפספסת בדיוק את מה שהיא נועדה לו.",
+          "yemot_token": "נדרש רק לשירות ההתראה הקולית. התפריט עצמו אינו זקוק לו."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "הספק הזה כבר מוגדר."
+    },
+    "error": {
+      "invalid_network": "טווח IP אינו תקין. יש להזין טווחים מופרדים בפסיקים."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "הגדרות IVR",
+        "menu_options": {
+          "menu_settings": "תפריט טלפוני",
+          "stream_settings": "עוזר קולי"
+        },
+        "description": "הכתובת להדבקה אצל הספק:\n`{api_url}`\n\n{stream_url}"
+      },
+      "menu_settings": {
+        "data": {
+          "intro": "משפט פתיחה בכניסה לתפריט",
+          "provider_ips": "טווחי IP של הספק",
+          "allowed_phones": "מספרי טלפון מורשים",
+          "technoline_api_key": "מפתח API של טכנוליין",
+          "technoline_campaign_base": "כתובת בסיס לקמפיינים",
+          "technoline_files_base": "כתובת בסיס לניהול שלוחות",
+          "technoline_announce_extension": "שלוחת הסטרימינג להתראות",
+          "technoline_announce_hours": "לא להתקשר בלילה",
+          "yemot_token": "טוקן ניהול של ימות"
+        },
+        "data_description": {
+          "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
+          "allowed_phones": "מופרדים בפסיקים. ריק מתיר לכל מתקשר.",
+          "technoline_api_key": "נדרש להתראה קולית. בנוסף יש לבקש מהצוות הטכני שלהם לאשר את כתובת ה-IP היוצאת של השרת.",
+          "technoline_announce_extension": "מזהה השלוחה שאליה מחוברת ההתראה. ריק = גילוי אוטומטי, אם יש בחשבון שלוחת סטרימינג אחת בלבד.",
+          "technoline_announce_hours": "עצירה אוטומטית בין 23:00 ל-08:00. כבוי כברירת מחדל — התראת בית שנחסמת בלילה מפספסת בדיוק את מה שהיא נועדה לו.",
+          "yemot_token": "נדרש רק לשירות ההתראה הקולית. התפריט עצמו אינו זקוק לו."
+        },
+        "title": "תפריט טלפוני"
+      },
+      "stream_settings": {
+        "data": {
+          "stream_tones": "צלילי חיווי",
+          "stream_channel_token": "מזהה ערוץ",
+          "stream_exit": "ביטויי יציאה",
+          "stream_exit_keys": "מקשי יציאה",
+          "stream_return_path": "נתיב חזרה בסיום",
+          "stream_max_minutes": "אורך שיחה מרבי",
+          "stream_echo_tail": "השהיית הד",
+          "stream_rate": "קצב דגימה"
+        },
+        "data_description": {
+          "stream_exit": "מופרדים בפסיקים. הביטוי חייב להסתיים בגבול מילה, כדי ש\"ביי\" לא ייתפס בתוך \"בייבי\".",
+          "stream_exit_keys": "מקשים שסוגרים את העוזר. בטכנוליין טרם אומת שהמרכזייה מעבירה הקשות לערוץ הסטרימינג.",
+          "stream_return_path": "נתיב בעץ השלוחות, למשל / או /2. ולא מזהה שלוחה.",
+          "stream_tones": "צליל קצר לפני שהקלט נפתח, ואחד כשהתשובה בעיבוד. בלעדיהם המתקשר אינו יודע מתי לדבר.",
+          "stream_rate": "כתובת הסטרימינג אינה מוגדרת ב-Vonage — היא נשלחת בתוך ה-NCCO בזמן השיחה. ודא שה-Event URL אינו מצביע לאותה כתובת כמו ה-Answer URL, אחרת כל אירוע סטטוס יטופל כשיחה חדשה."
+        },
+        "title": "עוזר קולי"
+      }
+    },
+    "error": {
+      "invalid_network": "טווח IP אינו תקין."
+    }
+  },
+  "config_subentries": {
+    "menu_item": {
+      "title": "פריט תפריט",
+      "step": {
+        "user": {
+          "title": "פריט חדש",
+          "data": {
+            "entity_id": "מכשיר",
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא"
+          }
+        },
+        "reconfigure": {
+          "title": "עריכת פריט",
+          "data": {
+            "entity_id": "מכשיר",
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא"
+          }
+        },
+        "action": {
+          "title": "פעולה",
+          "description": "מה יקרה בהקשה על {entity}",
+          "data": {
+            "action": "פעולה",
+            "confirm_risky": "אישור לפעולה רגישה"
+          }
+        },
+        "params": {
+          "title": "ערכי הפעולה",
+          "description": "{action}"
+        }
+      },
+      "error": {
+        "invalid_path": "מיקום לא תקין.",
+        "path_in_use": "המיקום תפוס.",
+        "parent_is_item": "אחד ההורים הוא פריט ולא תת-תפריט.",
+        "confirm_required": "פעולה רגישה דורשת אישור."
+      },
+      "initiate_flow": {
+        "user": "הוספת פריט"
+      },
+      "entry_type": "פריט"
+    },
+    "submenu": {
+      "title": "תת-תפריט",
+      "step": {
+        "user": {
+          "title": "תת-תפריט חדש",
+          "data": {
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא",
+            "intro": "משפט פתיחה"
+          }
+        },
+        "reconfigure": {
+          "title": "עריכת תת-תפריט",
+          "data": {
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא",
+            "intro": "משפט פתיחה"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "מיקום לא תקין.",
+        "path_in_use": "המיקום תפוס.",
+        "parent_is_item": "אחד ההורים הוא פריט ולא תת-תפריט."
+      },
+      "initiate_flow": {
+        "user": "הוספת תת-תפריט"
+      },
+      "entry_type": "תת-תפריט"
+    },
+    "goto": {
+      "title": "מעבר לשלוחה",
+      "step": {
+        "user": {
+          "title": "מעבר חדש",
+          "data": {
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא",
+            "goto_target": "יעד"
+          },
+          "description": "היעד: {hint}"
+        },
+        "reconfigure": {
+          "title": "עריכת מעבר",
+          "data": {
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא",
+            "goto_target": "יעד"
+          },
+          "description": "היעד: {hint}"
+        }
+      },
+      "error": {
+        "invalid_path": "מיקום לא תקין.",
+        "path_in_use": "המיקום תפוס.",
+        "parent_is_item": "אחד ההורים הוא פריט ולא תת-תפריט.",
+        "target_required": "חובה להזין יעד."
+      },
+      "initiate_flow": {
+        "user": "הוספת מעבר"
+      },
+      "entry_type": "מעבר"
+    },
+    "contact": {
+      "title": "נמען התראה",
+      "step": {
+        "user": {
+          "title": "הוספת נמען",
+          "data": {
+            "label": "שם",
+            "phone": "מספר טלפון"
+          },
+          "data_description": {
+            "label": "השם יהפוך לשם של ישות ה-notify, וזה מה שתבחר באוטומציה.",
+            "phone": "המספר שאליו מחייגים כששולחים הודעה לנמען הזה."
+          }
+        },
+        "reconfigure": {
+          "title": "עריכת נמען",
+          "data": {
+            "label": "שם",
+            "phone": "מספר טלפון"
+          },
+          "data_description": {
+            "label": "השם יהפוך לשם של ישות ה-notify, וזה מה שתבחר באוטומציה.",
+            "phone": "המספר שאליו מחייגים כששולחים הודעה לנמען הזה."
+          }
+        }
+      },
+      "error": {
+        "name_required": "חובה להזין שם.",
+        "invalid_phone": "המספר אינו תקין."
+      },
+      "initiate_flow": {
+        "user": "הוספת נמען",
+        "reconfigure": "עריכת נמען"
+      },
+      "entry_type": "נמען"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_call": {
+        "name": "שיחה אחרונה"
+      },
+      "call_count": {
+        "name": "מספר בחירות"
+      }
+    },
+    "select": {
+      "pipeline": {
+        "name": "צינור העוזר",
+        "state": {
+          "preferred": "ברירת המחדל של HA"
+        }
+      },
+      "vad_sensitivity": {
+        "name": "רגישות לסוף דיבור",
+        "state": {
+          "aggressive": "תוקפני",
+          "default": "רגיל",
+          "relaxed": "רגוע"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_call": {
+      "name": "התראה קולית",
+      "description": "מחייג לנמענים ומשמיע להם הודעה. ההקראה נוצרת ב-Home Assistant בקול של הצינור שבחרת. השתמשו בשירות הזה כשהנמענים משתנים מהתראה להתראה; להתראה לרשימה קבועה אפשר גם assist_satellite.announce, שאין בו שדה נמענים והוא שולח תמיד למספרים שבהגדרות.",
+      "fields": {
+        "message": {
+          "name": "טקסט להקראה",
+          "description": "מה שיוקרא בשיחה."
+        },
+        "phones": {
+          "name": "מספרי טלפון",
+          "description": "מספר יחיד או כמה מספרים מופרדים בפסיקים. כל נמען מקבל שיחה נפרדת. ריק — נשלח למספרים שבהגדרות האינטגרציה."
+        },
+        "config_entry_id": {
+          "name": "ספק",
+          "description": "דרך איזו רשומה תצא השיחה."
+        },
+        "caller_id": {
+          "name": "מספר מציג",
+          "description": "מספר שאושר מראש אצל ימות. ריק = מספר המערכת."
+        }
+      }
+    }
+  }
+}

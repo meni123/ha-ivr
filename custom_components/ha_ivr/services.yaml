@@ -1,0 +1,18 @@
+send_call:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ha_ivr
+    message:
+      required: true
+      example: "The front door was opened"
+      selector:
+        text:
+          multiline: true
+    phones:
+      required: true
+      example: "0501234567,0521234567"
+      selector:
+        text:
