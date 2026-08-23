@@ -50,7 +50,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # brands נבדק מול home-assistant/brands, ואינו בשליטתנו:
-          # הוא יעבור רק אחרי שה-PR עם האייקונים יתמזג שם. עד אז
-          # הוא מסתיר את מה שכן בשליטתנו. להסיר את השורה כשיתמזג.
-          ignore: "brands"
