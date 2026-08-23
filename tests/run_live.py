@@ -283,17 +283,34 @@ ok("גרסת HA מוצהרת", "homeassistant" in _hacs)
 # מאגר ה-brands, שאיננו בו. לכן הנתיב נגזר מהחבילה.
 import struct as _struct  # noqa: E402
 
-for _f, _w, _h in (("icon.png", 256, 256), ("icon@2x.png", 512, 512),
-                   ("logo.png", 543, 256), ("logo@2x.png", 1085, 512)):
+_dims = {}
+for _f in ("icon.png", "icon@2x.png", "logo.png", "logo@2x.png"):
     _img = _core_dir / "brand" / _f
     if not _img.exists():
         ok(f"brand/{_f} קיים בחבילה", False)
         continue
     _raw = _img.read_bytes()
-    _gw, _gh = _struct.unpack(">II", _raw[16:24])
-    ok(f"brand/{_f} — {_gw}×{_gh}", (_gw, _gh) == (_w, _h))
+    _dims[_f] = _struct.unpack(">II", _raw[16:24])
     # רקע שקוף: סוג צבע 6 הוא RGBA, 4 הוא אפור+אלפא.
     ok(f"brand/{_f} עם שקיפות", _raw[25] in (4, 6))
+
+# **האייקון ריבועי ובמידה קבועה; הלוגו נקבע בגובה בלבד.**
+# רוחב הלוגו נגזר מיחס הצורה, ולכן קיבוע שלו פוסל כל עיצוב חדש
+# שאינו באותן פרופורציות — וזה בדיוק מה שקרה בהחלפת הלוגו.
+for _f, _side in (("icon.png", 256), ("icon@2x.png", 512)):
+    if _f in _dims:
+        ok(f"brand/{_f} — {_dims[_f][0]}×{_dims[_f][1]}, ריבוע {_side}",
+           _dims[_f] == (_side, _side))
+for _f, _hh in (("logo.png", 256), ("logo@2x.png", 512)):
+    if _f in _dims:
+        _gw, _gh = _dims[_f]
+        ok(f"brand/{_f} — גובה {_gh}, לרוחב", _gh == _hh and _gw > _gh)
+# **@2x חייב להיות הכפלה מדויקת**, אחרת האייקון קופץ בגודל בין
+# מסך רגיל למסך רטינה.
+for _a, _b in (("icon.png", "icon@2x.png"), ("logo.png", "logo@2x.png")):
+    if _a in _dims and _b in _dims:
+        ok(f"{_b} הוא בדיוק פי 2 מ-{_a}",
+           _dims[_b] == (_dims[_a][0] * 2, _dims[_a][1] * 2))
 ok("אין brand בשורש הריפו", not (ROOT / "brand").exists())
 
 ok("LICENSE קיים ואינו ריק",
