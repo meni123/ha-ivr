@@ -198,6 +198,9 @@ class IvrOptionsFlow(OptionsFlow):
         menu = ["menu_settings"]
         if getattr(driver, "SUPPORTS_STREAM", False):
             menu.append("stream_settings")
+        # החלפת הטוקן זמינה לכל ספק: הוא הסוד שמגן על נקודת הקצה,
+        # וטוקן שדלף מחליפים.
+        menu.append("regenerate_token")
         # הכתובות מוצגות במסך הראשון: זה המקום היחיד בממשק
         # שמראה את הטוקן, ומשם מעתיקים אותו להגדרה אצל הספק.
         return self.async_show_menu(
@@ -206,6 +209,29 @@ class IvrOptionsFlow(OptionsFlow):
             description_placeholders=endpoint_urls(
                 self.hass, self.config_entry, driver
             ),
+        )
+
+    async def async_step_regenerate_token(
+        self, user_input=None
+    ) -> ConfigFlowResult:
+        """יצירת טוקן חדש לנקודת הקצה, למקרה שהישן דלף.
+
+        הטוקן מגן על נקודת הקצה — מי שמחזיק בו יכול להריץ את
+        התפריט. אחרי החלפה יש לעדכן את הכתובת החדשה אצל הספק,
+        אחרת השיחות ייעצרו: הטוקן הישן מפסיק לעבוד מיד.
+        """
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    "token": secrets.token_urlsafe(24),
+                },
+            )
+            return self.async_abort(reason="token_regenerated")
+
+        return self.async_show_form(
+            step_id="regenerate_token", data_schema=vol.Schema({})
         )
 
     async def async_step_menu_settings(self, user_input=None) -> ConfigFlowResult:

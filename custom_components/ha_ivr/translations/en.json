@@ -130,14 +130,22 @@
     }
   },
   "options": {
+    "abort": {
+      "token_regenerated": "The token was replaced. Copy the new URL from the main screen and update it at your provider — the old token no longer works."
+    },
     "step": {
       "init": {
         "title": "IVR settings",
         "menu_options": {
           "menu_settings": "Phone menu",
-          "stream_settings": "Voice assistant"
+          "stream_settings": "Voice assistant",
+          "regenerate_token": "Regenerate token"
         },
         "description": "Paste this URL at your provider:\n`{api_url}`\n\n{stream_url}"
+      },
+      "regenerate_token": {
+        "title": "Regenerate token",
+        "description": "Generate a new token for the endpoint. The old token stops working immediately — copy the new URL from the main screen and update it at your provider. Submitting replaces the token."
       },
       "menu_settings": {
         "data": {

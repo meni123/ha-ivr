@@ -130,14 +130,22 @@
     }
   },
   "options": {
+    "abort": {
+      "token_regenerated": "הטוקן הוחלף. העתיקו את הכתובת החדשה מהמסך הראשי ועדכנו אותה אצל הספק — הטוקן הישן כבר אינו עובד."
+    },
     "step": {
       "init": {
         "title": "הגדרות IVR",
         "menu_options": {
           "menu_settings": "תפריט טלפוני",
-          "stream_settings": "עוזר קולי"
+          "stream_settings": "עוזר קולי",
+          "regenerate_token": "החלפת טוקן"
         },
         "description": "הכתובת להדבקה אצל הספק:\n`{api_url}`\n\n{stream_url}"
+      },
+      "regenerate_token": {
+        "title": "החלפת טוקן",
+        "description": "יצירת טוקן חדש לנקודת הקצה. הטוקן הישן יפסיק לעבוד מיד, ויש להעתיק את הכתובת החדשה מהמסך הראשי ולעדכן אותה אצל הספק. ללחיצה על שלח הטוקן יוחלף."
       },
       "menu_settings": {
         "data": {
