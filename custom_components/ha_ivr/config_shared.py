@@ -38,6 +38,7 @@ from .action_fields import (
     build_label_map,
 )
 from .const import (
+    CONF_CHANNEL,
     CONF_STREAM_RATE,
     CONF_PHONE,
     CONF_ACTION,
@@ -693,6 +694,8 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                 errors[CONF_PHONE] = "invalid_phone"
             else:
                 data = {CONF_LABEL: name, CONF_PHONE: phone}
+                if CONF_CHANNEL in user_input:
+                    data[CONF_CHANNEL] = str(user_input[CONF_CHANNEL])
                 if self._editing_subentry_id():
                     return self.async_update_and_abort(
                         self._get_entry(),
@@ -703,25 +706,72 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                 return self.async_create_entry(title=name, data=data)
 
         current = user_input or current
+        fields = {
+            vol.Required(
+                CONF_LABEL,
+                description={
+                    "suggested_value": str(current.get(CONF_LABEL, "") or "")
+                },
+            ): str,
+            vol.Required(
+                CONF_PHONE,
+                description={
+                    "suggested_value": str(current.get(CONF_PHONE, "") or "")
+                },
+            ): str,
+        }
+        # בורר הערוץ מופיע רק לספק שמצהיר יותר מדרך אחת. ספק בלי
+        # `NOTIFY_CHANNELS` — טכנוליין — שולח בקול בלבד, ואין מה
+        # לבחור.
+        if len(self._notify_channels()) > 1:
+            fields[
+                vol.Required(
+                    CONF_CHANNEL,
+                    default=str(current.get(CONF_CHANNEL, "voice") or "voice"),
+                )
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=list(self._notify_channels()),
+                    mode=SelectSelectorMode.LIST,
+                    translation_key="notify_channel",
+                    sort=False,
+                )
+            )
         return self.async_show_form(
-            step_id=step_id,
-            errors=errors,
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_LABEL,
-                        description={
-                            "suggested_value": str(current.get(CONF_LABEL, "") or "")
-                        },
-                    ): str,
-                    vol.Required(
-                        CONF_PHONE,
-                        description={
-                            "suggested_value": str(current.get(CONF_PHONE, "") or "")
-                        },
-                    ): str,
-                }
-            ),
+            step_id=step_id, errors=errors, data_schema=vol.Schema(fields)
+        )
+
+    def _notify_channels(self) -> tuple[str, ...]:
+        """מזהי הערוצים של הדרייבר, או `("voice",)` אם אין."""
+        from . import registry  # noqa: PLC0415
+
+        try:
+            driver = registry.for_entry(self._get_entry())
+        except Exception:  # noqa: BLE001 — הטופס חשוב יותר מהבורר
+            return ("voice",)
+        return tuple(getattr(driver, "NOTIFY_CHANNELS", ("voice",)))
+
+
+class AlertsFlowHandler(_PathMixin, ConfigSubentryFlow):
+    """שלוחה שמקריאה את ההתראות האחרונות שנשלחו.
+
+    אין כאן מכשיר ואין פעולה — צומת שמקריא את יומן ההתראות.
+    השדה `intro` הוא הפרומפט שנאמר לפני הרשימה.
+    """
+
+    async def async_step_user(self, user_input=None) -> SubentryFlowResult:
+        return await self._step("user", user_input, {})
+
+    async def async_step_reconfigure(self, user_input=None) -> SubentryFlowResult:
+        return await self._step(
+            "reconfigure", user_input, dict(self._get_reconfigure_subentry().data)
+        )
+
+    async def _step(self, step_id, user_input, current) -> SubentryFlowResult:
+        return await self._simple_step(
+            step_id, user_input, current,
+            field=CONF_INTRO,
+            title_default="התראות אחרונות",
         )
 
 

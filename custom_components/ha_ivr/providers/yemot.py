@@ -202,20 +202,115 @@ def respond(action: Action, cfg: dict | None = None):
     return web.Response(text=text, content_type="text/plain", charset="utf-8")
 
 
-async def async_notify(hass, entry, message: str, phones: list[str]) -> None:
-    """התראה לנמען, דרך ה-API של ימות.
+# הערוצים שימות יודעת להוציא בהם התראה. שיחה קולית עולה יחידה;
+# SMS וצינתוק עולים עשירית יחידה — נמדד ואומת מול המחירון.
+NOTIFY_CHANNELS = ("voice", "sms", "tzintuk")
+
+
+async def async_notify(
+    hass, entry, message: str, phones: list[str], channel: str = "voice"
+) -> None:
+    """התראה לנמען, דרך ה-API של ימות, בערוץ שנבחר לנמען.
 
     לא דרך הלוויין: אין ערוץ סטרימינג ולכן אין לאן להזרים הקראה.
-    הטקסט נשלח אליהם והם מקריאים אותו.
+    שיחה קולית מקריאה את הטקסט; SMS שולח אותו כטקסט; צינתוק מצלצל
+    בלי תוכן, כתמריץ להתקשר פנימה ולשמוע.
     """
-    await async_send_call(
-        hass, dict(entry.options), {"message": message, "phones": ",".join(phones)}
-    )
+    options = dict(entry.options)
+    joined = ",".join(phones)
+    if channel == "sms":
+        await async_send_sms(hass, options, {"message": message, "phones": joined})
+    elif channel == "tzintuk":
+        await async_send_tzintuk(hass, options, {"phones": joined})
+    else:
+        await async_send_call(hass, options, {"message": message, "phones": joined})
 
 
 # ---- שיחות יוצאות ----
 
 SEND_TTS_URL = "https://www.call2all.co.il/ym/api/SendTTS"
+SEND_SMS_URL = "https://www.call2all.co.il/ym/api/SendSms"
+TZINTUK_URL = "https://www.call2all.co.il/ym/api/RunTzintuk"
+
+
+async def _api_post(hass, url: str, payload: dict, token: str) -> str:
+    """POST לימות עם רישום ממוסך והמרת שגיאת HTTP.
+
+    מקום אחד לרישום שיוצא ולתשובה שחוזרת, כדי שכל ערוץ יופיע
+    ביומן ובהיסטוריה באותה צורה. הטוקן אינו נרשם.
+    """
+    from homeassistant.helpers.aiohttp_client import (  # noqa: PLC0415
+        async_get_clientsession,
+    )
+
+    masked = {**payload, "token": f"***{token[-4:]}" if token else "(empty)"}
+    _LOGGER.debug("Yemot <- %s | %s", url, masked)
+    history.record("yemot.request", url=url, payload=masked)
+    session = async_get_clientsession(hass)
+    async with session.post(url, data=payload) as resp:
+        text = await resp.text()
+        _LOGGER.info("Yemot -> HTTP %s: %s", resp.status, text[:400])
+        history.record("yemot.response", status=resp.status, body=text[:400])
+        if resp.status != 200:
+            raise OutboundError(
+                f"the provider returned HTTP {resp.status}",
+                key="provider_http_error",
+                placeholders={"status": str(resp.status), "body": text[:120]},
+            )
+    return text
+
+
+def _require(options: dict, phones_in: str) -> tuple[str, str]:
+    """הטוקן והמספרים המנוקים, או חריגה מתורגמת. משותף לכל ערוץ."""
+    token = str(options.get("yemot_token", "") or "").strip()
+    if not token:
+        raise OutboundError(
+            "Yemot management token is missing", key="missing_yemot_token"
+        )
+    phones = clean_phones(str(phones_in))
+    if not phones:
+        raise OutboundError("no valid phone numbers", key="no_valid_numbers")
+    return token, phones
+
+
+def _check_accepted_channel(text: str, phones: str, label: str) -> None:
+    """הצלחת SMS/צינתוק: `responseStatus == OK`, וכשל חלקי כאזהרה."""
+    import json  # noqa: PLC0415
+
+    try:
+        data = json.loads(text)
+    except ValueError:
+        _LOGGER.info("%s sent to %s", label, phones)
+        return
+    if data.get("responseStatus") != "OK":
+        raise OutboundError(
+            f"{label} was rejected by the provider",
+            key="outbound_rejected",
+            placeholders={"detail": str(data.get("message") or text[:120])},
+        )
+    if errors := (data.get("errors") or {}):
+        _LOGGER.warning("Yemot %s: some recipients failed: %s", label, errors)
+    _LOGGER.info("Yemot %s accepted for %s", label, phones)
+
+
+async def async_send_sms(hass, options: dict, data: dict) -> None:
+    """שליחת SMS — עשירית יחידה. הטקסט הוא ההתראה עצמה."""
+    token, phones = _require(options, data["phones"])
+    text = await _api_post(
+        hass, SEND_SMS_URL,
+        {"token": token, "phones": phones, "message": str(data["message"])},
+        token,
+    )
+    _check_accepted_channel(text, phones, "SMS")
+
+
+async def async_send_tzintuk(hass, options: dict, data: dict) -> None:
+    """צינתוק — צלצול-ניתוק, עשירית יחידה, בלי תוכן."""
+    token, phones = _require(options, data["phones"])
+    text = await _api_post(
+        hass, TZINTUK_URL, {"token": token, "phones": phones}, token
+    )
+    _check_accepted_channel(text, phones, "tzintuk")
 
 async def async_send_call(hass, options: dict, data: dict) -> None:
     """חיוג והקראת טקסט."""

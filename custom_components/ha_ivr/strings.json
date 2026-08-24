@@ -68,6 +68,9 @@
     },
     "no_call_placed": {
       "message": "The provider accepted the request but placed no call. Errors: {errors}"
+    },
+    "outbound_rejected": {
+      "message": "The provider rejected the request: {detail}"
     }
   },
   "config": {
@@ -297,7 +300,8 @@
           "title": "Add recipient",
           "data": {
             "label": "Name",
-            "phone": "Phone number"
+            "phone": "Phone number",
+            "channel": "Alert channel"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
@@ -308,7 +312,8 @@
           "title": "Edit recipient",
           "data": {
             "label": "Name",
-            "phone": "Phone number"
+            "phone": "Phone number",
+            "channel": "Alert channel"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
@@ -325,6 +330,36 @@
         "reconfigure": "Edit recipient"
       },
       "entry_type": "Recipient"
+    },
+    "alerts": {
+      "title": "Recent alerts",
+      "step": {
+        "user": {
+          "title": "New alerts extension",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "intro": "Intro sentence"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit alerts extension",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "intro": "Intro sentence"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "Position is taken.",
+        "parent_is_item": "A parent is an item, not a submenu."
+      },
+      "initiate_flow": {
+        "user": "Add alerts extension"
+      },
+      "entry_type": "Alerts extension"
     }
   },
   "entity": {
@@ -374,6 +409,15 @@
           "name": "Caller ID",
           "description": "A number pre-approved at Yemot. Empty uses the system number."
         }
+      }
+    }
+  },
+  "selector": {
+    "notify_channel": {
+      "options": {
+        "voice": "Voice call",
+        "sms": "SMS",
+        "tzintuk": "Tzintuk (ring)"
       }
     }
   }

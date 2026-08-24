@@ -155,7 +155,6 @@ https://<הכתובת שלכם>/api/ha_ivr/<ספק>/<הטוקן>
 type=api
 api_link=https://<הכתובת שלכם>/api/ha_ivr/yemot/<הטוקן>
 api_url_post=yes
-api_wait_answer_music_on_hold=yes
 api_end_goto=hangup
 ```
 
@@ -165,7 +164,6 @@ api_end_goto=hangup
 |---|---|
 | `api_link` | הכתובת מהמסך. **הטוקן הוא חלק מהנתיב** |
 | `api_url_post` | הפרמטרים מגיעים בגוף הבקשה |
-| `api_wait_answer_music_on_hold` | בלעדיו המתקשר שומע שקט מוחלט בזמן שהפעולה מתבצעת, וחושב שהקו נפל |
 | `api_end_goto` | מכסה מקרה שבו התשובה אינה מציינת לאן להמשיך. ברירת המחדל של ימות היא לחזור שלב אחורה |
 
 #### טכנוליין

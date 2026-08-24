@@ -651,7 +651,11 @@ for _f in sorted((ROOT / "custom_components").rglob("*.py")):
                 and getattr(_n.func, "id", "") == "_error" and _n.args
                 and isinstance(_n.args[0], _ast.Constant)):
             _used.add(_n.args[0].value)
-_missing = sorted(_used - set(_exc_en))
+# `translation_key` יכול להצביע גם לבורר (`selector`), לא רק
+# לשגיאה. שני המאגרים לגיטימיים.
+_sel_keys = _js2.loads((_core / "strings.json").read_text("utf-8")).get("selector", {})
+_valid_keys = set(_exc_en) | set(_sel_keys)
+_missing = sorted(_used - _valid_keys)
 ok("כל מפתח שבקוד קיים במחרוזות", not _missing)
 for _m in _missing:
     print("      חסר:", _m)

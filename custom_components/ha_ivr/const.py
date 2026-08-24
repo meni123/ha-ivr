@@ -16,14 +16,23 @@ SATELLITES: Final = "ha_ivr_satellites"
 # התראה ששוגרה וממתינה לשיחה שתחזור. ראו `announce.py`.
 PENDING_ANNOUNCE: Final = "ha_ivr_pending_announce"
 
+# יומן ההתראות האחרונות שנשלחו, להקראה בשלוחת "התראות אחרונות".
+# בזיכרון בלבד — התראות הן זמניות, ואיבודן בהפעלה מחדש סביר.
+ALERT_LOG: Final = "ha_ivr_alert_log"
+
 SUBENTRY_TYPE_ITEM: Final = "menu_item"
 SUBENTRY_TYPE_SUBMENU: Final = "submenu"
 SUBENTRY_TYPE_GOTO: Final = "goto"
+# שלוחה שמקריאה את ההתראות האחרונות שנשלחו. ראו `announce.log_alert`.
+SUBENTRY_TYPE_ALERTS: Final = "alerts"
 
 # נמען להתראה קולית. תת-רשומה ולא שדה, כדי שכל נמען יהיה ישות
 # `notify` משלו ויהיה בר-בחירה בממשק, בקבוצות התראה ובבלופרינטים.
 SUBENTRY_TYPE_CONTACT: Final = "contact"
 CONF_PHONE: Final = "phone"
+# ערוץ ההתראה לנמען: שיחה קולית, SMS או צינתוק. נגזר מהיכולת
+# `NOTIFY_CHANNELS` של הדרייבר; ספק בלי היכולת שולח בקול בלבד.
+CONF_CHANNEL: Final = "channel"
 
 CONF_TARGET_ENTITY: Final = "entity_id"
 CONF_ACTION: Final = "action"

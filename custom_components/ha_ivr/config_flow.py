@@ -34,6 +34,7 @@ from homeassistant.helpers.selector import (
 from . import registry
 from .providers import ensure_registered
 from .config_shared import (
+    AlertsFlowHandler,
     ContactFlowHandler,
     GoToFlowHandler,
     MenuItemFlowHandler,
@@ -47,6 +48,7 @@ from .config_shared import (
 from .const import (
     CONF_INTRO,
     DOMAIN,
+    SUBENTRY_TYPE_ALERTS,
     SUBENTRY_TYPE_CONTACT,
     SUBENTRY_TYPE_GOTO,
     SUBENTRY_TYPE_ITEM,
@@ -181,6 +183,9 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
         driver = registry.for_entry(config_entry)
         if driver is not None and getattr(driver, "async_notify", None):
             types[SUBENTRY_TYPE_CONTACT] = ContactFlowHandler
+            # שלוחת ההתראות מקריאה מה שנשלח, ולכן היא רלוונטית רק
+            # למי שיודע לשלוח התראות.
+            types[SUBENTRY_TYPE_ALERTS] = AlertsFlowHandler
         return types
 
 

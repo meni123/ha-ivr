@@ -31,6 +31,7 @@ from .const import (
     SUBENTRY_TYPE_ITEM,
     SUBENTRY_TYPE_SUBMENU,
     SUBENTRY_TYPE_GOTO,
+    SUBENTRY_TYPE_ALERTS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ def _prune(node: dict) -> bool:
     return (
         bool(node.get("entity"))
         or bool(node.get("goto"))
+        or bool(node.get("alerts"))
         or bool(node.get("items"))
     )
 
@@ -135,6 +137,20 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
         node = _dig(root, path.split("/"))
         node["say"] = str(data.get(CONF_LABEL, "") or "מעבר")
         node["goto"] = str(data.get(CONF_GOTO_TARGET, ""))
+
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_ALERTS:
+            continue
+        data = subentry.data
+        path = normalize_path(data.get(CONF_MENU_PATH))
+        if not path or path in taken:
+            continue
+        taken.add(path)
+        node = _dig(root, path.split("/"))
+        node["say"] = str(data.get(CONF_LABEL, "") or "התראות אחרונות")
+        node["alerts"] = True
+        if intro := str(data.get(CONF_INTRO, "") or ""):
+            node["intro"] = intro
 
     _apply_spoken_names(hass, root)
     _prune(root)
@@ -249,6 +265,7 @@ def used_paths(entry: ConfigEntry, exclude: str = "") -> set[str]:
             SUBENTRY_TYPE_ITEM,
             SUBENTRY_TYPE_SUBMENU,
             SUBENTRY_TYPE_GOTO,
+    SUBENTRY_TYPE_ALERTS,
         ):
             continue
         if subentry.subentry_id == exclude:

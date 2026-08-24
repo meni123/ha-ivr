@@ -223,13 +223,26 @@ class IvrView(HomeAssistantView):
 
         path, node = moved
         if node.is_menu:
-            return _reply(
-                drv,
-                tree_mod.prompt_for(
-                    node, path, ctx.step, supports_goto=supports
-                ),
-                cfg,
+            prompt = tree_mod.prompt_for(
+                node, path, ctx.step, supports_goto=supports
             )
+            # בכניסה לשורש, אם למתקשר יש התראות שטרם שמע — הכרזה
+            # לפני התפריט. כך צינתוק זול הופך לזרימה שלמה: פינג
+            # יוצא, המתקשר חוזר, ומיד יודע שממתינה לו התראה.
+            # רק בשורש ורק פעם אחת (`mark_heard` בשלוחת ההקראה).
+            if not path:
+                from . import announce as announce_store  # noqa: PLC0415
+
+                pending = announce_store.unheard_count(
+                    self.hass, entry.entry_id, ctx.caller
+                )
+                if pending:
+                    word = "התראה חדשה" if pending == 1 else f"{pending} התראות חדשות"
+                    prompt = replace(
+                        prompt,
+                        messages=[Say("text", f"יש לך {word}"), *prompt.messages],
+                    )
+            return _reply(drv, prompt, cfg)
 
         if node.is_goto:
             goto = GoTo(target=node.goto, messages=[Say("text", "מעביר אותך")])
@@ -251,8 +264,13 @@ class IvrView(HomeAssistantView):
         # אליה עצמה
         # שוב ושוב. בטכנוליין המקבילה הייתה ניתוק אחרי כל פעולה.
         # תשובה אחת בלי ניווט פותרת את שתיהן, וגם חוסכת סיבוב שרת.
-        self._report_call(entry, driver_id, path, node)
-        result = await self._run_leaf(node)
+        if node.alerts:
+            # שלוחת "התראות אחרונות": מקריאה את היומן במקום להריץ
+            # פעולה. מסוננת לפי מספר המתקשר — כל אחד שומע את שלו.
+            result = self._say_alerts(entry, node, ctx.caller)
+        else:
+            self._report_call(entry, driver_id, path, node)
+            result = await self._run_leaf(node)
 
         parent_path = path[:-1]
         parent = tree_mod.resolve(root, parent_path) or root
@@ -262,6 +280,27 @@ class IvrView(HomeAssistantView):
         return _reply(
             drv, replace(prompt, messages=[*result, *prompt.messages]), cfg
         )
+
+    def _say_alerts(self, entry, node, caller: str) -> list[Say]:
+        """ההתראות של המתקשר, מהחדשה לישנה.
+
+        מסוננות לפי מספרו: התראה מיועדת לאדם מסוים, ולכן מי
+        שמתקשר שומע את שלו בלבד ולא של אחר. גם צינתוק — שאין בו
+        תוכן בשיחה עצמה — מותיר כאן את הטקסט, ולכן שלוחה זו הופכת
+        צינתוק זול (עשירית יחידה) למערכת התראות מלאה.
+        """
+        from . import announce as announce_store  # noqa: PLC0415
+
+        items = announce_store.recent_alerts(self.hass, entry.entry_id, caller)
+        if not items:
+            return [Say("text", "אין התראות חדשות עבורך")]
+        prompt = (node.intro or "").strip() or "ההתראות שלך"
+        says = [Say("text", prompt)]
+        for alert in items:
+            says.append(Say("text", str(alert.text)))
+        # הושמעו — לא יוכרזו שוב בכניסה הבאה לתפריט.
+        announce_store.mark_heard(self.hass, entry.entry_id, caller)
+        return says
 
     # ------------------------------------------------------------------
 

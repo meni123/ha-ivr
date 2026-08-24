@@ -28,7 +28,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import registry
-from .const import CONF_PHONE, SUBENTRY_TYPE_CONTACT
+from .const import CONF_CHANNEL, CONF_PHONE, SUBENTRY_TYPE_CONTACT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +43,9 @@ class IvrNotify(NotifyEntity):
         self._entry = entry
         self._subentry = subentry
         self._phone = str(dict(subentry.data).get(CONF_PHONE, ""))
+        # ברירת המחדל היא שיחה קולית — נמען ותיק שנשמר לפני שהיה
+        # ערוץ אינו משנה התנהגות.
+        self._channel = str(dict(subentry.data).get(CONF_CHANNEL, "voice"))
         self._attr_unique_id = f"{entry.entry_id}_{subentry.subentry_id}_notify"
         # הישות היא המכשיר. עם `has_entity_name` שם הישות נדבק
         # לשם המכשיר, ושניהם זהים היו מייצרים מזהה כפול.
@@ -69,8 +72,16 @@ class IvrNotify(NotifyEntity):
                 translation_key="contact_no_phone",
                 translation_placeholders={"name": str(self._subentry.title)},
             )
+        from . import announce as announce_store  # noqa: PLC0415
+
+        # רישום לפני השיגור: גם אם השליחה תיכשל, המתקשר שיחזור
+        # יראה שההתראה נשלחה — ובעיקר, בערוץ צינתוק אין תוכן
+        # בשיחה עצמה, והלוג הוא המקום היחיד ששומר מה קרה.
+        announce_store.log_alert(
+            self.hass, self._entry.entry_id, message, [self._phone]
+        )
         await _notifier(self._entry)(
-            self.hass, self._entry, message, [self._phone]
+            self.hass, self._entry, message, [self._phone], channel=self._channel
         )
 
 

@@ -44,6 +44,9 @@ class Node:
     goto: str = ""
     """שלוחת יעד אצל הספק. ריק = אינו צומת מעבר."""
 
+    alerts: bool = False
+    """צומת שמקריא את ההתראות האחרונות במקום להריץ פעולה."""
+
     confirmed: bool = False
     """האם פעולה רגישה אושרה במפורש בטופס. נבדק שוב בזמן ריצה."""
 
@@ -69,6 +72,7 @@ def build(config: dict) -> Node:
         action=config.get("action"),
         data=dict(config.get("data") or {}),
         goto=str(config.get("goto", "") or ""),
+        alerts=bool(config.get("alerts", False)),
         confirmed=bool(config.get("confirmed", False)),
     )
 

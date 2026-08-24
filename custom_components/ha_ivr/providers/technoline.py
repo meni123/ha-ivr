@@ -45,8 +45,13 @@ NEEDS_CHANNEL_TOKEN = True
 NEEDS_RETURN_PATH = True
 
 
-async def async_notify(hass, entry, message: str, phones: list[str]) -> None:
+async def async_notify(
+    hass, entry, message: str, phones: list[str], channel: str = "voice"
+) -> None:
     """התראה לנמען: ההקראה של HA בערוץ הסטרימינג.
+
+    `channel` מתקבל לאחידות עם שאר הדרייברים אך אינו בשימוש —
+    לטכנוליין ערוץ אחד, ההזרמה. ראו `yemot.NOTIFY_CHANNELS`.
 
     עוברת דרך הלוויין, ולכן היא זהה בכל דבר ל-`send_call` —
     ההבדל היחיד הוא שהנמען מגיע מישות ולא משדה.

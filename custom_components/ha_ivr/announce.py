@@ -30,7 +30,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from .const import PENDING_ANNOUNCE
+from .const import ALERT_LOG, PENDING_ANNOUNCE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +41,76 @@ DEFAULT_TTL = 90.0
 # כמה התראות יכולות להמתין יחד לרשומה. בלי תקרה, ספק שאינו
 # מחייג כלל יצבור התראה לכל אוטומציה שרצה.
 MAX_PENDING = 8
+
+# כמה התראות אחרונות נשמרות בלוג להקראה. תקרה נמוכה, כי שלוחת
+# ההקראה נועדה ל"מה קרה עכשיו" ולא לארכיון.
+MAX_LOG = 10
+
+
+@dataclass
+class LoggedAlert:
+    """התראה שנשלחה, עם מי שקיבל אותה ומי כבר שמע.
+
+    ההתראה מיועדת לאנשים מסוימים, ולכן היא נושאת את מספרי הנמענים
+    (מנורמלים ל-9 ספרות אחרונות). מי שמתקשר ומספרו כאן — זו
+    ההתראה שלו, ולא של אחר. `heard` מונע הכרזה חוזרת אחרי שהאזין.
+    """
+
+    at: float
+    text: str
+    keys: set[str]
+    heard: set[str] = field(default_factory=set)
+
+    def belongs_to(self, caller: str) -> bool:
+        k = _key(caller)
+        return bool(k) and k in self.keys
+
+
+def log_alert(hass, entry_id: str, message: str, phones=None) -> None:
+    """רישום התראה שנשלחה, להקראה מאוחרת לפי הנמען.
+
+    נקרא בכל שליחה, ללא תלות בערוץ: גם צינתוק בלי תוכן מותיר כאן
+    את הטקסט, כדי שהמתקשר שיחזור ישמע מה קרה. `phones` הם הנמענים
+    שאליהם נשלחה — ההתאמה בשיחה חוזרת נעשית מולם.
+    """
+    text = str(message or "").strip()
+    if not text:
+        return
+    keys = {_key(p) for p in (phones or []) if _key(p)}
+    log = hass.data.setdefault(ALERT_LOG, {}).setdefault(entry_id, [])
+    log.append(LoggedAlert(at=time.time(), text=text, keys=keys))
+    del log[:-MAX_LOG]  # שומר את האחרונות בלבד
+
+
+def recent_alerts(hass, entry_id: str, caller: str = "") -> list[LoggedAlert]:
+    """ההתראות האחרונות, מהחדשה לישנה.
+
+    עם `caller` — רק ההתראות שנשלחו למספר הזה, כדי שכל אחד ישמע
+    את שלו בלבד. בלי `caller` — הכול (למשל בשלוחה ללא זיהוי מספר).
+    """
+    log = (hass.data.get(ALERT_LOG) or {}).get(entry_id) or []
+    if caller:
+        log = [a for a in log if a.belongs_to(caller)]
+    return list(reversed(log))
+
+
+def unheard_count(hass, entry_id: str, caller: str) -> int:
+    """כמה מההתראות של המתקשר טרם הושמעו לו."""
+    k = _key(caller)
+    if not k:
+        return 0
+    log = (hass.data.get(ALERT_LOG) or {}).get(entry_id) or []
+    return sum(1 for a in log if k in a.keys and k not in a.heard)
+
+
+def mark_heard(hass, entry_id: str, caller: str) -> None:
+    """סימון שההתראות של המתקשר הושמעו — כדי שלא יוכרזו שוב."""
+    k = _key(caller)
+    if not k:
+        return
+    for a in (hass.data.get(ALERT_LOG) or {}).get(entry_id) or []:
+        if k in a.keys:
+            a.heard.add(k)
 
 
 def _key(phone: str) -> str:

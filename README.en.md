@@ -146,7 +146,6 @@ An `api` extension, containing:
 type=api
 api_link=https://<your-address>/api/ha_ivr/yemot/<token>
 api_url_post=yes
-api_wait_answer_music_on_hold=yes
 api_end_goto=hangup
 ```
 
@@ -154,7 +153,6 @@ api_end_goto=hangup
 |---|---|
 | `api_link` | The URL from the screen. **The token is part of the path** |
 | `api_url_post` | Parameters arrive in the request body |
-| `api_wait_answer_music_on_hold` | Without it the caller hears total silence while the action runs, and assumes the line dropped |
 | `api_end_goto` | Covers a response that does not say where to continue. Yemot's default is to go one level back |
 
 #### Technoline

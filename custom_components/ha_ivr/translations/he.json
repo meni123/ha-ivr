@@ -68,6 +68,9 @@
     },
     "no_call_placed": {
       "message": "הספק קיבל את הבקשה אך לא יצאה אף שיחה. שגיאות: {errors}"
+    },
+    "outbound_rejected": {
+      "message": "השליחה נדחתה על ידי הספק: {detail}"
     }
   },
   "config": {
@@ -297,7 +300,8 @@
           "title": "הוספת נמען",
           "data": {
             "label": "שם",
-            "phone": "מספר טלפון"
+            "phone": "מספר טלפון",
+            "channel": "ערוץ ההתראה"
           },
           "data_description": {
             "label": "השם יהפוך לשם של ישות ה-notify, וזה מה שתבחר באוטומציה.",
@@ -308,7 +312,8 @@
           "title": "עריכת נמען",
           "data": {
             "label": "שם",
-            "phone": "מספר טלפון"
+            "phone": "מספר טלפון",
+            "channel": "ערוץ ההתראה"
           },
           "data_description": {
             "label": "השם יהפוך לשם של ישות ה-notify, וזה מה שתבחר באוטומציה.",
@@ -325,6 +330,36 @@
         "reconfigure": "עריכת נמען"
       },
       "entry_type": "נמען"
+    },
+    "alerts": {
+      "title": "התראות אחרונות",
+      "step": {
+        "user": {
+          "title": "שלוחת התראות חדשה",
+          "data": {
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא",
+            "intro": "משפט פתיחה"
+          }
+        },
+        "reconfigure": {
+          "title": "עריכת שלוחת התראות",
+          "data": {
+            "menu_path": "מיקום בתפריט",
+            "label": "שם מוקרא",
+            "intro": "משפט פתיחה"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "מיקום לא תקין.",
+        "path_in_use": "המיקום תפוס.",
+        "parent_is_item": "אחד ההורים הוא פריט ולא תת-תפריט."
+      },
+      "initiate_flow": {
+        "user": "הוספת שלוחת התראות"
+      },
+      "entry_type": "שלוחת התראות"
     }
   },
   "entity": {
@@ -374,6 +409,15 @@
           "name": "מספר מציג",
           "description": "מספר שאושר מראש אצל ימות. ריק = מספר המערכת."
         }
+      }
+    }
+  },
+  "selector": {
+    "notify_channel": {
+      "options": {
+        "voice": "שיחה קולית",
+        "sms": "SMS",
+        "tzintuk": "צינתוק"
       }
     }
   }

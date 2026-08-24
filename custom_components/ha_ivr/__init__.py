@@ -244,6 +244,11 @@ if _HA:
                     translation_key="no_valid_numbers_in",
                     translation_placeholders={"input": raw},
                 )
+            from . import announce as announce_store  # noqa: PLC0415
+
+            announce_store.log_alert(
+                hass, entry.entry_id, str(call.data["message"]), phones
+            )
             try:
                 await lines[0].async_announce_message(
                     str(call.data["message"]), phones
