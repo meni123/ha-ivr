@@ -261,6 +261,40 @@ the provider: the outbound call only dials and connects the
 recipient to the streaming channel. That is also what works around
 their speech engine, which fails on some accounts.
 
+### Alert channels on Yemot — cheaper alerts
+
+An outbound voice call costs a **full unit** on Yemot. Each recipient
+card can therefore choose a cheaper channel:
+
+| Channel | Cost | What the recipient gets |
+|---|---|---|
+| **Voice call** | 1 unit | A call that reads the alert |
+| **SMS** | **0.1 unit** | A text message with the alert |
+| **Tzintuk** | **0.1 unit** | A short ring, no content |
+
+**SMS is ten times cheaper** and carries the same information — for a
+typical home alert that is two agorot instead of twenty. The figures
+were measured against Yemot's price list.
+
+### Tzintuk as a full alert system
+
+A tzintuk is ten times cheaper but carries no content. Combined with a
+**"recent alerts"** extension it becomes a full system that costs a
+tenth of a unit per alert:
+
+1. A sensor fires → a **tzintuk** goes to the recipient (0.1 unit)
+2. The recipient sees a missed call and dials **into** the system
+3. On entering the menu they hear *"you have a new alert"*
+4. They press the "recent alerts" extension and hear what happened
+
+The content is delivered on an **inbound** call, so the outbound charge
+is avoided. **Each caller hears only the alerts sent to them** — by
+their number, so two people's alerts never mix.
+
+The "recent alerts" extension is added from the `+` button on the
+integration card, just like a menu item. Every alert sent — on any
+channel — is logged and read back there.
+
 ---
 
 ## Security
