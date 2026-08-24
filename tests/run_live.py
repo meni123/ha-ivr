@@ -73,8 +73,10 @@ from custom_components.ha_ivr.model import (  # noqa: E402
 from custom_components.ha_ivr.providers import technoline  # noqa: E402
 from custom_components.ha_ivr.providers import vonage  # noqa: E402
 from custom_components.ha_ivr.providers import yemot  # noqa: E402
+from custom_components.ha_ivr.providers import pbx  # noqa: E402
 
-DRIVERS = (("yemot", yemot), ("technoline", technoline), ("vonage", vonage))
+DRIVERS = (("yemot", yemot), ("technoline", technoline), ("vonage", vonage),
+           ("pbx", pbx))
 
 print("\n== הגבול: הליבה אינה מייבאת אף ספק ==")
 # הגבול נמדד בייבוא ולא באזכור. הערה שמסבירה למה החלטה התקבלה
@@ -365,7 +367,7 @@ for _r, _needle in (("README.md", "הצהרת אחריות"), ("README.en.md", "
 
 print("\n== הטופס אינו מציע מה שאינו קיים ==")
 from custom_components.ha_ivr.providers import (  # noqa: E402
-    technoline as _tl, vonage as _vg, yemot as _ym,
+    pbx as _pbx, technoline as _tl, vonage as _vg, yemot as _ym,
 )
 # **"עוזר קולי" הוצע כתווית ברירת מחדל לכל ספק**, כולל לימות
 # שאין לו ערוץ סטרימינג כלל — כלומר הטופס הציע שם למשהו שאינו
@@ -376,7 +378,7 @@ ok("אין תווית ברירת מחדל למעבר",
 
 # **משמעות היעד שונה בין הספקים.** מזהה שלוחה אצל אחד, ולא
 # בשימוש כלל אצל אחר. תיאור קבוע היה נכון לאחד ושגוי לשאר.
-for _d5 in (_ym, _tl, _vg):
+for _d5 in (_ym, _tl, _vg, _pbx):
     ok(f"{_d5.DRIVER_ID}: יש רמז ליעד",
        bool(getattr(_d5, "GOTO_TARGET_HINT", "")))
 ok("הרמז מגיע מהדרייבר לטופס",
@@ -410,7 +412,7 @@ if _ci.exists():
 print("\n== מבחן הספק הרביעי ==")
 from custom_components.ha_ivr.diagnostics import _redact_keys  # noqa: E402
 from custom_components.ha_ivr.providers import (  # noqa: E402
-    technoline as _tl, vonage as _vg, yemot as _ym,
+    pbx as _pbx, technoline as _tl, vonage as _vg, yemot as _ym,
 )
 
 # **הדגלים על הדרייבר, לא שם הספק בטופס.** שלוש השוואות מחרוזת
@@ -447,7 +449,7 @@ import re as _re3  # noqa: E402
 import types  # noqa: E402
 from custom_components.ha_ivr import config_shared as _cs0  # noqa: E402
 from custom_components.ha_ivr.providers import (  # noqa: E402
-    technoline as _tl, vonage as _vg, yemot as _ym,
+    pbx as _pbx, technoline as _tl, vonage as _vg, yemot as _ym,
 )
 
 # **ערך מספרי מההגדרות עובר סיבוב דרך JSON.** אותו שדה חוזר
@@ -573,10 +575,10 @@ registry._DRIVERS.clear()
 ok("המרשם ריק לפני הרישום", not registry.registered())
 _provs.ensure_registered()
 ok("ensure_registered ממלא את המרשם",
-   set(registry.registered()) == {"technoline", "vonage", "yemot"})
+   set(registry.registered()) == {"pbx", "technoline", "vonage", "yemot"})
 _provs.ensure_registered()
 ok("קריאה חוזרת אינה מכפילה",
-   len(registry.registered()) == 3)
+   len(registry.registered()) == 4)
 
 _flow_src2 = (_core_dir / "config_flow.py").read_text("utf-8")
 _steps = [s for s in ("async_step_user", "async_step_settings",
@@ -988,14 +990,15 @@ for name, drv in DRIVERS:
 print("\n== מרשם הדרייברים ==")
 for _, drv in DRIVERS:
     registry.register(drv)
-ok("שלושתם רשומים", registry.registered() == ["technoline", "vonage", "yemot"])
+ok("ארבעתם רשומים",
+   registry.registered() == ["pbx", "technoline", "vonage", "yemot"])
 # המרשם עונה על מה שהיו רשימות קשיחות ב-const: מי קיים, למי יש
 # סטרימינג, ואיך קוראים לו.
 ok("שאילתת הסטרימינג על המרשם",
    {d.DRIVER_ID for d in registry.with_stream()} == {"technoline", "vonage"})
 ok("שאילתה על כל הדרייברים",
    {d.DRIVER_ID for d in registry.all_drivers()}
-   == {"technoline", "vonage", "yemot"})
+   == {"pbx", "technoline", "vonage", "yemot"})
 ok("שליפה לפי מזהה", registry.get("yemot") is yemot)
 ok("מזהה לא מוכר מחזיר None", registry.get("nope") is None)
 
@@ -1015,6 +1018,7 @@ print("\n== פענוח בקשות נכנסות, חתימה אחידה ==")
 check("yemot.parse", lambda: yemot.parse({"ApiCallId": "c", "s2_1": "7"}, {}))
 check("technoline.parse", lambda: technoline.parse({"PBXcallId": "c", "s2_1": "7"}, {}))
 check("vonage.parse", lambda: vonage.parse({"p": "s2_1"}, {"dtmf": {"digits": "7"}}))
+check("pbx.parse", lambda: pbx.parse({}, {"path": "1", "digit": "2", "step": "2"}))
 for name, drv in DRIVERS:
     ctx = drv.parse({}, {})
     ok(f"{name}: שיחה חדשה היא צעד 1", ctx.step == 1 and ctx.digit is None)
