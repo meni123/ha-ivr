@@ -1,5 +1,14 @@
 {
   "exceptions": {
+    "pbx_no_alert_url": {
+      "message": "The PBX alert service URL is not configured."
+    },
+    "pbx_no_trunk": {
+      "message": "No outbound trunk for alerts is configured on the PBX."
+    },
+    "pbx_alert_failed": {
+      "message": "The PBX alert service did not accept the call. Failed: {failed}."
+    },
     "tts_only": {
       "message": "Only an alert generated from text is supported. Ready media does not go through the pipeline, so there is nothing to build the playback from."
     },
@@ -88,7 +97,10 @@
           "technoline_files_base": "Extensions API base URL",
           "technoline_announce_extension": "Streaming extension for alerts",
           "technoline_announce_hours": "Do not call at night",
-          "yemot_token": "Yemot management token"
+          "yemot_token": "Yemot management token",
+          "pbx_alert_url": "PBX alert service URL",
+          "pbx_trunk": "Outbound trunk for alerts",
+          "pbx_alert_secret": "Alert service secret"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
@@ -110,7 +122,10 @@
           "technoline_files_base": "Extensions API base URL",
           "technoline_announce_extension": "Streaming extension for alerts",
           "technoline_announce_hours": "Do not call at night",
-          "yemot_token": "Yemot management token"
+          "yemot_token": "Yemot management token",
+          "pbx_alert_url": "PBX alert service URL",
+          "pbx_trunk": "Outbound trunk for alerts",
+          "pbx_alert_secret": "Alert service secret"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
@@ -157,7 +172,10 @@
           "technoline_files_base": "Extensions API base URL",
           "technoline_announce_extension": "Streaming extension for alerts",
           "technoline_announce_hours": "Do not call at night",
-          "yemot_token": "Yemot management token"
+          "yemot_token": "Yemot management token",
+          "pbx_alert_url": "PBX alert service URL",
+          "pbx_trunk": "Outbound trunk for alerts",
+          "pbx_alert_secret": "Alert service secret"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",

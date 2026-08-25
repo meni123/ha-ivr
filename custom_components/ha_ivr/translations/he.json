@@ -1,5 +1,14 @@
 {
   "exceptions": {
+    "pbx_no_alert_url": {
+      "message": "כתובת שירות ההתראות של המרכזייה לא הוגדרה."
+    },
+    "pbx_no_trunk": {
+      "message": "לא הוגדר טראנק יוצא להתראות במרכזייה."
+    },
+    "pbx_alert_failed": {
+      "message": "שירות ההתראות של המרכזייה לא קיבל את השיחה. נכשלו: {failed}."
+    },
     "tts_only": {
       "message": "רק התראה שנוצרה מטקסט נתמכת. מדיה מוכנה אינה עוברת דרך הצינור, ולכן אין ממה לייצר את ההשמעה."
     },
@@ -88,7 +97,10 @@
           "technoline_files_base": "כתובת בסיס לניהול שלוחות",
           "technoline_announce_extension": "שלוחת הסטרימינג להתראות",
           "technoline_announce_hours": "לא להתקשר בלילה",
-          "yemot_token": "טוקן ניהול של ימות"
+          "yemot_token": "טוקן ניהול של ימות",
+          "pbx_alert_url": "כתובת שירות ההתראות במרכזייה",
+          "pbx_trunk": "טראנק יוצא להתראות",
+          "pbx_alert_secret": "סוד שירות ההתראות"
         },
         "data_description": {
           "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
@@ -110,7 +122,10 @@
           "technoline_files_base": "כתובת בסיס לניהול שלוחות",
           "technoline_announce_extension": "שלוחת הסטרימינג להתראות",
           "technoline_announce_hours": "לא להתקשר בלילה",
-          "yemot_token": "טוקן ניהול של ימות"
+          "yemot_token": "טוקן ניהול של ימות",
+          "pbx_alert_url": "כתובת שירות ההתראות במרכזייה",
+          "pbx_trunk": "טראנק יוצא להתראות",
+          "pbx_alert_secret": "סוד שירות ההתראות"
         },
         "data_description": {
           "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
@@ -157,7 +172,10 @@
           "technoline_files_base": "כתובת בסיס לניהול שלוחות",
           "technoline_announce_extension": "שלוחת הסטרימינג להתראות",
           "technoline_announce_hours": "לא להתקשר בלילה",
-          "yemot_token": "טוקן ניהול של ימות"
+          "yemot_token": "טוקן ניהול של ימות",
+          "pbx_alert_url": "כתובת שירות ההתראות במרכזייה",
+          "pbx_trunk": "טראנק יוצא להתראות",
+          "pbx_alert_secret": "סוד שירות ההתראות"
         },
         "data_description": {
           "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
