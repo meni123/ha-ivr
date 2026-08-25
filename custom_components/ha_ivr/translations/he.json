@@ -100,7 +100,9 @@
           "yemot_token": "טוקן ניהול של ימות",
           "pbx_alert_url": "כתובת שירות ההתראות במרכזייה",
           "pbx_trunk": "טראנק יוצא להתראות",
-          "pbx_alert_secret": "סוד שירות ההתראות"
+          "pbx_alert_secret": "סוד שירות ההתראות",
+          "pbx_audiosocket_host": "כתובת האזנה לעוזר הקולי (AudioSocket)",
+          "pbx_audiosocket_port": "פורט האזנה לעוזר הקולי"
         },
         "data_description": {
           "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
@@ -125,7 +127,9 @@
           "yemot_token": "טוקן ניהול של ימות",
           "pbx_alert_url": "כתובת שירות ההתראות במרכזייה",
           "pbx_trunk": "טראנק יוצא להתראות",
-          "pbx_alert_secret": "סוד שירות ההתראות"
+          "pbx_alert_secret": "סוד שירות ההתראות",
+          "pbx_audiosocket_host": "כתובת האזנה לעוזר הקולי (AudioSocket)",
+          "pbx_audiosocket_port": "פורט האזנה לעוזר הקולי"
         },
         "data_description": {
           "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",
@@ -175,7 +179,9 @@
           "yemot_token": "טוקן ניהול של ימות",
           "pbx_alert_url": "כתובת שירות ההתראות במרכזייה",
           "pbx_trunk": "טראנק יוצא להתראות",
-          "pbx_alert_secret": "סוד שירות ההתראות"
+          "pbx_alert_secret": "סוד שירות ההתראות",
+          "pbx_audiosocket_host": "כתובת האזנה לעוזר הקולי (AudioSocket)",
+          "pbx_audiosocket_port": "פורט האזנה לעוזר הקולי"
         },
         "data_description": {
           "provider_ips": "מופרדים בפסיקים. ריק מבטל את הסינון. מאחורי proxy נדרשים use_x_forwarded_for ו-trusted_proxies.",

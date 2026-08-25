@@ -995,7 +995,7 @@ ok("ארבעתם רשומים",
 # המרשם עונה על מה שהיו רשימות קשיחות ב-const: מי קיים, למי יש
 # סטרימינג, ואיך קוראים לו.
 ok("שאילתת הסטרימינג על המרשם",
-   {d.DRIVER_ID for d in registry.with_stream()} == {"technoline", "vonage"})
+   {d.DRIVER_ID for d in registry.with_stream()} == {"pbx", "technoline", "vonage"})
 ok("שאילתה על כל הדרייברים",
    {d.DRIVER_ID for d in registry.all_drivers()}
    == {"pbx", "technoline", "vonage", "yemot"})

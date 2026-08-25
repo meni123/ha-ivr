@@ -132,6 +132,9 @@ class IvrView(HomeAssistantView):
             "token": token,
             "stream_url": _stream_url(request, token),
             "options": dict(opts),
+            # הזהות של הרשומה, לדרייבר שצריך לרשום מצב לשיחה (למשל
+            # מיפוי UUID של AudioSocket). המתקשר מתווסף אחרי `parse`.
+            "entry_id": entry.entry_id,
         }
         # רשימה שטוחה: לרשומה יש ספק אחד, ולכן אין מילון שממפה
         # ספק לטווחים.
@@ -146,6 +149,7 @@ class IvrView(HomeAssistantView):
         # חתימה אחת לשלושת הדרייברים. מי שאינו צריך את הגוף
         # מתעלם ממנו.
         ctx = drv.parse(params, body or {})
+        cfg["caller"] = ctx.caller
 
         if ctx.hangup:
             # מגיעה עם אותם פרמטרים כמו הבקשה שלפניה, ולכן נראית

@@ -100,7 +100,9 @@
           "yemot_token": "Yemot management token",
           "pbx_alert_url": "PBX alert service URL",
           "pbx_trunk": "Outbound trunk for alerts",
-          "pbx_alert_secret": "Alert service secret"
+          "pbx_alert_secret": "Alert service secret",
+          "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
+          "pbx_audiosocket_port": "Voice assistant listen port"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
@@ -125,7 +127,9 @@
           "yemot_token": "Yemot management token",
           "pbx_alert_url": "PBX alert service URL",
           "pbx_trunk": "Outbound trunk for alerts",
-          "pbx_alert_secret": "Alert service secret"
+          "pbx_alert_secret": "Alert service secret",
+          "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
+          "pbx_audiosocket_port": "Voice assistant listen port"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
@@ -175,7 +179,9 @@
           "yemot_token": "Yemot management token",
           "pbx_alert_url": "PBX alert service URL",
           "pbx_trunk": "Outbound trunk for alerts",
-          "pbx_alert_secret": "Alert service secret"
+          "pbx_alert_secret": "Alert service secret",
+          "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
+          "pbx_audiosocket_port": "Voice assistant listen port"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",

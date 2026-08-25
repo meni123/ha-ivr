@@ -133,10 +133,22 @@ def endpoint_urls(hass, entry, driver) -> dict[str, str]:
     """
     driver_id = driver.DRIVER_ID
     token = str(entry.data.get("token", ""))
+    # ספק שיושב ברשת המקומית פונה ל-HA בכתובת פנימית; ספק מתארח
+    # פונה מהאינטרנט ולכן צריך את החיצונית. הבחירה לפי דגל על
+    # הדרייבר, כדי שהליבה לא תכיר ספק בשמו.
+    prefer_internal = getattr(driver, "PREFER_INTERNAL_URL", False)
     try:
-        base = get_url(hass, prefer_external=True).rstrip("/")
+        base = get_url(
+            hass,
+            prefer_external=not prefer_internal,
+            allow_cloud=not prefer_internal,
+        ).rstrip("/")
     except NoURLAvailableError:
-        base = "https://<הכתובת החיצונית שלך>"
+        base = (
+            "http://<כתובת HA הפנימית>"
+            if prefer_internal
+            else "https://<הכתובת החיצונית שלך>"
+        )
     api = f"{base}/api/ha_ivr/{driver_id}/{token}"
     stream = (
         f"{base}/api/ha_ivr/stream/{token}"

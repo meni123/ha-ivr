@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -166,7 +167,31 @@ if _HA:
         await hass.config_entries.async_forward_entry_setups(
             entry, _platforms(driver)
         )
+
+        # תחבורה שאינה HTTP, אם הספק מגדיר אותה — מאזין ה-AudioSocket
+        # של מרכזייה עצמית. הליבה אינה יודעת מהי; היא רק מרימה מה
+        # שהדרייבר נותן, וסוגרת אותו ב-unload. ספק בלי תחבורה כזו לא
+        # מושפע.
+        start = getattr(driver, "async_start_transport", None)
+        if start is not None:
+            try:
+                server = await start(hass, entry)
+            except OSError as err:
+                _LOGGER.error(
+                    "Entry %s: the transport listener failed to start: %s",
+                    entry.entry_id, err,
+                )
+            else:
+                stop = getattr(driver, "async_stop_transport", None)
+                entry.async_on_unload(lambda s=server, f=stop: _stop_transport(f, s))
+
         return True
+
+    async def _stop_transport(stop, server) -> None:
+        """סגירת התחבורה של הדרייבר ב-unload, אם הוגדרה."""
+        if stop is not None:
+            with contextlib.suppress(Exception):
+                await stop(server)
 
     async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from .view import reset_warnings  # noqa: PLC0415

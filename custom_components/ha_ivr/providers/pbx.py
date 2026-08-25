@@ -46,8 +46,23 @@ NAME = "מרכזייה עצמית"
 SUPPORTS_GOTO = True
 GOTO_TARGET_HINT = "יעד מעבר במרכזייה — הקשר dialplan או שלוחת SIP, למשל ha-assist"
 
-# העוזר הקולי מטופל ב-voip של HA, לא בערוץ סטרימינג שלנו.
-SUPPORTS_STREAM = False
+# העוזר הקולי רץ דרך מנוע הלוויין של ha_ivr, כמו אצל הספקים המתארחים,
+# אבל התחבורה היא AudioSocket על TCP במקום WebSocket: Asterisk מזרים
+# את אודיו השיחה ל-`audiosocket.py`, והוא מזין ל-Assist ומחזיר הקראה.
+# הדגל טוען את פלטפורמת הלוויין; `STREAM_URL_AT_PROVIDER` נשאר כבוי,
+# ולכן אין כתובת wss להעתקה — החיבור מגיע מהדיאלפלן, לא מכתובת.
+SUPPORTS_STREAM = True
+
+# פורט ברירת המחדל שעליו `audiosocket.py` מאזין. ההאזנה על loopback
+# כברירת מחדל — HA ו-Asterisk על אותה קופסה — ומשתנה ב`הגדרות התפריט`
+# למרכזייה במארח אחר.
+AUDIOSOCKET_DEFAULT_HOST = "127.0.0.1"
+AUDIOSOCKET_DEFAULT_PORT = 9010
+
+# הגשר יושב ברשת המקומית ופונה ל-HA בכתובת פנימית — לא החיצונית
+# שהספקים המתארחים פונים אליה מהאינטרנט. הדגל אומר לליבה להציג את
+# הכתובת הפנימית להעתקה, ומשקף את היתרון: אין צורך בכתובת חיצונית.
+PREFER_INTERNAL_URL = True
 
 
 def parse(params: dict[str, str], body: dict | None = None) -> CallContext:
@@ -91,8 +106,13 @@ def _say(messages: list[Say]) -> str:
     return " ".join(parts)
 
 
-def render(action: Action) -> dict[str, Any]:
-    """פעולה → JSON נקי: מה לומר, אם זה תפריט, ואם לנתק."""
+def render(action: Action, uuid: str | None = None) -> dict[str, Any]:
+    """פעולה → JSON נקי: מה לומר, אם זה תפריט, ואם לנתק.
+
+    `uuid` מצורף ל-`goto`: אם היעד הוא הקשר העוזר הקולי, הדיאלפלן
+    מריץ איתו `AudioSocket()`. יעד שאינו העוזר (שלוחת SIP) פשוט
+    מתעלם ממנו.
+    """
     if isinstance(action, Prompt):
         return {
             "say": _say(action.messages),
@@ -103,21 +123,36 @@ def render(action: Action) -> dict[str, Any]:
             "hangup": False,
         }
     if isinstance(action, GoTo):
-        return {
+        body = {
             "say": _say(action.messages),
             "menu": False,
             "goto": action.target,
             "hangup": False,
         }
+        if uuid:
+            body["uuid"] = uuid
+        return body
     # Terminal — השמע וסיים.
     return {"say": _say(action.messages), "menu": False, "hangup": True}
 
 
 def respond(action: Action, cfg: dict | None = None):
-    """בניית תשובת ה-HTTP, ורישום מה נשלח."""
+    """בניית תשובת ה-HTTP, ורישום מה נשלח.
+
+    כשהתשובה היא `goto`, נרשם UUID לעוזר הקולי ומצורף לתשובה: הדיאלפלן
+    יעביר אותו ל-AudioSocket, ומסגרת הפתיחה תפתור אותו חזרה למתקשר.
+    """
     from aiohttp import web  # noqa: PLC0415
 
-    body = render(action)
+    cfg = cfg or {}
+    uuid = None
+    if isinstance(action, GoTo) and cfg.get("entry_id"):
+        from .. import audiosocket  # noqa: PLC0415
+
+        uuid = audiosocket.new_call(
+            entry_id=str(cfg["entry_id"]), caller=str(cfg.get("caller", ""))
+        )
+    body = render(action, uuid=uuid)
     history.record("menu.reply", driver=DRIVER_ID, body=body)
     return web.json_response(body)
 
@@ -200,19 +235,64 @@ def default_ips() -> str:
 
 _ALERT_KEYS = ("pbx_alert_url", "pbx_trunk", "pbx_alert_secret")
 
+# שדות שיש להם ערך התחלתי משמעותי (בניגוד להתראות שריקות בטבע): כתובת
+# ההאזנה של מאזין ה-AudioSocket לעוזר הקולי.
+_FIELD_DEFAULTS = {
+    "pbx_audiosocket_host": AUDIOSOCKET_DEFAULT_HOST,
+    "pbx_audiosocket_port": str(AUDIOSOCKET_DEFAULT_PORT),
+}
+_MENU_KEYS = _ALERT_KEYS + tuple(_FIELD_DEFAULTS)
+
 
 def menu_fields(current: dict) -> dict:
-    """שדות ההתראות — כתובת ה-webhook של המרכזייה, הטראנק, והסוד.
+    """שדות הרשומה: התראות (webhook, טראנק, סוד) והאזנת ה-AudioSocket.
 
-    התפריט עצמו אינו זקוק לדבר; אלה משמשים רק את `async_notify`.
+    התפריט עצמו אינו זקוק לדבר; אלה משמשים את `async_notify` ואת
+    מאזין העוזר הקולי.
     """
     def opt(key: str):
+        default = _FIELD_DEFAULTS.get(key, "")
         return vol.Optional(
-            key, description={"suggested_value": str(current.get(key, "") or "")}
+            key,
+            description={"suggested_value": str(current.get(key, "") or default)},
         )
 
-    return {opt(key): str for key in _ALERT_KEYS}
+    return {opt(key): str for key in _MENU_KEYS}
 
 
 def menu_save(user_input: dict) -> dict:
-    return {key: str(user_input.get(key, "") or "") for key in _ALERT_KEYS}
+    saved: dict[str, str] = {}
+    for key in _MENU_KEYS:
+        value = str(user_input.get(key, "") or "")
+        # שדה כתובת שנשאר ריק חוזר לברירת המחדל, כדי שהמאזין תמיד יעלה.
+        saved[key] = value or _FIELD_DEFAULTS.get(key, "")
+    return saved
+
+
+async def async_start_transport(hass, entry):
+    """מרים את מאזין ה-AudioSocket לרשומה. נקרא פעם אחת מ-async_setup_entry.
+
+    השרת משותף להגדרה — יש רשומת pbx אחת (unique_id לפי ספק). ה-UUID
+    שנרשם ב-`respond` הוא שמפנה כל שיחה חזרה לרשומה ולמתקשר.
+    """
+    from .. import audiosocket  # noqa: PLC0415
+
+    options = dict(entry.options)
+    host = str(
+        options.get("pbx_audiosocket_host", "") or AUDIOSOCKET_DEFAULT_HOST
+    ).strip()
+    try:
+        port = int(
+            options.get("pbx_audiosocket_port", AUDIOSOCKET_DEFAULT_PORT)
+            or AUDIOSOCKET_DEFAULT_PORT
+        )
+    except (TypeError, ValueError):
+        port = AUDIOSOCKET_DEFAULT_PORT
+    return await audiosocket.async_start(hass, host, port)
+
+
+async def async_stop_transport(server) -> None:
+    """סגירת המאזין ב-unload."""
+    from .. import audiosocket  # noqa: PLC0415
+
+    await audiosocket.async_stop(server)
