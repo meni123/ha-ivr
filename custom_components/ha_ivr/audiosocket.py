@@ -55,6 +55,12 @@ FRAME_BYTES = 320
 FRAME_SEC = 0.02
 _SILENCE = b"\x00" * FRAME_BYTES
 
+# כמה אודיו לשמור "מוקדם" ב-Asterisk — כרית שסופגת ג'יטר של לולאת
+# האירועים. בלעדיה, sleep של 20ms שמתעורר מאוחר על לולאה עמוסה גורם
+# ל-underrun ב-Asterisk, וההקראה נשמעת מרוטשת. כרית גדולה יותר סופגת
+# יותר ג'יטר במחיר השהיה קטנה בתחילת ההקראה.
+_TX_LEAD = 0.3
+
 
 # ----------------------------------------------------------------------
 # מיפוי UUID → שיחה. ha_ivr ממלא אותו כשהוא מחזיר goto, לפני שהסוקט נפתח.
@@ -291,30 +297,38 @@ class AudioSocketSession:
             self._tx.put_nowait(frame)
 
     async def _tx_loop(self) -> None:
-        """מוציא מסגרת כל 20ms, בשעון monotonic כדי למנוע drift.
+        """מוציא מסגרות בקצב אמת, עם כרית lead שסופגת ג'יטר.
 
-        אחרי שקט ארוך השעון מתאפס ל-`now` כדי שלא ייווצר "מרדף" של
-        פריימים שנצברו. תור ריק = לא שולחים כלום; Asterisk מקצב את
-        ה-RTP למתקשר בעצמו, ושתיקה על הקו היא המצב הטבעי בין תורות.
+        `play_t` הוא מיקום הניגון בזמן אמת. שומרים אותו עד `_TX_LEAD`
+        לפני `now` — כלומר מותר להקדים ב-200ms, אבל לא יותר. כך פרץ
+        קטן ממלא כרית ב-Asterisk, וכשלולאת האירועים מתעכבת המסגרות כבר
+        שם. ההשהיה מדביקה את עצמה: sleep שמתעורר מאוחר מכווץ את ה-lead
+        ומיד שולח, בלי underrun. אין drain בכל מסגרת — רק מדי פעם,
+        ל-backpressure; זרם 8kHz קטן מכדי להציף את חוצץ הכתיבה.
         """
         loop = asyncio.get_running_loop()
-        next_t = loop.time()
+        play_t = loop.time()
+        since_drain = 0
         try:
             while not self._writer.is_closing():
                 try:
                     frame = await asyncio.wait_for(self._tx.get(), timeout=0.5)
                 except TimeoutError:
-                    next_t = loop.time()  # התור התרוקן — אפס את השעון
+                    play_t = loop.time()  # שקט — אפס את שעון הניגון
                     continue
                 now = loop.time()
-                if now < next_t:
-                    await asyncio.sleep(next_t - now)
-                elif now > next_t + FRAME_SEC:
-                    next_t = now  # פיגור גדול — התייצב מחדש
+                if play_t < now:  # פיגרנו; פער שקט כבר נוצר בקו
+                    play_t = now
+                lead = play_t - now
+                if lead > _TX_LEAD:  # מוקדם מדי — האט לשמירת הכרית
+                    await asyncio.sleep(lead - _TX_LEAD)
                 with contextlib.suppress(ConnectionError, RuntimeError):
                     self._writer.write(_frame(_TYPE_AUDIO, frame))
-                    await self._writer.drain()
-                next_t += FRAME_SEC
+                    since_drain += 1
+                    if since_drain >= 25:
+                        await self._writer.drain()
+                        since_drain = 0
+                play_t += FRAME_SEC
         except asyncio.CancelledError:
             raise
 
