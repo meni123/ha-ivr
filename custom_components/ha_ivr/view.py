@@ -295,15 +295,19 @@ class IvrView(HomeAssistantView):
         """
         from . import announce as announce_store  # noqa: PLC0415
 
-        items = announce_store.recent_alerts(self.hass, entry.entry_id, caller)
+        items = announce_store.recent_alerts(
+            self.hass, entry.entry_id, caller, unheard_only=True
+        )
         if not items:
             return [Say("text", "אין התראות חדשות עבורך")]
         prompt = (node.intro or "").strip() or "ההתראות שלך"
         says = [Say("text", prompt)]
         for alert in items:
             says.append(Say("text", str(alert.text)))
-        # הושמעו — לא יוכרזו שוב בכניסה הבאה לתפריט.
+        # הושמעו — לא יוכרזו ולא יוקראו שוב, ומי שכל נמעניה שמעו
+        # יורדת מהלוג כדי שלא יצטבר.
         announce_store.mark_heard(self.hass, entry.entry_id, caller)
+        announce_store.prune_heard(self.hass, entry.entry_id)
         return says
 
     # ------------------------------------------------------------------

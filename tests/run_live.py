@@ -1491,6 +1491,35 @@ _two.mark_played()
 ok("השנייה כן", _two.delivered.is_set())
 ok("הסיכום קריא", _two.summary == "2 מתוך 2")
 
+# יומן ההקראה: שלוחת ההתראות משמיעה חדשות-בלבד, וההתראה נמחקת
+# אחרי שכל נמעניה שמעו — כדי שלא תוקרא שוב ולא תצטבר בלוג.
+_h4 = fake_ha.FakeHass()
+_h4.data = {}
+announce_store.log_alert(_h4, "e2", "התראה א", ["0501234567"])
+announce_store.log_alert(_h4, "e2", "התראה ב", ["0501234567"])
+ok("שתי ההתראות טרם נשמעו",
+   announce_store.unheard_count(_h4, "e2", "0501234567") == 2)
+ok("חדשות-בלבד מחזיר את שתיהן",
+   len(announce_store.recent_alerts(_h4, "e2", "0501234567", unheard_only=True)) == 2)
+announce_store.mark_heard(_h4, "e2", "0501234567")
+ok("אחרי שמיעה אין חדשות להקריא",
+   announce_store.recent_alerts(_h4, "e2", "0501234567", unheard_only=True) == [])
+ok("וספירת החדשות בכניסה היא אפס",
+   announce_store.unheard_count(_h4, "e2", "0501234567") == 0)
+announce_store.prune_heard(_h4, "e2")
+ok("ההתראות שנשמעו נמחקו מהלוג",
+   announce_store.recent_alerts(_h4, "e2", "0501234567") == [])
+
+# התראה לשני נמענים יורדת מהלוג רק כשגם השני שמע.
+announce_store.log_alert(_h4, "e2", "לשניים", ["0501111111", "0502222222"])
+announce_store.mark_heard(_h4, "e2", "0501111111")
+announce_store.prune_heard(_h4, "e2")
+ok("נמען אחד שמע — ההתראה נשמרת לשני",
+   len(announce_store.recent_alerts(_h4, "e2", "0502222222")) == 1)
+announce_store.mark_heard(_h4, "e2", "0502222222")
+announce_store.prune_heard(_h4, "e2")
+ok("שניהם שמעו — נמחקה", announce_store.recent_alerts(_h4, "e2") == [])
+
 _old = announce_store.store(_hass3, "e1", b"", 8000, "", ["0501234567"], ttl=-1)
 ok("התראה שפגה אינה נתפסת",
    _old.expired and announce_store.claim(_hass3, "e1", "0501234567") is None)

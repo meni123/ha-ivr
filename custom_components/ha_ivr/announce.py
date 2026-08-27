@@ -82,15 +82,23 @@ def log_alert(hass, entry_id: str, message: str, phones=None) -> None:
     del log[:-MAX_LOG]  # שומר את האחרונות בלבד
 
 
-def recent_alerts(hass, entry_id: str, caller: str = "") -> list[LoggedAlert]:
+def recent_alerts(
+    hass, entry_id: str, caller: str = "", unheard_only: bool = False
+) -> list[LoggedAlert]:
     """ההתראות האחרונות, מהחדשה לישנה.
 
     עם `caller` — רק ההתראות שנשלחו למספר הזה, כדי שכל אחד ישמע
     את שלו בלבד. בלי `caller` — הכול (למשל בשלוחה ללא זיהוי מספר).
+    עם `unheard_only` — רק מה שהמתקשר טרם שמע, כדי ששלוחת ההקראה
+    תשמיע את החדשות בלבד ולא תחזור על מה שכבר נשמע.
     """
     log = (hass.data.get(ALERT_LOG) or {}).get(entry_id) or []
     if caller:
-        log = [a for a in log if a.belongs_to(caller)]
+        k = _key(caller)
+        log = [
+            a for a in log
+            if k in a.keys and not (unheard_only and k in a.heard)
+        ]
     return list(reversed(log))
 
 
@@ -111,6 +119,19 @@ def mark_heard(hass, entry_id: str, caller: str) -> None:
     for a in (hass.data.get(ALERT_LOG) or {}).get(entry_id) or []:
         if k in a.keys:
             a.heard.add(k)
+
+
+def prune_heard(hass, entry_id: str) -> None:
+    """הסרת התראות שכל נמעניהן כבר שמעו.
+
+    התראה מיועדת למספר נמענים, וסיימה את תפקידה רק כשכולם שמעו —
+    ולכן נמחקת אז ולא ברגע ששמע הראשון. כך הלוג אינו מצטבר, ומי
+    ששמע כבר לא שומע שוב.
+    """
+    log = (hass.data.get(ALERT_LOG) or {}).get(entry_id)
+    if not log:
+        return
+    log[:] = [a for a in log if not (a.keys and a.keys <= a.heard)]
 
 
 def _key(phone: str) -> str:
