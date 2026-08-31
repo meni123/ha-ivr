@@ -97,13 +97,22 @@ def _say(messages: list[Say]) -> str:
 
     מספר נשלח כמחרוזת ספרות — מנוע ההקראה של הגשר קורא אותו כמספר.
     `file` מדולג: הוא נתיב אצל ספק, לא רלוונטי לגשר שמקבל טקסט.
+
+    כל פריט הופך למשפט משלו — פסיק לפני "הקש", ונקודה בין הפריטים.
+    מנוע ה-TTS המקומי מפסק לפי סימני פיסוק; בלי זה כל התפריט נשמע
+    כמשפט אחד רצוף ("לתפריט מזגן הקש 1 לעוזר הקש 3...") בלי הפסקה
+    בין האפשרויות. הפיצול למסרים נפרד נשמר לספקים אחרים; כאן, שם
+    הכול מתאחד למחרוזת אחת, הפיסוק הוא מה שנותן את המנגינה.
     """
     parts = [
         str(item.data)
         for item in messages
         if item.kind in ("text", "raw", "number", "digits") and item.data
     ]
-    return " ".join(parts)
+    if not parts:
+        return ""
+    parts = [p.replace(" הקש ", ", הקש ").rstrip("., ") for p in parts]
+    return ". ".join(parts) + "."
 
 
 def render(action: Action, uuid: str | None = None) -> dict[str, Any]:
