@@ -58,6 +58,11 @@ SUPPORTS_STREAM = True
 # ברירת המחדל של הרשומה. ספק בלי טראנקים אינו מצהיר עליו.
 SUPPORTS_TRUNK = True
 
+# מספר מציג (caller ID) לשיחה היוצאת, מעבר לזיהוי של הטראנק. חייב
+# להיות זיהוי שה-ITSP מאשר, אחרת השיחה נדחית. ריק = הזיהוי של
+# הטראנק. הדגל פותח שדה caller_id לכל נמען ובשירות `send_call`.
+SUPPORTS_CALLER_ID = True
+
 # פורט ברירת המחדל שעליו `audiosocket.py` מאזין. ההאזנה על loopback
 # כברירת מחדל — HA ו-Asterisk על אותה קופסה — ומשתנה ב`הגדרות התפריט`
 # למרכזייה במארח אחר.
@@ -177,7 +182,7 @@ def respond(action: Action, cfg: dict | None = None):
 
 async def async_notify(
     hass, entry, message: str, phones: list[str], channel: str = "voice",
-    trunk: str = "",
+    trunk: str = "", caller_id: str = "",
 ) -> None:
     """התראה: POST ל-`call_trigger` שרץ במרכזייה, שמחייג ומשמיע.
 
@@ -187,7 +192,10 @@ async def async_notify(
     מקומית ומחייגת דרך הטראנק שנבחר.
 
     `trunk` דורס את טראנק ברירת המחדל של הרשומה — נמען או שליחה
-    יכולים לצאת בזיהוי אחר. ריק חוזר ל-`pbx_trunk`.
+    יכולים לצאת בטראנק אחר. ריק חוזר ל-`pbx_trunk`.
+
+    `caller_id` הוא מספר המציג לשיחה. נשלח רק כשהוגדר; ריק משאיר
+    למרכזייה לחייג בזיהוי של הטראנק. חייב להיות זיהוי שה-ITSP מאשר.
 
     `channel` מתקבל לאחידות ואינו בשימוש — למרכזייה ערוץ יוצא אחד.
     """
@@ -196,6 +204,7 @@ async def async_notify(
     trunk = str(trunk or "").strip() or str(
         options.get("pbx_trunk", "") or ""
     ).strip()
+    caller_id = str(caller_id or "").strip()
     secret = str(options.get("pbx_alert_secret", "") or "")
     if not url:
         raise OutboundError(
@@ -219,6 +228,10 @@ async def async_notify(
             failed.append(str(raw))
             continue
         payload = {"phone": digits, "trunk": trunk, "text": str(message)}
+        # נשלח רק כשהוגדר: ריק משאיר את call_trigger לחייג בזיהוי של
+        # הטראנק, במקום לדרוס אותו במספר ברירת מחדל שהספק ידחה.
+        if caller_id:
+            payload["caller_id"] = caller_id
         masked = {**payload, "text": str(message)[:60]}
         history.record("pbx.alert", url=url, payload=masked)
         try:

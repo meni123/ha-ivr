@@ -1495,6 +1495,55 @@ check("בלי טראנק — ברירת המחדל של הרשומה",
       lambda: asyncio.get_event_loop().run_until_complete(
           _pbx_trunk_used(None, "default_trunk")))
 
+# --- מספר מציג (caller_id): נשלח רק כשהוגדר, אחרת המרכזייה
+# מחייגת בזיהוי של הטראנק במקום מספר ברירת מחדל שהספק דוחה ---
+ok("המרכזייה מציעה מספר מציג", getattr(pbx, "SUPPORTS_CALLER_ID", False))
+ok("ספק בלי מספר מציג אינו מצהיר עליו",
+   not any(getattr(d, "SUPPORTS_CALLER_ID", False)
+           for d in (yemot, technoline, vonage)))
+ok("send_call מקבל מספר מציג",
+   "caller_id" in {str(k) for k in _core_mod._send_call_schema().schema})
+ok("ישות הנמען מעבירה מספר מציג", "caller_id=self._caller_id" in _notify_src)
+
+
+async def _pbx_callerid(cid_arg):
+    """מחזיר את caller_id שבגוף הבקשה, או None אם השדה לא נשלח."""
+    import types as _t
+    from homeassistant.helpers import aiohttp_client as _ac
+
+    captured: dict = {}
+
+    class _Resp:
+        status = 200
+        async def text(self): return "ok"
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    class _Sess:
+        def post(self, url, json, headers, timeout):
+            captured.update(json); return _Resp()
+
+    _orig = _ac.async_get_clientsession
+    _ac.async_get_clientsession = lambda hass: _Sess()
+    try:
+        entry = _t.SimpleNamespace(options={
+            "pbx_alert_url": "http://x/ha",
+            "pbx_trunk": "t", "pbx_alert_secret": "s",
+        })
+        kw = {"caller_id": cid_arg} if cid_arg is not None else {}
+        await pbx.async_notify(None, entry, "hi", ["0501234567"], **kw)
+    finally:
+        _ac.async_get_clientsession = _orig
+    return captured.get("caller_id", "__absent__")
+
+
+check("מספר מציג מפורש נכנס לגוף",
+      lambda: asyncio.get_event_loop().run_until_complete(
+          _pbx_callerid("0501234567")) == "0501234567")
+check("בלי מספר מציג — השדה לא נשלח (זיהוי הטראנק)",
+      lambda: asyncio.get_event_loop().run_until_complete(
+          _pbx_callerid(None)) == "__absent__")
+
 # --- תור ההתראות הממתינות ---
 _hass3 = fake_ha.FakeHass()
 _hass3.data = {}

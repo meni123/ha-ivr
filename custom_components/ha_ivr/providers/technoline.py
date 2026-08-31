@@ -47,12 +47,12 @@ NEEDS_RETURN_PATH = True
 
 async def async_notify(
     hass, entry, message: str, phones: list[str], channel: str = "voice",
-    trunk: str = "",
+    trunk: str = "", caller_id: str = "",
 ) -> None:
     """התראה לנמען: ההקראה של HA בערוץ הסטרימינג.
 
-    `trunk` מתקבל לאחידות עם ממשק ההתראות ואינו בשימוש — טכנוליין
-    מזרים את ההקראה, ואין בו בחירת טראנק יוצא.
+    `trunk` ו-`caller_id` מתקבלים לאחידות עם ממשק ההתראות ואינם
+    בשימוש — טכנוליין מזרים את ההקראה, בלי טראנק או זיהוי יוצא נבחר.
 
     `channel` מתקבל לאחידות עם שאר הדרייברים אך אינו בשימוש —
     לטכנוליין ערוץ אחד, ההזרמה. ראו `yemot.NOTIFY_CHANNELS`.

@@ -28,7 +28,13 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import registry
-from .const import CONF_CHANNEL, CONF_PHONE, CONF_TRUNK, SUBENTRY_TYPE_CONTACT
+from .const import (
+    CONF_CALLER_ID,
+    CONF_CHANNEL,
+    CONF_PHONE,
+    CONF_TRUNK,
+    SUBENTRY_TYPE_CONTACT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +55,8 @@ class IvrNotify(NotifyEntity):
         # טראנק יוצא לנמען זה, אם הוגדר — לזיהוי יוצא אחר. ריק חוזר
         # לטראנק ברירת המחדל של הרשומה. רלוונטי רק לספק עם טראנקים.
         self._trunk = str(dict(subentry.data).get(CONF_TRUNK, ""))
+        # מספר מציג לנמען זה, אם הוגדר. ריק — הזיהוי של הטראנק.
+        self._caller_id = str(dict(subentry.data).get(CONF_CALLER_ID, ""))
         self._attr_unique_id = f"{entry.entry_id}_{subentry.subentry_id}_notify"
         # הישות היא המכשיר. עם `has_entity_name` שם הישות נדבק
         # לשם המכשיר, ושניהם זהים היו מייצרים מזהה כפול.
@@ -86,6 +94,7 @@ class IvrNotify(NotifyEntity):
         await _notifier(self._entry)(
             self.hass, self._entry, message, [self._phone],
             channel=self._channel, trunk=self._trunk,
+            caller_id=self._caller_id,
         )
 
 

@@ -37,6 +37,10 @@ CONF_CHANNEL: Final = "channel"
 # מופיע רק לספק שמצהיר `SUPPORTS_TRUNK` (המרכזייה), ומשמש לשליחה
 # עם זיהוי יוצא אחר. ריק = טראנק ברירת המחדל.
 CONF_TRUNK: Final = "trunk"
+# מספר מציג (caller ID) לשיחה היוצאת. מופיע רק לספק שמצהיר
+# `SUPPORTS_CALLER_ID`, וחייב להיות זיהוי שהספק מאשר. ריק = הזיהוי
+# שהספק/הטראנק נותן כברירת מחדל.
+CONF_CALLER_ID: Final = "caller_id"
 
 CONF_TARGET_ENTITY: Final = "entity_id"
 CONF_ACTION: Final = "action"

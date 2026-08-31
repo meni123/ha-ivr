@@ -226,6 +226,7 @@ if _HA:
                 vol.Required("message"): cv.string,
                 vol.Required("phones"): cv.string,
                 vol.Optional("trunk"): cv.string,
+                vol.Optional("caller_id"): cv.string,
             }
         )
 
@@ -287,8 +288,10 @@ if _HA:
                     await lines[0].async_announce_message(message, phones)
                 else:
                     trunk = str(call.data.get("trunk", "") or "")
+                    caller_id = str(call.data.get("caller_id", "") or "")
                     await driver.async_notify(
-                        hass, entry, message, phones, trunk=trunk
+                        hass, entry, message, phones,
+                        trunk=trunk, caller_id=caller_id,
                     )
             except OutboundError as err:
                 raise HomeAssistantError(

@@ -40,6 +40,7 @@ from .action_fields import (
 from .const import (
     CONF_CHANNEL,
     CONF_TRUNK,
+    CONF_CALLER_ID,
     CONF_STREAM_RATE,
     CONF_PHONE,
     CONF_ACTION,
@@ -712,6 +713,9 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                 trunk = str(user_input.get(CONF_TRUNK, "") or "").strip()
                 if trunk:
                     data[CONF_TRUNK] = trunk
+                caller_id = str(user_input.get(CONF_CALLER_ID, "") or "").strip()
+                if caller_id:
+                    data[CONF_CALLER_ID] = caller_id
                 if self._editing_subentry_id():
                     return self.async_update_and_abort(
                         self._get_entry(),
@@ -764,19 +768,40 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                     },
                 )
             ] = str
+        # שדה מספר מציג, רק לספק שמצהיר עליו. חייב להיות זיהוי
+        # שהספק מאשר — ההסבר בתיאור השדה בתרגומים.
+        if self._supports_caller_id():
+            fields[
+                vol.Optional(
+                    CONF_CALLER_ID,
+                    description={
+                        "suggested_value": str(
+                            current.get(CONF_CALLER_ID, "") or ""
+                        )
+                    },
+                )
+            ] = str
         return self.async_show_form(
             step_id=step_id, errors=errors, data_schema=vol.Schema(fields)
         )
 
-    def _supports_trunk(self) -> bool:
-        """האם הדרייבר מציע בחירת טראנק יוצא לנמען."""
+    def _driver_flag(self, flag: str) -> bool:
+        """דגל יכולת של הדרייבר של הרשומה, ברירת מחדל כבוי."""
         from . import registry  # noqa: PLC0415
 
         try:
             driver = registry.for_entry(self._get_entry())
         except Exception:  # noqa: BLE001 — הטופס חשוב יותר מהשדה
             return False
-        return bool(getattr(driver, "SUPPORTS_TRUNK", False))
+        return bool(getattr(driver, flag, False))
+
+    def _supports_trunk(self) -> bool:
+        """האם הדרייבר מציע בחירת טראנק יוצא לנמען."""
+        return self._driver_flag("SUPPORTS_TRUNK")
+
+    def _supports_caller_id(self) -> bool:
+        """האם הדרייבר מציע מספר מציג לנמען."""
+        return self._driver_flag("SUPPORTS_CALLER_ID")
 
     def _notify_channels(self) -> tuple[str, ...]:
         """מזהי הערוצים של הדרייבר, או `("voice",)` אם אין."""

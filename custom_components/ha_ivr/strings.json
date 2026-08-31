@@ -334,12 +334,14 @@
             "label": "Name",
             "phone": "Phone number",
             "channel": "Alert channel",
-            "trunk": "Outbound trunk (optional)"
+            "trunk": "Outbound trunk (optional)",
+            "caller_id": "Caller ID (optional)"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
             "phone": "The number that is called when a message is sent to this recipient.",
-            "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk."
+            "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk.",
+            "caller_id": "The caller ID for the call. Must be an ID the provider approves, and verify it works with them, or the call may be rejected. Empty uses the caller ID the trunk provides."
           }
         },
         "reconfigure": {
@@ -348,12 +350,14 @@
             "label": "Name",
             "phone": "Phone number",
             "channel": "Alert channel",
-            "trunk": "Outbound trunk (optional)"
+            "trunk": "Outbound trunk (optional)",
+            "caller_id": "Caller ID (optional)"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
             "phone": "The number that is called when a message is sent to this recipient.",
-            "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk."
+            "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk.",
+            "caller_id": "The caller ID for the call. Must be an ID the provider approves, and verify it works with them, or the call may be rejected. Empty uses the caller ID the trunk provides."
           }
         }
       },
@@ -447,7 +451,7 @@
         },
         "caller_id": {
           "name": "Caller ID",
-          "description": "A number pre-approved at Yemot. Empty uses the system number."
+          "description": "The caller ID for the call. Must be an ID the provider approves (at Yemot, a pre-approved number), and verify it works with them. Empty uses the caller ID the provider or trunk provides."
         }
       }
     }

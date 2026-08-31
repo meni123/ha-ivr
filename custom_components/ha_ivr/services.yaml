@@ -21,3 +21,8 @@ send_call:
       example: "sip_trunk_2"
       selector:
         text:
+    caller_id:
+      required: false
+      example: "0501234567"
+      selector:
+        text:
