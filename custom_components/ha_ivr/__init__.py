@@ -225,6 +225,7 @@ if _HA:
                 ),
                 vol.Required("message"): cv.string,
                 vol.Required("phones"): cv.string,
+                vol.Optional("trunk"): cv.string,
             }
         )
 
@@ -256,11 +257,6 @@ if _HA:
                     },
                 )
 
-            lines = (hass.data.get(SATELLITES) or {}).get(entry.entry_id) or []
-            if not lines:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN, translation_key="no_satellite"
-                )
             raw = str(call.data["phones"])
             phones = [p for p in clean_phones(raw).split(",") if p]
             if not phones:
@@ -271,13 +267,29 @@ if _HA:
                 )
             from . import announce as announce_store  # noqa: PLC0415
 
-            announce_store.log_alert(
-                hass, entry.entry_id, str(call.data["message"]), phones
-            )
+            message = str(call.data["message"])
+            announce_store.log_alert(hass, entry.entry_id, message, phones)
             try:
-                await lines[0].async_announce_message(
-                    str(call.data["message"]), phones
-                )
+                # מסלול הסטרימינג — חיוג וחיבור הנמען לשלוחת הזרמה,
+                # וההקראה נשלחת מ-HA — קיים רק לספק שמזרים (`async_announce`).
+                # ספק שמחייג ומקריא בעצמו, כמו המרכזייה דרך ה-webhook,
+                # אין לו satellite כזה; שם `send_call` עובר באותו מסלול
+                # של ישות נמען יחיד — `async_notify` עם רשימת המספרים.
+                if getattr(driver, "async_announce", None) is not None:
+                    lines = (hass.data.get(SATELLITES) or {}).get(
+                        entry.entry_id
+                    ) or []
+                    if not lines:
+                        raise HomeAssistantError(
+                            translation_domain=DOMAIN,
+                            translation_key="no_satellite",
+                        )
+                    await lines[0].async_announce_message(message, phones)
+                else:
+                    trunk = str(call.data.get("trunk", "") or "")
+                    await driver.async_notify(
+                        hass, entry, message, phones, trunk=trunk
+                    )
             except OutboundError as err:
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,

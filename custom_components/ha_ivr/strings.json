@@ -333,11 +333,13 @@
           "data": {
             "label": "Name",
             "phone": "Phone number",
-            "channel": "Alert channel"
+            "channel": "Alert channel",
+            "trunk": "Outbound trunk (optional)"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
-            "phone": "The number that is called when a message is sent to this recipient."
+            "phone": "The number that is called when a message is sent to this recipient.",
+            "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk."
           }
         },
         "reconfigure": {
@@ -345,11 +347,13 @@
           "data": {
             "label": "Name",
             "phone": "Phone number",
-            "channel": "Alert channel"
+            "channel": "Alert channel",
+            "trunk": "Outbound trunk (optional)"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
-            "phone": "The number that is called when a message is sent to this recipient."
+            "phone": "The number that is called when a message is sent to this recipient.",
+            "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk."
           }
         }
       },
@@ -432,6 +436,10 @@
         "phones": {
           "name": "Phone numbers",
           "description": "A single number, or several separated by commas. Each recipient gets its own call. Empty calls the numbers configured in the integration."
+        },
+        "trunk": {
+          "name": "Outbound trunk",
+          "description": "Self-hosted PBX only: the trunk to dial out on, for a different caller ID. Empty uses the entry's default trunk."
         },
         "config_entry_id": {
           "name": "Provider",

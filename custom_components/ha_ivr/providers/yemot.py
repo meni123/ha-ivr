@@ -208,9 +208,13 @@ NOTIFY_CHANNELS = ("voice", "sms", "tzintuk")
 
 
 async def async_notify(
-    hass, entry, message: str, phones: list[str], channel: str = "voice"
+    hass, entry, message: str, phones: list[str], channel: str = "voice",
+    trunk: str = "",
 ) -> None:
     """התראה לנמען, דרך ה-API של ימות, בערוץ שנבחר לנמען.
+
+    `trunk` מתקבל לאחידות עם ממשק ההתראות ואינו בשימוש — לימות אין
+    טראנקים; הזיהוי היוצא נקבע אצל הספק.
 
     לא דרך הלוויין: אין ערוץ סטרימינג ולכן אין לאן להזרים הקראה.
     שיחה קולית מקריאה את הטקסט; SMS שולח אותו כטקסט; צינתוק מצלצל

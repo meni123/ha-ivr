@@ -33,6 +33,10 @@ CONF_PHONE: Final = "phone"
 # ערוץ ההתראה לנמען: שיחה קולית, SMS או צינתוק. נגזר מהיכולת
 # `NOTIFY_CHANNELS` של הדרייבר; ספק בלי היכולת שולח בקול בלבד.
 CONF_CHANNEL: Final = "channel"
+# טראנק יוצא לנמען יחיד, override על טראנק ברירת המחדל של הרשומה.
+# מופיע רק לספק שמצהיר `SUPPORTS_TRUNK` (המרכזייה), ומשמש לשליחה
+# עם זיהוי יוצא אחר. ריק = טראנק ברירת המחדל.
+CONF_TRUNK: Final = "trunk"
 
 CONF_TARGET_ENTITY: Final = "entity_id"
 CONF_ACTION: Final = "action"

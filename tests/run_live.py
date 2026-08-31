@@ -1434,6 +1434,67 @@ ok("Vonage אינו חושף התראה", not hasattr(vonage, "async_notify"))
 ok("אין עוד רשימת נמענים קבועה",
    not hasattr(technoline, "announce_phones"))
 
+# --- send_call לספק שמחייג בעצמו (המרכזייה), וטראנק לזיהוי אחר ---
+# המרכזייה יש לה satellite (לעוזר) אבל אין `async_announce`; לכן
+# send_call חייב ליפול ל-async_notify, אחרת שליחה למספר חופשי
+# נכשלת אצלה למרות שיש לה מסלול יוצא.
+ok("send_call נופל ל-async_notify בלי async_announce",
+   "await driver.async_notify(" in _init_src)
+ok("המרכזייה מציעה בחירת טראנק יוצא",
+   getattr(pbx, "SUPPORTS_TRUNK", False))
+ok("ספק בלי טראנקים אינו מצהיר עליו",
+   not any(getattr(d, "SUPPORTS_TRUNK", False)
+           for d in (yemot, technoline, vonage)))
+ok("send_call מקבל שדה טראנק אופציונלי",
+   "trunk" in {str(k) for k in _core_mod._send_call_schema().schema})
+# ישות הנמען מעבירה את הטראנק שלה, וטופס הנמען מציג את השדה רק
+# לספק שמצהיר עליו — נמען של ימות לא יראה טראנק.
+ok("ישות הנמען מעבירה טראנק", "trunk=self._trunk" in _notify_src)
+_cfg_src = (_core_dir / "config_shared.py").read_text("utf-8")
+ok("טופס הנמען מתנה את שדה הטראנק ב-SUPPORTS_TRUNK",
+   "_supports_trunk" in _cfg_src and "SUPPORTS_TRUNK" in _cfg_src)
+
+
+async def _pbx_trunk_used(trunk_arg, expected):
+    """async_notify של המרכזייה שם בגוף את הטראנק שנמסר, או את
+    ברירת המחדל של הרשומה כשלא נמסר."""
+    import types as _t
+    from homeassistant.helpers import aiohttp_client as _ac
+
+    captured: dict = {}
+
+    class _Resp:
+        status = 200
+        async def text(self): return "ok"
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    class _Sess:
+        def post(self, url, json, headers, timeout):
+            captured.update(json); return _Resp()
+
+    _orig = _ac.async_get_clientsession
+    _ac.async_get_clientsession = lambda hass: _Sess()
+    try:
+        entry = _t.SimpleNamespace(options={
+            "pbx_alert_url": "http://x/ha",
+            "pbx_trunk": "default_trunk",
+            "pbx_alert_secret": "s",
+        })
+        kw = {"trunk": trunk_arg} if trunk_arg is not None else {}
+        await pbx.async_notify(None, entry, "hi", ["0501234567"], **kw)
+    finally:
+        _ac.async_get_clientsession = _orig
+    return captured.get("trunk") == expected
+
+
+check("טראנק מפורש נכנס לגוף ההתראה",
+      lambda: asyncio.get_event_loop().run_until_complete(
+          _pbx_trunk_used("special_trunk", "special_trunk")))
+check("בלי טראנק — ברירת המחדל של הרשומה",
+      lambda: asyncio.get_event_loop().run_until_complete(
+          _pbx_trunk_used(None, "default_trunk")))
+
 # --- תור ההתראות הממתינות ---
 _hass3 = fake_ha.FakeHass()
 _hass3.data = {}

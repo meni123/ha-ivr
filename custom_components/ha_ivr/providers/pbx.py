@@ -53,6 +53,11 @@ GOTO_TARGET_HINT = "יעד מעבר במרכזייה — הקשר dialplan או 
 # ולכן אין כתובת wss להעתקה — החיבור מגיע מהדיאלפלן, לא מכתובת.
 SUPPORTS_STREAM = True
 
+# המרכזייה מחייגת דרך טראנק, וטראנק שונה נותן זיהוי יוצא שונה. הדגל
+# פותח שדה טראנק אופציונלי לכל נמען ובשירות `send_call`, מעל טראנק
+# ברירת המחדל של הרשומה. ספק בלי טראנקים אינו מצהיר עליו.
+SUPPORTS_TRUNK = True
+
 # פורט ברירת המחדל שעליו `audiosocket.py` מאזין. ההאזנה על loopback
 # כברירת מחדל — HA ו-Asterisk על אותה קופסה — ומשתנה ב`הגדרות התפריט`
 # למרכזייה במארח אחר.
@@ -171,7 +176,8 @@ def respond(action: Action, cfg: dict | None = None):
 
 
 async def async_notify(
-    hass, entry, message: str, phones: list[str], channel: str = "voice"
+    hass, entry, message: str, phones: list[str], channel: str = "voice",
+    trunk: str = "",
 ) -> None:
     """התראה: POST ל-`call_trigger` שרץ במרכזייה, שמחייג ומשמיע.
 
@@ -180,11 +186,16 @@ async def async_notify(
     `shell_command` ב-`configuration.yaml`. המרכזייה מסנתזת הקראה
     מקומית ומחייגת דרך הטראנק שנבחר.
 
+    `trunk` דורס את טראנק ברירת המחדל של הרשומה — נמען או שליחה
+    יכולים לצאת בזיהוי אחר. ריק חוזר ל-`pbx_trunk`.
+
     `channel` מתקבל לאחידות ואינו בשימוש — למרכזייה ערוץ יוצא אחד.
     """
     options = dict(entry.options)
     url = str(options.get("pbx_alert_url", "") or "").strip()
-    trunk = str(options.get("pbx_trunk", "") or "").strip()
+    trunk = str(trunk or "").strip() or str(
+        options.get("pbx_trunk", "") or ""
+    ).strip()
     secret = str(options.get("pbx_alert_secret", "") or "")
     if not url:
         raise OutboundError(

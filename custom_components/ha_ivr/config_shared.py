@@ -39,6 +39,7 @@ from .action_fields import (
 )
 from .const import (
     CONF_CHANNEL,
+    CONF_TRUNK,
     CONF_STREAM_RATE,
     CONF_PHONE,
     CONF_ACTION,
@@ -708,6 +709,9 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                 data = {CONF_LABEL: name, CONF_PHONE: phone}
                 if CONF_CHANNEL in user_input:
                     data[CONF_CHANNEL] = str(user_input[CONF_CHANNEL])
+                trunk = str(user_input.get(CONF_TRUNK, "") or "").strip()
+                if trunk:
+                    data[CONF_TRUNK] = trunk
                 if self._editing_subentry_id():
                     return self.async_update_and_abort(
                         self._get_entry(),
@@ -749,9 +753,30 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                     sort=False,
                 )
             )
+        # שדה טראנק אופציונלי, רק לספק שמחייג דרך טראנק (המרכזייה):
+        # נמען שיוצא בזיהוי אחר. ריק חוזר לטראנק ברירת המחדל.
+        if self._supports_trunk():
+            fields[
+                vol.Optional(
+                    CONF_TRUNK,
+                    description={
+                        "suggested_value": str(current.get(CONF_TRUNK, "") or "")
+                    },
+                )
+            ] = str
         return self.async_show_form(
             step_id=step_id, errors=errors, data_schema=vol.Schema(fields)
         )
+
+    def _supports_trunk(self) -> bool:
+        """האם הדרייבר מציע בחירת טראנק יוצא לנמען."""
+        from . import registry  # noqa: PLC0415
+
+        try:
+            driver = registry.for_entry(self._get_entry())
+        except Exception:  # noqa: BLE001 — הטופס חשוב יותר מהשדה
+            return False
+        return bool(getattr(driver, "SUPPORTS_TRUNK", False))
 
     def _notify_channels(self) -> tuple[str, ...]:
         """מזהי הערוצים של הדרייבר, או `("voice",)` אם אין."""
