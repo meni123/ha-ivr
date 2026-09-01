@@ -443,7 +443,7 @@
         },
         "trunk": {
           "name": "Outbound trunk",
-          "description": "Self-hosted PBX only: the trunk to dial out on, for a different caller ID. Empty uses the entry's default trunk."
+          "description": "Not every provider supports this: the trunk to dial out on, for a different caller ID. Empty uses the entry's default trunk."
         },
         "config_entry_id": {
           "name": "Provider",
@@ -451,7 +451,7 @@
         },
         "caller_id": {
           "name": "Caller ID",
-          "description": "The caller ID for the call. Must be an ID the provider approves (at Yemot, a pre-approved number), and verify it works with them. Empty uses the caller ID the provider or trunk provides."
+          "description": "The caller ID for the call. Not every provider supports this, and the ID must be approved by the provider — verify it works with them. Empty uses the caller ID the provider or trunk provides."
         }
       }
     }
