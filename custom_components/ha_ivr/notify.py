@@ -32,6 +32,7 @@ from .const import (
     CONF_CALLER_ID,
     CONF_CHANNEL,
     CONF_PHONE,
+    CONF_RETRIES,
     CONF_TRUNK,
     SUBENTRY_TYPE_CONTACT,
 )
@@ -57,6 +58,8 @@ class IvrNotify(NotifyEntity):
         self._trunk = str(dict(subentry.data).get(CONF_TRUNK, ""))
         # מספר מציג לנמען זה, אם הוגדר. ריק — הזיהוי של הטראנק.
         self._caller_id = str(dict(subentry.data).get(CONF_CALLER_ID, ""))
+        # חיוג חוזר אם לא ענו. 0 = פעם אחת, כמו אצל שאר הספקים.
+        self._retries = int(dict(subentry.data).get(CONF_RETRIES, 0) or 0)
         self._attr_unique_id = f"{entry.entry_id}_{subentry.subentry_id}_notify"
         # הישות היא המכשיר. עם `has_entity_name` שם הישות נדבק
         # לשם המכשיר, ושניהם זהים היו מייצרים מזהה כפול.
@@ -94,7 +97,7 @@ class IvrNotify(NotifyEntity):
         await _notifier(self._entry)(
             self.hass, self._entry, message, [self._phone],
             channel=self._channel, trunk=self._trunk,
-            caller_id=self._caller_id,
+            caller_id=self._caller_id, retries=self._retries,
         )
 
 

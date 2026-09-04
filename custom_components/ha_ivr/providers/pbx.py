@@ -63,6 +63,12 @@ SUPPORTS_TRUNK = True
 # הטראנק. הדגל פותח שדה caller_id לכל נמען ובשירות `send_call`.
 SUPPORTS_CALLER_ID = True
 
+# חיוג חוזר כשלא ענו. קובץ השיחה של המרכזייה יודע לחזור, ושאר הספקים
+# מצלצלים פעם אחת — לכן זו התנהגות ייחודית לה, וברירת המחדל 0 (פעם
+# אחת) משווה אותה לשאר. הדגל פותח שדה "ניסיונות חוזרים" לכל נמען
+# ובשירות `send_call`, למי שרוצה התראה מתמידה.
+SUPPORTS_RETRIES = True
+
 # פורט ברירת המחדל שעליו `audiosocket.py` מאזין. ההאזנה על loopback
 # כברירת מחדל — HA ו-Asterisk על אותה קופסה — ומשתנה ב`הגדרות התפריט`
 # למרכזייה במארח אחר.
@@ -182,7 +188,7 @@ def respond(action: Action, cfg: dict | None = None):
 
 async def async_notify(
     hass, entry, message: str, phones: list[str], channel: str = "voice",
-    trunk: str = "", caller_id: str = "",
+    trunk: str = "", caller_id: str = "", retries: int = 0,
 ) -> None:
     """התראה: POST ל-`call_trigger` שרץ במרכזייה, שמחייג ומשמיע.
 
@@ -227,7 +233,14 @@ async def async_notify(
         if not digits:
             failed.append(str(raw))
             continue
-        payload = {"phone": digits, "trunk": trunk, "text": str(message)}
+        payload = {
+            "phone": digits,
+            "trunk": trunk,
+            "text": str(message),
+            # תמיד נשלח: 0 הוא "צלצל פעם אחת", וזו ברירת המחדל שמשווה
+            # את המרכזייה לשאר הספקים.
+            "retries": max(0, int(retries or 0)),
+        }
         # נשלח רק כשהוגדר: ריק משאיר את call_trigger לחייג בזיהוי של
         # הטראנק, במקום לדרוס אותו במספר ברירת מחדל שהספק ידחה.
         if caller_id:

@@ -26,3 +26,11 @@ send_call:
       example: "0501234567"
       selector:
         text:
+    retries:
+      required: false
+      example: 2
+      selector:
+        number:
+          min: 0
+          max: 5
+          mode: box

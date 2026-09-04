@@ -23,6 +23,12 @@ ALERT_LOG: Final = "ha_ivr_alert_log"
 SUBENTRY_TYPE_ITEM: Final = "menu_item"
 SUBENTRY_TYPE_SUBMENU: Final = "submenu"
 SUBENTRY_TYPE_GOTO: Final = "goto"
+# ישות שהתפריט שלה נבנה מהיכולות שהמכשיר מדווח עליהן, במקום
+# פריט ידני לכל פעולה. ראו `smart.py`.
+SUBENTRY_TYPE_SMART: Final = "smart_entity"
+# קבוצה: כל הישויות מסוג מסוים במרחב, בקומה או בכל הבית. אותו
+# מנגנון גילוי, אלא שהיכולות הן החיתוך של כל החברים. ראו `smart.py`.
+SUBENTRY_TYPE_GROUP: Final = "smart_group"
 # שלוחה שמקריאה את ההתראות האחרונות שנשלחו. ראו `announce.log_alert`.
 SUBENTRY_TYPE_ALERTS: Final = "alerts"
 
@@ -41,10 +47,25 @@ CONF_TRUNK: Final = "trunk"
 # `SUPPORTS_CALLER_ID`, וחייב להיות זיהוי שהספק מאשר. ריק = הזיהוי
 # שהספק/הטראנק נותן כברירת מחדל.
 CONF_CALLER_ID: Final = "caller_id"
+# כמה פעמים לחזור ולחייג אם לא ענו. 0 = פעם אחת בלבד, כמו אצל שאר
+# הספקים. מופיע רק לספק שמצהיר `SUPPORTS_RETRIES`.
+CONF_RETRIES: Final = "retries"
 
 CONF_TARGET_ENTITY: Final = "entity_id"
 CONF_ACTION: Final = "action"
 CONF_ACTION_DATA: Final = "action_data"
+# התוכנית של ישות חכמה: היכולות שנבחרו, והמספר שננעל לכל אחת.
+# נשמרת ואינה מחושבת מחדש — מספר שזז הוא תקלת בטיחות בטלפון.
+CONF_PLAN: Final = "plan"
+# יעד הקבוצה. סוג הישות הוא חלק מהיעד ולא קישוט: "אורות במטבח"
+# ולא "הכל במטבח", כדי שמנעול שישויך למרחב לא ייכנס לתפריט
+# הטלפוני בלי שאיש החליט על כך.
+CONF_DOMAIN: Final = "target_domain"
+CONF_AREA: Final = "target_area"
+CONF_FLOOR: Final = "target_floor"
+# תווית כיעד. `async_match_targets` אינו מכיר תוויות, ולכן הסינון
+# לפיהן נעשה בנפרד — ראו `smart.match_entities`.
+CONF_LABEL_TARGET: Final = "target_label"
 CONF_CONFIRM_RISKY: Final = "confirm_risky"
 CONF_MENU_PATH: Final = "menu_path"
 CONF_LABEL: Final = "label"
@@ -128,4 +149,37 @@ DOMAIN_NAMES: Final = {
     "media_player": "הנגן",
     "vacuum": "שואב האבק",
     "water_heater": "דוד המים",
+    "scene": "הסצנה",
+    "script": "התסריט",
+    "automation": "האוטומציה",
+    "button": "הכפתור",
+    "input_boolean": "מתג עזר",
+    "input_select": "בורר עזר",
+    "input_number": "מספר עזר",
+    "input_text": "טקסט עזר",
+    "select": "בורר אפשרויות",
+    "number": "המספר",
+    "text": "הטקסט",
+    "humidifier": "המאדה",
+    "siren": "הסירנה",
+    "valve": "השסתום",
+    "lawn_mower": "מכסחת הדשא",
+    "remote": "השלט",
+    "camera": "המצלמה",
+    "calendar": "היומן",
+    "todo": "רשימת המשימות",
+    "weather": "מזג האוויר",
+    "person": "האדם",
+    "device_tracker": "מאתר המכשיר",
+    "alarm_control_panel": "מערכת האזעקה",
+    "update": "העדכון",
+    "event": "האירוע",
+    "image": "התמונה",
+    "notify": "ההתראה",
+    "conversation": "השיחה",
+    "assist_satellite": "לוויין העוזר",
+    "ai_task": "משימת הבינה",
+    "stt": "זיהוי הדיבור",
+    "tts": "ההקראה",
+    "vacuum": "שואב האבק",
 }

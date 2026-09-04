@@ -227,6 +227,9 @@ if _HA:
                 vol.Required("phones"): cv.string,
                 vol.Optional("trunk"): cv.string,
                 vol.Optional("caller_id"): cv.string,
+                vol.Optional("retries"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=5)
+                ),
             }
         )
 
@@ -292,6 +295,7 @@ if _HA:
                     await driver.async_notify(
                         hass, entry, message, phones,
                         trunk=trunk, caller_id=caller_id,
+                        retries=int(call.data.get("retries", 0) or 0),
                     )
             except OutboundError as err:
                 raise HomeAssistantError(

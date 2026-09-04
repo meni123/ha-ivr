@@ -47,7 +47,7 @@ NEEDS_RETURN_PATH = True
 
 async def async_notify(
     hass, entry, message: str, phones: list[str], channel: str = "voice",
-    trunk: str = "", caller_id: str = "",
+    trunk: str = "", caller_id: str = "", retries: int = 0,
 ) -> None:
     """התראה לנמען: ההקראה של HA בערוץ הסטרימינג.
 

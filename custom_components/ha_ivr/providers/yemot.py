@@ -209,7 +209,7 @@ NOTIFY_CHANNELS = ("voice", "sms", "tzintuk")
 
 async def async_notify(
     hass, entry, message: str, phones: list[str], channel: str = "voice",
-    trunk: str = "", caller_id: str = "",
+    trunk: str = "", caller_id: str = "", retries: int = 0,
 ) -> None:
     """התראה לנמען, דרך ה-API של ימות, בערוץ שנבחר לנמען.
 
