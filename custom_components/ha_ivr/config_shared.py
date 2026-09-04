@@ -19,7 +19,10 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.selector import (
+    AreaSelector,
     EntitySelector,
+    FloorSelector,
+    LabelSelector,
     EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
@@ -37,10 +40,18 @@ from .action_fields import (
     build_fields_schema,
     build_label_map,
 )
+from . import smart as smart_mod
 from .const import (
+    CONF_AREA,
     CONF_CHANNEL,
+    CONF_DOMAIN,
+    CONF_FLOOR,
+    CONF_LABEL_TARGET,
+    CONF_PLAN,
+    DOMAIN_NAMES,
     CONF_TRUNK,
     CONF_CALLER_ID,
+    CONF_RETRIES,
     CONF_STREAM_RATE,
     CONF_PHONE,
     CONF_ACTION,
@@ -61,7 +72,12 @@ from .const import (
 )
 from .menu import next_free_path, normalize_path, submenu_paths, used_paths
 from .outbound import clean_phones
-from .policy import available_actions, domain_needs_confirmation
+from .policy import (
+    available_actions,
+    domain_is_blocked,
+    domain_is_groupable,
+    domain_needs_confirmation,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -679,6 +695,456 @@ class MenuItemFlowHandler(_PathMixin, ConfigSubentryFlow):
 # ----------------------------------------------------------------------
 
 
+# ----------------------------------------------------------------------
+# ישות חכמה
+# ----------------------------------------------------------------------
+
+
+class SmartEntityFlowHandler(_PathMixin, ConfigSubentryFlow):
+    """ישות שהתפריט שלה מתגלה מאליו.
+
+    שלושה מסכים: המכשיר והמקום, אילו יכולות להציע, ואילו אפשרויות
+    בתוך כל יכולת. המסך השלישי מוצג רק כשיש מה לבחור בו.
+
+    התוצאה היא תוכנית שנשמרת — יכולת, מספר, ואפשרויות. המספרים
+    נקבעים כאן פעם אחת בלבד; ראו `smart.py`.
+    """
+
+    def __init__(self) -> None:
+        self._pending: dict[str, Any] = {}
+        self._caps: list[smart_mod.Capability] = []
+
+    async def async_step_user(self, user_input=None) -> SubentryFlowResult:
+        return await self._target_step("user", user_input)
+
+    async def async_step_reconfigure(self, user_input=None) -> SubentryFlowResult:
+        return await self._target_step(
+            "reconfigure", user_input, dict(self._get_reconfigure_subentry().data)
+        )
+
+    # ---- שלב ראשון: המכשיר והמקום ----
+
+    async def _target_step(
+        self, step_id: str, user_input, current: dict | None = None
+    ) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        current = current or {}
+
+        if user_input is not None:
+            entity_id = str(user_input[CONF_TARGET_ENTITY])
+            domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+            confirmed = bool(user_input.get(CONF_CONFIRM_RISKY, False))
+            path, err = self._validate_path(
+                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
+            )
+            if err:
+                errors[CONF_MENU_PATH] = err
+            elif domain_needs_confirmation(domain) and not confirmed:
+                errors[CONF_CONFIRM_RISKY] = "confirm_required"
+            else:
+                self._pending = {
+                    CONF_TARGET_ENTITY: entity_id,
+                    CONF_MENU_PATH: path,
+                    CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
+                    CONF_CONFIRM_RISKY: confirmed,
+                }
+                return await self.async_step_capabilities()
+            current = {**current, **user_input}
+
+        path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
+            self._get_entry(), exclude=self._editing_subentry_id()
+        )
+        entity_id = str(current.get(CONF_TARGET_ENTITY, "") or "")
+        domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+
+        schema: dict[Any, Any] = {
+            vol.Required(
+                CONF_TARGET_ENTITY,
+                description={"suggested_value": entity_id},
+            ): EntitySelector(EntitySelectorConfig(multiple=False)),
+            vol.Required(
+                CONF_MENU_PATH, default=to_form(path)
+            ): self._path_selector(path),
+            vol.Optional(
+                CONF_LABEL,
+                description={
+                    "suggested_value": str(current.get(CONF_LABEL, "") or "")
+                },
+            ): str,
+        }
+        # דומיין רגיש: הגילוי האוטומטי אינו עוקף את האישור המפורש.
+        # בלעדיו "צור הכל" עבור מנעול היה מציע פתיחת נעילה לכל מי
+        # שמחייג, בלי שאיש החליט על כך.
+        if domain and domain_needs_confirmation(domain):
+            schema[
+                vol.Optional(
+                    CONF_CONFIRM_RISKY,
+                    default=bool(current.get(CONF_CONFIRM_RISKY, False)),
+                )
+            ] = bool
+
+        return self.async_show_form(
+            step_id=step_id, errors=errors, data_schema=vol.Schema(schema)
+        )
+
+    # ---- שלב שני: אילו יכולות ----
+
+    async def async_step_capabilities(self, user_input=None) -> SubentryFlowResult:
+        self._caps = await self._discover()
+
+        if not self._caps:
+            return self.async_abort(reason="no_capabilities")
+
+        if user_input is not None:
+            chosen = list(user_input.get("capabilities") or [])
+            if not chosen:
+                return self.async_show_form(
+                    step_id="capabilities",
+                    data_schema=self._capabilities_schema(chosen),
+                    errors={"capabilities": "nothing_chosen"},
+                    description_placeholders={"entity": self._subject()},
+                )
+            self._pending["_chosen"] = chosen
+            return await self.async_step_order()
+
+        return self.async_show_form(
+            step_id="capabilities",
+            data_schema=self._capabilities_schema(self._default_chosen()),
+            description_placeholders={"entity": self._subject()},
+        )
+
+    def _capabilities_schema(self, selected: list[str]) -> vol.Schema:
+        options = [
+            SelectOptionDict(value=c.ident, label=self._cap_label(c))
+            for c in self._caps
+        ]
+        return vol.Schema(
+            {
+                vol.Optional("capabilities", default=selected): SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                        sort=False,
+                    )
+                )
+            }
+        )
+
+    def _cap_label(self, capability: smart_mod.Capability) -> str:
+        """תווית שמסבירה מה היכולת תעשה בתפריט."""
+        if capability.kind == smart_mod.KIND_CHOICE:
+            return f"{capability.label} ({len(capability.options)} אפשרויות)"
+        if capability.kind == smart_mod.KIND_NUMBER:
+            low, high = int(capability.minimum), int(capability.maximum)
+            return f"{capability.label} (הקשת מספר, {low} עד {high})"
+        return capability.label
+
+    def _default_chosen(self) -> list[str]:
+        """הנבחרות כברירת מחדל: מה שנשמר, או תשע הראשונות.
+
+        תשע ולא הכל, כי ברמה אחת יש תשע ספרות. בחירה גדולה יותר
+        הייתה נחתכת בשקט בשמירה.
+        """
+        stored = self._stored_plan()
+        if stored:
+            return [str(e.get("ident", "")) for e in stored if e.get("ident")]
+        return [c.ident for c in self._caps[: len(MENU_DIGITS)]]
+
+    def _stored_plan(self) -> list[dict]:
+        if not self._editing_subentry_id():
+            return []
+        try:
+            plan = self._get_reconfigure_subentry().data.get(CONF_PLAN)
+        except Exception:  # noqa: BLE001 — הטופס חשוב יותר מהערך הקודם
+            return []
+        return [e for e in (plan or []) if isinstance(e, dict)]
+
+    # ---- שלב שלישי: הסדר, כלומר המספרים ----
+
+    async def async_step_order(self, user_input=None) -> SubentryFlowResult:
+        """המספר שכל יכולת תקבל בתפריט.
+
+        מסך נפרד ולא סדר הסימון: רשימת סימונים מחזירה את הערכים
+        בסדר שבו הם מוצגים, ולא בסדר שבו סומנו, ולכן אי אפשר
+        לקבוע בה סדר. כאן זה מפורש — וזה גם המקום היחיד שבו
+        המספרים נקבעים, כי משם ואילך הם נעולים.
+        """
+        chosen = list(self._pending.get("_chosen") or [])
+        by_ident = {c.ident: c for c in self._caps}
+        ordered = [by_ident[i] for i in chosen if i in by_ident]
+        if len(ordered) < 2:
+            return await self.async_step_options()
+
+        labels = {self._cap_label(c): c.ident for c in ordered}
+
+        if user_input is not None:
+            positions: dict[str, float] = {}
+            for index, (label, ident) in enumerate(labels.items()):
+                try:
+                    positions[ident] = float(user_input.get(label, index + 1))
+                except (TypeError, ValueError):
+                    positions[ident] = index + 1
+            # מיון יציב: שני פריטים עם אותו מספר נשארים בסדר שהיה,
+            # במקום להתחלף בכל שמירה.
+            self._pending["_chosen"] = [
+                ident
+                for _, ident in sorted(
+                    ((positions[c.ident], c.ident) for c in ordered),
+                    key=lambda pair: pair[0],
+                )
+            ]
+            return await self.async_step_options()
+
+        schema: dict[Any, Any] = {}
+        for index, label in enumerate(labels):
+            schema[vol.Optional(label, default=index + 1)] = NumberSelector(
+                NumberSelectorConfig(
+                    min=1, max=len(MENU_DIGITS), step=1, mode=NumberSelectorMode.BOX
+                )
+            )
+        return self.async_show_form(step_id="order", data_schema=vol.Schema(schema))
+
+    # ---- שלב שלישי: אילו אפשרויות בכל יכולת ----
+
+    async def async_step_options(self, user_input=None) -> SubentryFlowResult:
+        chosen = list(self._pending.get("_chosen") or [])
+        choices = [
+            c
+            for c in self._caps
+            if c.ident in chosen and c.kind == smart_mod.KIND_CHOICE
+        ]
+        if not choices:
+            return self._finish({})
+
+        labels = {self._cap_label(c): c.ident for c in choices}
+
+        if user_input is not None:
+            return self._finish(
+                {
+                    labels[key]: list(values or [])
+                    for key, values in user_input.items()
+                    if key in labels
+                }
+            )
+
+        stored = {
+            str(e.get("ident", "")): [str(v) for v in (e.get("options") or [])]
+            for e in self._stored_plan()
+        }
+        schema: dict[Any, Any] = {}
+        for capability in choices:
+            label = self._cap_label(capability)
+            previous = stored.get(capability.ident)
+            default = (
+                smart_mod.merge_options(
+                    previous,
+                    [o for o in capability.options if o not in previous],
+                    list(capability.options),
+                )
+                if previous is not None
+                else list(capability.options[: len(MENU_DIGITS)])
+            )
+            schema[vol.Optional(label, default=default)] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=v, label=capability.option_label(v))
+                        for v in capability.options
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                    sort=False,
+                )
+            )
+
+        return self.async_show_form(
+            step_id="options", data_schema=vol.Schema(schema)
+        )
+
+    # ---- שמירה ----
+
+    def _finish(self, option_choices: dict[str, list[str]]) -> SubentryFlowResult:
+        plan = smart_mod.build_plan(
+            self._caps, list(self._pending.get("_chosen") or []), option_choices
+        )
+        data = {
+            **self._stored_data(plan),
+            CONF_MENU_PATH: str(self._pending.get(CONF_MENU_PATH, "")),
+            CONF_LABEL: str(self._pending.get(CONF_LABEL, "")),
+            CONF_CONFIRM_RISKY: bool(self._pending.get(CONF_CONFIRM_RISKY, False)),
+            CONF_PLAN: plan,
+        }
+
+        label = data[CONF_LABEL] or self._default_title()
+        path = data[CONF_MENU_PATH]
+        title = f"{path} — {label}" if path else label
+
+        if self._editing_subentry_id():
+            return self.async_update_and_abort(
+                self._get_entry(),
+                self._get_reconfigure_subentry(),
+                title=title,
+                data=data,
+            )
+        return self.async_create_entry(title=title, data=data)
+
+
+# ----------------------------------------------------------------------
+# קבוצה
+# ----------------------------------------------------------------------
+
+
+class SmartGroupFlowHandler(SmartEntityFlowHandler):
+    """כל הישויות מסוג מסוים במרחב, בקומה או בכל הבית.
+
+    יורש את שלושת המסכים של הישות החכמה — יכולות, סדר, ערכים —
+    ומחליף רק את הנושא: במקום ישות אחת, יעד. היכולות הן החיתוך
+    של כל החברים, והחברות נקבעת בזמן השיחה ולא בהגדרה.
+    """
+
+    async def _target_step(
+        self, step_id: str, user_input, current: dict | None = None
+    ) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        current = current or {}
+
+        if user_input is not None:
+            domain = str(user_input.get(CONF_DOMAIN, "") or "")
+            confirmed = bool(user_input.get(CONF_CONFIRM_RISKY, False))
+            path, err = self._validate_path(
+                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
+            )
+            if err:
+                errors[CONF_MENU_PATH] = err
+            elif not domain:
+                errors[CONF_DOMAIN] = "nothing_chosen"
+            elif domain_needs_confirmation(domain) and not confirmed:
+                errors[CONF_CONFIRM_RISKY] = "confirm_required"
+            else:
+                self._pending = {
+                    CONF_DOMAIN: domain,
+                    CONF_AREA: str(user_input.get(CONF_AREA, "") or ""),
+                    CONF_FLOOR: str(user_input.get(CONF_FLOOR, "") or ""),
+                    CONF_LABEL_TARGET: str(
+                        user_input.get(CONF_LABEL_TARGET, "") or ""
+                    ),
+                    CONF_MENU_PATH: path,
+                    CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
+                    CONF_CONFIRM_RISKY: confirmed,
+                }
+                return await self.async_step_capabilities()
+            current = {**current, **user_input}
+
+        path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
+            self._get_entry(), exclude=self._editing_subentry_id()
+        )
+        domain = str(current.get(CONF_DOMAIN, "") or "")
+
+        schema: dict[Any, Any] = {
+            vol.Required(
+                CONF_DOMAIN, description={"suggested_value": domain}
+            ): await self._domain_selector(),
+            vol.Optional(
+                CONF_AREA,
+                description={"suggested_value": current.get(CONF_AREA, "")},
+            ): AreaSelector(),
+            vol.Optional(
+                CONF_FLOOR,
+                description={"suggested_value": current.get(CONF_FLOOR, "")},
+            ): FloorSelector(),
+            vol.Optional(
+                CONF_LABEL_TARGET,
+                description={"suggested_value": current.get(CONF_LABEL_TARGET, "")},
+            ): LabelSelector(),
+            vol.Required(
+                CONF_MENU_PATH, default=to_form(path)
+            ): self._path_selector(path),
+            vol.Optional(
+                CONF_LABEL,
+                description={
+                    "suggested_value": str(current.get(CONF_LABEL, "") or "")
+                },
+            ): str,
+        }
+        # אותה מדיניות כמו בפריט בודד. קבוצה אינה עוקפת אותה — היא
+        # דווקא מגדילה את הנזק, כי פעולה אחת נוגעת בכל החברים.
+        if domain and domain_needs_confirmation(domain):
+            schema[
+                vol.Optional(
+                    CONF_CONFIRM_RISKY,
+                    default=bool(current.get(CONF_CONFIRM_RISKY, False)),
+                )
+            ] = bool
+
+        return self.async_show_form(
+            step_id=step_id, errors=errors, data_schema=vol.Schema(schema)
+        )
+
+    async def _domain_selector(self):
+        """סוגי הישויות שיש מהם בבית ואפשר לעשות בהם משהו.
+
+        נבנה ממה שקיים בפועל ולא מרשימה קבועה: אין טעם להציע
+        "שואב אבק" למי שאין לו, ואין טעם להציע "תמונה" לאיש —
+        אין בה מה להקיש. הסינון נעשה בגילוי אמיתי, ולכן דומיין
+        חדש ב-Home Assistant נכנס או יוצא מעצמו.
+        """
+        found = sorted(
+            {
+                state.entity_id.split(".", 1)[0]
+                for state in self.hass.states.async_all()
+            }
+        )
+        options: list[SelectOptionDict] = []
+        for domain in found:
+            if domain_is_blocked(domain) or not domain_is_groupable(domain):
+                continue
+            if not available_actions(self.hass, domain):
+                continue
+            if not await smart_mod.async_domain_is_usable(self.hass, domain):
+                continue
+            options.append(
+                SelectOptionDict(value=domain, label=DOMAIN_NAMES.get(domain, domain))
+            )
+        return SelectSelector(
+            SelectSelectorConfig(options=options, mode=SelectSelectorMode.DROPDOWN)
+        )
+
+    # ---- נקודות ההרחבה ----
+
+    async def _discover(self) -> list:
+        return await smart_mod.async_discover_group(
+            self.hass,
+            str(self._pending.get(CONF_DOMAIN, "")),
+            str(self._pending.get(CONF_AREA, "")),
+            str(self._pending.get(CONF_FLOOR, "")),
+            str(self._pending.get(CONF_LABEL_TARGET, "")),
+        )
+
+    def _subject(self) -> str:
+        return self._default_title()
+
+    def _stored_data(self, plan: list) -> dict:
+        return {
+            CONF_DOMAIN: str(self._pending.get(CONF_DOMAIN, "")),
+            CONF_AREA: str(self._pending.get(CONF_AREA, "")),
+            CONF_FLOOR: str(self._pending.get(CONF_FLOOR, "")),
+            CONF_LABEL_TARGET: str(self._pending.get(CONF_LABEL_TARGET, "")),
+        }
+
+    def _default_title(self) -> str:
+        from . import menu as menu_mod  # noqa: PLC0415
+
+        return menu_mod._group_name(
+            self.hass,
+            {
+                "domain": str(self._pending.get(CONF_DOMAIN, "")),
+                "area": str(self._pending.get(CONF_AREA, "")),
+                "floor": str(self._pending.get(CONF_FLOOR, "")),
+                "label": str(self._pending.get(CONF_LABEL_TARGET, "")),
+            },
+        )
+
+
 class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
     """נמען להתראה קולית: שם ומספר.
 
@@ -716,6 +1182,9 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                 caller_id = str(user_input.get(CONF_CALLER_ID, "") or "").strip()
                 if caller_id:
                     data[CONF_CALLER_ID] = caller_id
+                retries = int(user_input.get(CONF_RETRIES, 0) or 0)
+                if retries:
+                    data[CONF_RETRIES] = retries
                 if self._editing_subentry_id():
                     return self.async_update_and_abort(
                         self._get_entry(),
@@ -781,6 +1250,19 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                     },
                 )
             ] = str
+        # ניסיונות חוזרים, רק לספק שיודע לחזור ולחייג. ברירת המחדל 0
+        # משווה את המרכזייה לשאר הספקים — צלצול אחד וזהו.
+        if self._supports_retries():
+            fields[
+                vol.Optional(
+                    CONF_RETRIES,
+                    default=int(current.get(CONF_RETRIES, 0) or 0),
+                )
+            ] = NumberSelector(
+                NumberSelectorConfig(
+                    min=0, max=5, step=1, mode=NumberSelectorMode.BOX
+                )
+            )
         return self.async_show_form(
             step_id=step_id, errors=errors, data_schema=vol.Schema(fields)
         )
@@ -802,6 +1284,10 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
     def _supports_caller_id(self) -> bool:
         """האם הדרייבר מציע מספר מציג לנמען."""
         return self._driver_flag("SUPPORTS_CALLER_ID")
+
+    def _supports_retries(self) -> bool:
+        """האם הדרייבר יודע לחזור ולחייג כשלא ענו."""
+        return self._driver_flag("SUPPORTS_RETRIES")
 
     def _notify_channels(self) -> tuple[str, ...]:
         """מזהי הערוצים של הדרייבר, או `("voice",)` אם אין."""

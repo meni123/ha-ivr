@@ -38,6 +38,8 @@ from .config_shared import (
     ContactFlowHandler,
     GoToFlowHandler,
     MenuItemFlowHandler,
+    SmartEntityFlowHandler,
+    SmartGroupFlowHandler,
     SubMenuFlowHandler,
     csv_list,
     endpoint_urls,
@@ -52,6 +54,8 @@ from .const import (
     SUBENTRY_TYPE_CONTACT,
     SUBENTRY_TYPE_GOTO,
     SUBENTRY_TYPE_ITEM,
+    SUBENTRY_TYPE_GROUP,
+    SUBENTRY_TYPE_SMART,
     SUBENTRY_TYPE_SUBMENU,
 )
 
@@ -175,6 +179,8 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
         ensure_registered()
         types: dict[str, type[ConfigSubentryFlow]] = {
             SUBENTRY_TYPE_ITEM: MenuItemFlowHandler,
+            SUBENTRY_TYPE_SMART: SmartEntityFlowHandler,
+            SUBENTRY_TYPE_GROUP: SmartGroupFlowHandler,
             SUBENTRY_TYPE_SUBMENU: SubMenuFlowHandler,
             SUBENTRY_TYPE_GOTO: GoToFlowHandler,
         }

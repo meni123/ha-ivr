@@ -262,6 +262,120 @@
       },
       "entry_type": "Item"
     },
+    "smart_entity": {
+      "title": "Smart entity",
+      "step": {
+        "user": {
+          "title": "New smart entity",
+          "description": "Pick a device. Its options are discovered automatically.",
+          "data": {
+            "entity_id": "Device",
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "confirm_risky": "Confirmation for sensitive actions"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit smart entity",
+          "description": "Pick a device. Its options are discovered automatically.",
+          "data": {
+            "entity_id": "Device",
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "confirm_risky": "Confirmation for sensitive actions"
+          }
+        },
+        "capabilities": {
+          "title": "What to offer",
+          "description": "These are the things {entity} reports it can do. Clear anything you do not want read out. Numbers are locked once saved, so the menu stays put.",
+          "data": {
+            "capabilities": "Options in the menu"
+          }
+        },
+        "order": {
+          "title": "Order in the menu",
+          "description": "The number each option gets. 1 is read out first. These numbers are locked once saved."
+        },
+        "options": {
+          "title": "Which values",
+          "description": "Clear any value you do not want offered."
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu.",
+        "confirm_required": "This action is sensitive and needs confirmation.",
+        "nothing_chosen": "Pick at least one option."
+      },
+      "abort": {
+        "no_capabilities": "Nothing was discovered for this device. Add it as a regular item instead."
+      },
+      "initiate_flow": {
+        "user": "Add smart entity"
+      },
+      "entry_type": "Smart entity"
+    },
+    "smart_group": {
+      "title": "Smart group",
+      "step": {
+        "user": {
+          "title": "New smart group",
+          "description": "Everything of one kind, in an area, on a floor, or in the whole house. Only options every member supports are offered.",
+          "data": {
+            "target_domain": "Kind of device",
+            "target_area": "Area",
+            "target_floor": "Floor",
+            "target_label": "Label",
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "confirm_risky": "Confirmation for sensitive actions"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit smart group",
+          "description": "Everything of one kind, in an area, on a floor, or in the whole house. Only options every member supports are offered.",
+          "data": {
+            "target_domain": "Kind of device",
+            "target_area": "Area",
+            "target_floor": "Floor",
+            "target_label": "Label",
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "confirm_risky": "Confirmation for sensitive actions"
+          }
+        },
+        "capabilities": {
+          "title": "What to offer",
+          "description": "These are the things every member of {entity} supports. Clear anything you do not want read out.",
+          "data": {
+            "capabilities": "Options in the menu"
+          }
+        },
+        "order": {
+          "title": "Order in the menu",
+          "description": "The number each option gets. 1 is read out first. These numbers are locked once saved."
+        },
+        "options": {
+          "title": "Which values",
+          "description": "Clear any value you do not want offered."
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu.",
+        "confirm_required": "This action is sensitive and needs confirmation.",
+        "nothing_chosen": "Pick at least one option."
+      },
+      "abort": {
+        "no_capabilities": "Nothing is shared by every member. Try a narrower area, or add the devices one by one."
+      },
+      "initiate_flow": {
+        "user": "Add smart group"
+      },
+      "entry_type": "Smart group"
+    },
     "submenu": {
       "title": "Submenu",
       "step": {
@@ -335,13 +449,15 @@
             "phone": "Phone number",
             "channel": "Alert channel",
             "trunk": "Outbound trunk (optional)",
-            "caller_id": "Caller ID (optional)"
+            "caller_id": "Caller ID (optional)",
+            "retries": "Retries"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
             "phone": "The number that is called when a message is sent to this recipient.",
             "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk.",
-            "caller_id": "The caller ID for the call. Must be an ID the provider approves, and verify it works with them, or the call may be rejected. Empty uses the caller ID the trunk provides."
+            "caller_id": "The caller ID for the call. Must be an ID the provider approves, and verify it works with them, or the call may be rejected. Empty uses the caller ID the trunk provides.",
+            "retries": "How many times to call back if nobody answers, a minute apart. 0 rings once only. Not every provider supports this."
           }
         },
         "reconfigure": {
@@ -351,13 +467,15 @@
             "phone": "Phone number",
             "channel": "Alert channel",
             "trunk": "Outbound trunk (optional)",
-            "caller_id": "Caller ID (optional)"
+            "caller_id": "Caller ID (optional)",
+            "retries": "Retries"
           },
           "data_description": {
             "label": "Becomes the name of the notify entity, and that is what you pick in an automation.",
             "phone": "The number that is called when a message is sent to this recipient.",
             "trunk": "A specific trunk for this recipient, for a different outbound caller ID. Empty uses the entry's default trunk.",
-            "caller_id": "The caller ID for the call. Must be an ID the provider approves, and verify it works with them, or the call may be rejected. Empty uses the caller ID the trunk provides."
+            "caller_id": "The caller ID for the call. Must be an ID the provider approves, and verify it works with them, or the call may be rejected. Empty uses the caller ID the trunk provides.",
+            "retries": "How many times to call back if nobody answers, a minute apart. 0 rings once only. Not every provider supports this."
           }
         }
       },
@@ -452,6 +570,10 @@
         "caller_id": {
           "name": "Caller ID",
           "description": "The caller ID for the call. Not every provider supports this, and the ID must be approved by the provider — verify it works with them. Empty uses the caller ID the provider or trunk provides."
+        },
+        "retries": {
+          "name": "Retries",
+          "description": "Not every provider supports this: how many times to call back if nobody answers, a minute apart. 0 rings once only."
         }
       }
     }

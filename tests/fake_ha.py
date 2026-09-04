@@ -144,9 +144,26 @@ def install() -> None:
     _module("homeassistant.components.notify",
             NotifyEntity=type("NotifyEntity", (), {"hass": None}))
 
+    # `All`, `Coerce` ו-`Range` הם מאמתי ערך ולא מצייני שדה, ולכן די
+    # בגרסה שמריצה את ההמרה: הבדיקות בוחנות את צורת הסכמה ואת שמות
+    # השדות, לא את הודעות השגיאה של voluptuous.
+    def _coerce(type_):
+        return type_
+
+    def _all(*validators):
+        def run(value):
+            for validator in validators:
+                value = validator(value)
+            return value
+        return run
+
+    def _range(**_kwargs):
+        return lambda value: value
+
     _module("voluptuous", Schema=_Schema,
             Required=type("Required", (_Marker,), {}),
             Optional=type("Optional", (_Marker,), {}),
+            All=_all, Coerce=_coerce, Range=_range,
             Self=_Any, ALLOW_EXTRA=object(), Invalid=type("Invalid", (Exception,), {}))
 
     ha = _module("homeassistant")
@@ -179,7 +196,9 @@ def install() -> None:
     helpers = _module("homeassistant.helpers")
     helpers.__path__ = []
     _module("homeassistant.helpers.service", async_get_all_descriptions=_Any)
-    _module("homeassistant.helpers.intent", async_get=_Any)
+    _module("homeassistant.helpers.intent", async_get=_Any,
+            async_match_targets=fake_match_targets,
+            MatchTargetsConstraints=FakeMatchConstraints)
     _module("homeassistant.helpers.template", Template=_Any)
     _module("homeassistant.helpers.config_validation",
             string=str, entity_id=str, boolean=bool)
@@ -196,11 +215,17 @@ def install() -> None:
             "BooleanSelector", "BooleanSelectorConfig",
             "TextSelector", "TextSelectorConfig", "TextSelectorType",
             "ObjectSelector", "AttributeSelector", "ConfigEntrySelector",
+            "AreaSelector", "AreaSelectorConfig",
+            "FloorSelector", "FloorSelectorConfig",
+            "LabelSelector", "LabelSelectorConfig",
         )},
         "SelectSelectorMode": _mode,
         "NumberSelectorMode": _mode,
     })
     _module("homeassistant.helpers.entity", Entity=object)
+    _module("homeassistant.helpers.area_registry", async_get=_Any)
+    _module("homeassistant.helpers.label_registry", async_get=_Any)
+    _module("homeassistant.helpers.floor_registry", async_get=_Any)
     _module("homeassistant.helpers.device_registry",
             DeviceInfo=dict, DeviceEntryType=types.SimpleNamespace(SERVICE="service"),
             async_get=_Any)
@@ -328,6 +353,41 @@ def install() -> None:
 # ----------------------------------------------------------------------
 # עצמים מזויפים להרצה
 # ----------------------------------------------------------------------
+
+
+class FakeMatchResult:
+    def __init__(self, states=None):
+        self.states = list(states or [])
+        self.is_match = bool(self.states)
+        self.areas = []
+        self.floors = []
+
+
+class FakeMatchConstraints:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+# מה שהבדיקה מזריקה: מיפוי (domain, area, floor) לרשימת ישויות.
+MATCHES: dict = {}
+
+
+class _Matched:
+    """מצב עם מזהה, כפי ש-async_match_targets מחזיר."""
+
+    def __init__(self, entity_id, state):
+        self.entity_id = entity_id
+        self.state = getattr(state, "state", None)
+        self.attributes = getattr(state, "attributes", {})
+
+
+def fake_match_targets(hass, constraints, *a, **k):
+    domain = (list(constraints.domains or [""]) or [""])[0]
+    key = (domain, constraints.area_name or "", constraints.floor_name or "")
+    return FakeMatchResult([
+        _Matched(e, hass.states.get(e))
+        for e in MATCHES.get(key, []) if hass.states.get(e)
+    ])
 
 
 class FakeState:

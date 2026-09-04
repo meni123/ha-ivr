@@ -25,7 +25,7 @@ from .const import (
     signal_call_received,
 )
 from .policy import action_allowed, domain_needs_confirmation
-from .translations_he import translate_option, translate_unit
+from .translations_he import field_unit, translate_option, translate_unit
 
 from . import history
 from . import net
@@ -33,9 +33,13 @@ from . import registry
 from .codec import CodecError
 from . import menu as menu_mod
 from . import tree as tree_mod
-from .model import GoTo, Say, Terminal, say_number
+from .model import KEY_ROOT, GoTo, Say, Terminal, say_number
 
 _LOGGER = logging.getLogger(__name__)
+
+# עד כמה חברים מוקראים בשמם. מעבר לזה עוברים לספירה: רשימה של
+# שמות ומצבים ארוכה מדי להאזנה בטלפון, ומי שמקשיב לא יזכור אותה.
+NAME_EACH_UP_TO = 3
 
 _STATES = {
     "on": "דולק", "off": "כבוי", "locked": "נעול", "unlocked": "לא נעול",
@@ -203,6 +207,12 @@ class IvrView(HomeAssistantView):
                     drv, Terminal([Say("text", "להתראות")]), cfg
                 )
 
+        # צומת איסוף מספר: ההקשה היא ספרה של ערך, לא בחירה בתפריט.
+        # נבדק לפני הניווט, כי הספרות הנאספות אינן ילדים בעץ אלא
+        # המשך של הנתיב — ו-`navigate` היה פוסל אותן כבחירה שגויה.
+        if (found := tree_mod.find_collector(root, ctx.path)) is not None:
+            return await self._collect_digit(drv, entry, driver_id, root, ctx, cfg, found)
+
         if moved is None:
             # הקשה שאינה בתפריט. שואלים שוב מאותו מקום.
             node = tree_mod.resolve(root, ctx.path) or root
@@ -261,6 +271,14 @@ class IvrView(HomeAssistantView):
             # או מקש. אחריה Vonage מסיימת את השיחה.
             return _reply(drv, goto, cfg)
 
+        # צומת איסוף מספר. לא עלה: הפעלה בלי הערך שטרם הוקש הייתה
+        # קוראת לשירות בלי פרמטר, נכשלת, ומשמיעה "אירעה שגיאה"
+        # לפני שהמתקשר בכלל הספיק להקיש.
+        if node.is_collect:
+            return _reply(
+                drv, tree_mod.collect_prompt(node, path, ctx.step, ()), cfg
+            )
+
         # עלה. מבצעים, ואז מחזירים את תפריט ההורה עם התוצאה בראשו.
         #
         # לא לנווט לשום מקום. ניווט אחרי פעולה יצר לולאה: השלוחה
@@ -280,6 +298,77 @@ class IvrView(HomeAssistantView):
         parent = tree_mod.resolve(root, parent_path) or root
         prompt = tree_mod.prompt_for(
             parent, parent_path, ctx.step, supports_goto=supports
+        )
+        return _reply(
+            drv, replace(prompt, messages=[*result, *prompt.messages]), cfg
+        )
+
+    async def _collect_digit(self, drv, entry, driver_id, root, ctx, cfg, found):
+        """הספרה הבאה בצומת איסוף, ובסוף — הפעלה עם הערך שהורכב.
+
+        אין כאן שום זיכרון בצד השרת. הספרות שכבר הוקשו הגיעו
+        בנתיב, והספרות שיוקשו ימשיכו לנסוע בו. שיחה באמצע הקשת
+        מספר שורדת ריסטרט בדיוק כמו כל שאר התפריט.
+        """
+        node, base, collected = found
+        width = int(node.collect.get("width") or 0)
+
+        # כוכבית מבטלת. אפס הוא ספרה כאן ולא "חזרה" — בלעדיו אי
+        # אפשר להקיש 20 מעלות.
+        if ctx.digit == KEY_ROOT:
+            prompt = tree_mod.prompt_for(
+                root, (), ctx.step, supports_goto=drv.SUPPORTS_GOTO
+            )
+            return _reply(drv, prompt, cfg)
+
+        # פג הזמן באמצע הקשה. מתחילים את המספר מהתחלה עם ההודעה
+        # המלאה, ולא ממשיכים בשקט — המתקשר אינו יודע כמה ספרות
+        # נקלטו, והמשך שקט היה משאיר אותו מנחש. מונה החזרות של
+        # התפריט חל גם כאן, ולכן שיחה נטושה מתנתקת כרגיל.
+        if ctx.digit is None:
+            return _reply(
+                drv, tree_mod.collect_prompt(node, base, ctx.step, ()), cfg
+            )
+
+        if ctx.digit not in tree_mod.valid_next_digits(node.collect, collected):
+            prompt = tree_mod.collect_prompt(node, base, ctx.step, collected)
+            return _reply(
+                drv,
+                replace(
+                    prompt,
+                    messages=[Say("text", "בחירה שאינה קיימת"), *prompt.messages],
+                ),
+                cfg,
+            )
+
+        collected = (*collected, ctx.digit)
+        if len(collected) < width:
+            return _reply(
+                drv,
+                tree_mod.collect_prompt(node, base, ctx.step, collected),
+                cfg,
+            )
+
+        value = int("".join(collected))
+        field_name = str(node.collect.get("field", ""))
+        leaf = replace(node, data={field_name: value}, collect={})
+
+        self._report_call(entry, driver_id, base, leaf)
+        result = await self._run_leaf(leaf)
+
+        # אישור הערך שהוקש, לפני הקראת המצב. בלי זה מי שכיוון 22
+        # מעלות במזגן כבוי שומע "כבוי" בלבד ואינו יודע אם ההקשה
+        # שלו נקלטה.
+        unit = field_unit(field_name)
+        confirmation = [Say("text", node.say), *say_number(value)]
+        if unit:
+            confirmation.append(Say("text", unit))
+        result = [*confirmation, *result]
+
+        parent_path = base[:-1]
+        parent = tree_mod.resolve(root, parent_path) or root
+        prompt = tree_mod.prompt_for(
+            parent, parent_path, ctx.step, supports_goto=drv.SUPPORTS_GOTO
         )
         return _reply(
             drv, replace(prompt, messages=[*result, *prompt.messages]), cfg
@@ -319,7 +408,11 @@ class IvrView(HomeAssistantView):
         למצוא שם במרשם הישויות, ורק אחר כך לגזור שם מהמזהה.
         """
         name = state.attributes.get("friendly_name") if state else None
-        if name:
+        # שם ידידותי אינו בהכרח ידידותי. מכשיר Zigbee שלא נתנו לו
+        # שם מגיע עם כתובת ה-MAC שלו כשם, ו-0xa4c138f59bc7b721
+        # מוקרא כרצף אותיות וספרות חסר משמעות — בדיוק מה שהבדיקה
+        # הזו נועדה למנוע במזהה הישות.
+        if name and not _looks_opaque(str(name)):
             return str(name)
 
         try:
@@ -370,6 +463,9 @@ class IvrView(HomeAssistantView):
 
         מחזיר הודעות בלבד. מי שקורא מחליט לאן ממשיכים.
         """
+        if node.is_group:
+            return await self._run_group(node)
+
         state = self.hass.states.get(node.entity or "")
         if state is None:
             return [Say("text", "המכשיר לא נמצא")]
@@ -399,6 +495,104 @@ class IvrView(HomeAssistantView):
         if new_state is None:
             return [Say("text", "הפעולה בוצעה")]
         return [Say("text", f"{name} כרגע"), *_speak_state(new_state)]
+
+    async def _run_group(self, node) -> list[Say]:
+        """פעולה על קבוצה — כל האורות במטבח וכדומה.
+
+        הישויות נפתרות עכשיו ולא בהגדרה, ולכן מכשיר שנוסף למרחב
+        נכנס מעצמו ומכשיר שהוסר יורד. קבוצה ריקה נאמרת ולא
+        מושתקת: "אין אורות במטבח" עדיף על שקט שנשמע כתקלה.
+        """
+        from . import smart as smart_mod  # noqa: PLC0415
+
+        target = node.target
+        entity_ids = smart_mod.match_entities(
+            self.hass, target.get("domain", ""), target.get("area", ""),
+            target.get("floor", ""), label=target.get("label", ""),
+        )
+        name = target.get("name") or node.say or "הקבוצה"
+        if not entity_ids:
+            return [Say("text", f"אין מכשירים ב{name}")]
+
+        if not node.action:
+            return [
+                Say("text", f"{name} כרגע"),
+                *self._speak_many(entity_ids),
+            ]
+
+        domain = target.get("domain", "")
+        if not action_allowed(self.hass, domain, node.action):
+            _LOGGER.warning(
+                "Blocked an attempt to call a forbidden action: %s.%s",
+                domain, node.action,
+            )
+            return [Say("text", "הפעולה אינה מורשית")]
+        if domain_needs_confirmation(domain) and not node.confirmed:
+            _LOGGER.warning("Blocked a sensitive action on a group: %s", domain)
+            return [Say("text", "הפעולה דורשת אישור שלא ניתן")]
+
+        try:
+            async with asyncio.timeout(SERVICE_CALL_TIMEOUT):
+                await self.hass.services.async_call(
+                    domain, node.action,
+                    {"entity_id": entity_ids, **node.data},
+                    blocking=True,
+                )
+        except TimeoutError:
+            _LOGGER.warning("Calling %s on %s did not finish in time", node.action, name)
+            return [Say("text", "הפעולה נשלחה אך לא הסתיימה בזמן")]
+        except Exception:  # noqa: BLE001 — השיחה ממשיכה גם בכשל
+            _LOGGER.exception("Calling %s on %s failed", node.action, name)
+            return [Say("text", "אירעה שגיאה בביצוע הפעולה")]
+
+        count = len(entity_ids)
+        word = "מכשיר אחד" if count == 1 else f"{count} מכשירים"
+        return [Say("text", f"בוצע על {word}")]
+
+    def _speak_many(self, entity_ids: list[str]) -> list[Say]:
+        """מצב של כמה ישויות, בשמן או בספירה לפי הגודל.
+
+        קבוצה קטנה מוקראת בשמות — "מזגן סלון על קירור, מזגן חדר
+        שינה כבוי" — כי זה מה שהמתקשר באמת רצה לדעת. קבוצה גדולה
+        מסוכמת: "שלושה דלוקים ושניים כבויים". ספירה על שני
+        מכשירים נשמעת כחידה, ושמות על עשרה כרשימת מכולת.
+        """
+        if 0 < len(entity_ids) <= NAME_EACH_UP_TO:
+            parts: list[Say] = []
+            for entity_id in entity_ids:
+                state = self.hass.states.get(entity_id)
+                if state is None:
+                    continue
+                # דרך `_friendly_name` ולא ישירות מהמאפיין: מזהה
+                # אטום כמו 0xa4c138f59bc7b721 מוקרא אחרת כרצף
+                # תווים חסר משמעות.
+                parts.append(Say("text", self._friendly_name(entity_id, state)))
+                parts.extend(_speak_state(state))
+            if parts:
+                return parts
+
+        counts: dict[str, int] = {}
+        for entity_id in entity_ids:
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+            key = str(state.state)
+            counts[key] = counts.get(key, 0) + 1
+        if not counts:
+            return [Say("text", "לא ידוע")]
+
+        if len(counts) == 1:
+            return [Say("text", "כולם"), *_speak_state_word(next(iter(counts)))]
+
+        parts = []
+        for index, (value, count) in enumerate(
+            sorted(counts.items(), key=lambda item: -item[1])
+        ):
+            if index:
+                parts.append(Say("text", "ו"))
+            parts.append(Say("number", str(count)))
+            parts.extend(_speak_state_word(value))
+        return parts
 
     async def _call_and_wait(self, node):
         """הפעלת השירות והמתנה לשינוי מצב אמיתי, לא sleep קבוע."""
@@ -506,6 +700,26 @@ def _speak_state(state) -> list[Say]:
             unit,
         )
     return parts
+
+
+def _looks_opaque(text: str) -> bool:
+    """האם המחרוזת היא מזהה טכני ולא שם.
+
+    מחמיר בכוונה: רק רצף הקסדצימלי ארוך, עם או בלי תחילית 0x.
+    שם אמיתי כמו "Sonoff1" או "ESP32" אינו נפסל, כי החלפת שם תקין
+    ב"התאורה" גרועה מהקראת שם קצת טכני.
+    """
+    cleaned = text.strip().lower().removeprefix("0x")
+    return len(cleaned) >= 8 and all(ch in "0123456789abcdef" for ch in cleaned)
+
+
+def _speak_state_word(raw: str) -> list[Say]:
+    """מילת המצב בלבד, בלי יחידות — לשימוש בסיכום קבוצה."""
+    lowered = raw.lower()
+    if lowered in _STATES:
+        return [Say("text", _STATES[lowered])]
+    translated = translate_option(raw)
+    return [Say("text", translated if translated != raw else raw)]
 
 
 _PROXY_WARNED: set[str] = set()

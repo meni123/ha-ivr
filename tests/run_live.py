@@ -1544,6 +1544,61 @@ check("בלי מספר מציג — השדה לא נשלח (זיהוי הטרא�
       lambda: asyncio.get_event_loop().run_until_complete(
           _pbx_callerid(None)) == "__absent__")
 
+# --- ניסיונות חוזרים: המרכזייה יודעת לחזור ולחייג, ושאר הספקים
+# מצלצלים פעם אחת. ברירת המחדל 0 משווה אותה אליהם — צלצול חוזר
+# הוא בקשה מפורשת, לא הפתעה ---
+ok("המרכזייה מציעה ניסיונות חוזרים", getattr(pbx, "SUPPORTS_RETRIES", False))
+ok("ספק שאינו חוזר ומחייג אינו מצהיר עליו",
+   not any(getattr(d, "SUPPORTS_RETRIES", False)
+           for d in (yemot, technoline, vonage)))
+ok("send_call מקבל ניסיונות חוזרים",
+   "retries" in {str(k) for k in _core_mod._send_call_schema().schema})
+ok("ישות הנמען מעבירה ניסיונות חוזרים", "retries=self._retries" in _notify_src)
+ok("טופס הנמען מתנה את השדה ב-SUPPORTS_RETRIES",
+   "_supports_retries" in _cfg_src and "SUPPORTS_RETRIES" in _cfg_src)
+
+
+async def _pbx_retries(arg):
+    """מחזיר את `retries` שבגוף הבקשה שהמרכזייה שולחת."""
+    import types as _t
+    from homeassistant.helpers import aiohttp_client as _ac
+
+    captured: dict = {}
+
+    class _Resp:
+        status = 200
+        async def text(self): return "ok"
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    class _Sess:
+        def post(self, url, json, headers, timeout):
+            captured.update(json); return _Resp()
+
+    _orig = _ac.async_get_clientsession
+    _ac.async_get_clientsession = lambda hass: _Sess()
+    try:
+        entry = _t.SimpleNamespace(options={
+            "pbx_alert_url": "http://x/ha",
+            "pbx_trunk": "t", "pbx_alert_secret": "s",
+        })
+        kw = {"retries": arg} if arg is not None else {}
+        await pbx.async_notify(None, entry, "hi", ["0501234567"], **kw)
+    finally:
+        _ac.async_get_clientsession = _orig
+    return captured.get("retries", "__absent__")
+
+
+check("ברירת המחדל היא צלצול אחד (retries=0)",
+      lambda: asyncio.get_event_loop().run_until_complete(
+          _pbx_retries(None)) == 0)
+check("ניסיונות חוזרים מפורשים נכנסים לגוף",
+      lambda: asyncio.get_event_loop().run_until_complete(
+          _pbx_retries(2)) == 2)
+check("ערך שלילי נחסם ל-0",
+      lambda: asyncio.get_event_loop().run_until_complete(
+          _pbx_retries(-3)) == 0)
+
 # --- תור ההתראות הממתינות ---
 _hass3 = fake_ha.FakeHass()
 _hass3.data = {}
@@ -1710,6 +1765,346 @@ _prov.write_text(_orig + "\n# touch\n")
 ok("build stamp covers providers", _core_mod.build_stamp() != _before)
 _prov.write_text(_orig)
 ok("build stamp returns after undo", _core_mod.build_stamp() == _before)
+
+# ======================================================================
+print("\n== ישות חכמה ==")
+# ======================================================================
+from custom_components.ha_ivr import smart as _smart  # noqa: E402
+
+# --- רוחב קבוע: מה שקובע אם אפשר לאסוף בלי מקש אישור ---
+ok("16 עד 30 הן שתי ספרות", _smart._fixed_width(16, 30) == 2)
+ok("8 עד 30 מרופדות לשתי ספרות", _smart._fixed_width(8, 30) == 2)
+ok("0 עד 100 רחבות מדי להקשה", _smart._fixed_width(0, 100) == 0)
+ok("טווח חד-ספרתי נשאר ספרה אחת", _smart._fixed_width(1, 9) == 1)
+ok("טווח שלילי אינו ניתן להקשה", _smart._fixed_width(-5, 5) == 0)
+ok("טווח לא שלם אינו ברוחב קבוע", _smart._fixed_width(16.5, 30) == 0)
+
+# --- שדה הערך של הפעולה ---
+_sup = {"hvac_mode": {}, "other": {}}
+ok("set_hvac_mode פועל על hvac_mode",
+   _smart._primary_field("set_hvac_mode", _sup, []) == "hvac_mode")
+ok("select_source פועל על source",
+   _smart._primary_field("select_source", {"source": {}, "x": {}}, []) == "source")
+ok("שדה חובה יחיד גובר",
+   _smart._primary_field("whatever", {"a": {}, "b": {}}, ["b"]) == "b")
+ok("שדה אופציונלי יחיד נבחר",
+   _smart._primary_field("volume_set", {"volume_level": {}}, []) == "volume_level")
+ok("ריבוי שדות בלי הכרעה נשאר פשוט",
+   _smart._primary_field("turn_on", {"brightness": {}, "color_name": {}}, []) is None)
+
+# --- מיזוג אפשרויות: המספרים אינם זזים ---
+ok("אפשרות שנעלמה יורדת",
+   _smart.merge_options(["cool", "heat"], [], ["cool"]) == ["cool"])
+ok("אפשרות חדשה נוספת בסוף ולא באמצע",
+   _smart.merge_options(["cool", "heat"], [], ["heat", "dry", "cool"])
+   == ["cool", "heat", "dry"])
+ok("אפשרות שהוחרגה אינה חוזרת",
+   _smart.merge_options(["cool"], ["dry"], ["cool", "dry"]) == ["cool"])
+ok("הסדר השמור נשמר כלשונו",
+   _smart.merge_options(["heat", "cool"], [], ["cool", "heat"]) == ["heat", "cool"])
+
+# --- התוכנית: המספרים נקבעים פעם אחת ---
+_caps = [
+    _smart.Capability(ident="turn_on", kind=_smart.KIND_SIMPLE, label="הדלקה",
+                      action="turn_on"),
+    _smart.Capability(ident="turn_off", kind=_smart.KIND_SIMPLE, label="כיבוי",
+                      action="turn_off"),
+    _smart.Capability(ident="set_hvac_mode", kind=_smart.KIND_CHOICE, label="מצב",
+                      action="set_hvac_mode", field_name="hvac_mode",
+                      options=("cool", "heat", "dry")),
+    _smart.Capability(ident="set_temperature", kind=_smart.KIND_NUMBER,
+                      label="טמפרטורה", action="set_temperature",
+                      field_name="temperature", minimum=16, maximum=30, width=2),
+]
+_plan = _smart.build_plan(
+    _caps, ["turn_on", "turn_off", "set_hvac_mode", "set_temperature"],
+    {"set_hvac_mode": ["cool", "heat"]})
+ok("המספרים מוקצים לפי הסדר",
+   [e["digit"] for e in _plan] == ["1", "2", "3", "4"])
+ok("מה שלא נבחר נרשם כמוחרג", _plan[2]["excluded"] == ["dry"])
+ok("יכולת מספרית נושאת את הטווח והרוחב",
+   (_plan[3]["min"], _plan[3]["max"], _plan[3]["width"]) == (16, 30, 2))
+ok("יכולת שאינה בגילוי אינה נכנסת לתוכנית",
+   _smart.build_plan(_caps, ["nope"], {}) == [])
+
+# --- מהתוכנית לעץ ---
+_hs = fake_ha.FakeHass({"climate.s": fake_ha.FakeState(
+    "cool", friendly_name="מזגן סלון", hvac_modes=["cool", "heat", "dry"])})
+_es = fake_ha.FakeEntry()
+_es.subentries = {"sm": types.SimpleNamespace(
+    subentry_type="smart_entity", subentry_id="sm", title="1",
+    data={"menu_path": "1", "label": "", "entity_id": "climate.s",
+          "confirm_risky": False, "plan": _plan})}
+_troot = menu.build_tree(_hs, _es)
+_snode = _troot.items["1"]
+ok("שם המכשיר נלקח מ-HA", _snode.say == "מזגן סלון")
+ok("הענף נבנה מהתוכנית", sorted(_snode.items) == ["1", "2", "3", "4"])
+ok("פעולה פשוטה היא עלה", _snode.items["1"].action == "turn_on")
+ok("בחירה היא תת-תפריט", _snode.items["3"].is_menu)
+ok("והאפשרות שהוחרגה אינה בו", len(_snode.items["3"].items) == 2)
+ok("ערך הבחירה נשלח בשדה הנכון",
+   _snode.items["3"].items["1"].data == {"hvac_mode": "cool"})
+ok("יכולת מספרית היא צומת איסוף", _snode.items["4"].is_collect)
+ok("וצומת איסוף שורד את הגיזום", _snode.items["4"].collect["width"] == 2)
+
+# אפשרות שהמכשיר הוסיף מצטרפת בסוף, בלי להזיז את הקיימות.
+_hs2 = fake_ha.FakeHass({"climate.s": fake_ha.FakeState(
+    "cool", friendly_name="מזגן", hvac_modes=["heat", "cool", "fan_only"])})
+_t2 = menu.build_tree(_hs2, _es)
+_modes = _t2.items["1"].items["3"].items
+ok("מספר קיים אינו זז כשהמכשיר משנה סדר",
+   _modes["1"].data == {"hvac_mode": "cool"})
+ok("אפשרות חדשה מקבלת את המספר הבא",
+   _modes["3"].data == {"hvac_mode": "fan_only"})
+
+# --- איסוף הספרות ---
+_col = _snode.items["4"]
+ok("בטווח 16 עד 30 הספרה הראשונה חסומה ל-1 עד 3",
+   tree.valid_next_digits(_col.collect, ()) == {"1", "2", "3"})
+ok("אחרי 1 מותר רק 6 עד 9",
+   tree.valid_next_digits(_col.collect, ("1",)) == {"6", "7", "8", "9"})
+ok("אחרי 3 מותר רק 0", tree.valid_next_digits(_col.collect, ("3",)) == {"0"})
+ok("אין ספרה שלישית", tree.valid_next_digits(_col.collect, ("2", "2")) == set())
+_pad = {"min": 8, "max": 30, "width": 2}
+ok("בטווח 8 עד 30 האפס פותח ערך קצר",
+   tree.valid_next_digits(_pad, ()) == {"0", "1", "2", "3"})
+ok("ואחרי האפס רק 8 ו-9 נשארים בטווח",
+   tree.valid_next_digits(_pad, ("0",)) == {"8", "9"})
+ok("האפס הוא ספרה בצומת איסוף",
+   "0" in tree.collect_prompt(_col, ("1", "4"), 3, ("3",)).allowed)
+ok("והכוכבית מבטלת",
+   "*" in tree.collect_prompt(_col, ("1", "4"), 3, ()).allowed)
+ok("ההודעה המלאה נאמרת רק בספרה הראשונה",
+   len(tree.collect_prompt(_col, ("1", "4"), 3, ()).messages) >= 2)
+ok("ובין הספרות שותקים",
+   tree.collect_prompt(_col, ("1", "4"), 3, ("2",)).messages == [])
+ok("אין פסיק לפני הקש בהודעת האיסוף",
+   not any(", הקש" in m.data
+           for m in tree.collect_prompt(_col, ("1", "4"), 3, ()).messages))
+ok("הספרות שנאספו נוסעות בנתיב",
+   tree.collect_prompt(_col, ("1", "4"), 3, ("2",)).at_path == ("1", "4", "2"))
+
+_found = tree.find_collector(_troot, ("1", "4", "2"))
+ok("צומת האיסוף נמצא מתוך הנתיב", _found is not None)
+ok("והספרות שהוקשו משוחזרות ממנו", _found[1:] == (("1", "4"), ("2",)))
+ok("נתיב רגיל אינו נראה כאיסוף",
+   tree.find_collector(_troot, ("1", "3")) is None)
+
+# --- הזרימה המלאה, דרך ה-View ---
+_hs3 = fake_ha.FakeHass({"climate.s": fake_ha.FakeState(
+    "cool", friendly_name="מזגן", hvac_modes=["cool", "heat"], temperature=22)})
+_es3 = fake_ha.FakeEntry()
+_es3.domain = "ha_ivr"
+_es3.data = {"token": "T", "provider": "pbx"}
+_es3.subentries = _es.subentries
+_hs3.config_entries = fake_ha.FakeConfigEntries([_es3])
+# ב-HA אמיתי השירות קיים, ו-`action_allowed` נשען על כך. הכפיל
+# מחזיר False לכל שירות, ולכן הפעולה הייתה נחסמת עוד לפני האיסוף.
+_hs3.services.has_service = lambda *a: True
+_v5 = view.IvrView(_hs3)
+# אותה לולאה גם ל-hass: `_call_and_wait` יוצר future מ-`hass.loop`,
+# ולולאה אחרת הייתה דוחה אותו וממלאת את הפלט ב-traceback שאינו כשל.
+_loop5 = _hs3.loop
+
+
+def _pbx_press(path, digit):
+    resp = _loop5.run_until_complete(_v5.get(
+        fake_ha.FakeRequest(query={"path": path, "digit": digit, "step": "3"}),
+        "pbx", "T"))
+    return _json.loads(getattr(resp, "text", "") or "{}")
+
+
+# הכניסה לצומת האיסוף. זה היה הבאג: הצומת אינו תפריט, ולכן נפל
+# למסלול העלה והפעיל את השירות בלי הערך שטרם הוקש.
+_enter = _pbx_press("1", "4")
+ok("כניסה לצומת איסוף אינה מפעילה את השירות", not _hs3.services.calls)
+ok("אלא מבקשת את הספרה הראשונה", _enter.get("path") == "1/4")
+ok("ומציעה את הספרות שבטווח בלבד",
+   set(_enter.get("keys") or []) == {"*", "1", "2", "3"})
+
+_first = _pbx_press("1/4", "2")
+ok("הקשה ראשונה אינה מפעילה דבר", not _hs3.services.calls)
+ok("והמערכת ממשיכה לאסוף", _first.get("menu") is True)
+ok("הספרה נשמרת בנתיב שחוזר", _first.get("path") == "1/4/2")
+
+_second = _pbx_press("1/4/2", "2")
+ok("שתי הספרות מרכיבות ערך אחד",
+   any(c[2].get("temperature") == 22 for c in _hs3.services.calls))
+ok("והפעולה היא זו שבתוכנית",
+   any(c[:2] == ("climate", "set_temperature") for c in _hs3.services.calls))
+ok("אחרי ההפעלה חוזרים לתפריט", _second.get("menu") is True)
+ok("והערך שהוקש מאושר בקול", "22" in _second.get("say", ""))
+
+_hs3.services.calls.clear()
+_bad = _pbx_press("1/4", "9")
+ok("ספרה שאינה בטווח נדחית", "בחירה שאינה קיינת" in _bad.get("say", "")
+   or "בחירה שאינה קיימת" in _bad.get("say", ""))
+ok("ולא הופעל דבר", not _hs3.services.calls)
+
+_cancel = _pbx_press("1/4/2", "*")
+ok("כוכבית מבטלת ומחזירה לתפריט הראשי", not _hs3.services.calls)
+
+# ======================================================================
+print("\n== קבוצה חכמה ==")
+# ======================================================================
+
+# --- דומיינים שאין להציע כקבוצה ---
+from custom_components.ha_ivr import policy as _pol  # noqa: E402
+
+ok("כפתור אינו ניתן לקיבוץ", not _pol.domain_is_groupable("button"))
+ok("סצנה ותסריט גם לא",
+   not _pol.domain_is_groupable("scene") and not _pol.domain_is_groupable("script"))
+ok("אוטומציה ובוררים גם לא",
+   not _pol.domain_is_groupable("automation")
+   and not _pol.domain_is_groupable("select")
+   and not _pol.domain_is_groupable("input_select")
+   and not _pol.domain_is_groupable("todo"))
+ok("תאורה כן", _pol.domain_is_groupable("light"))
+ok("הכרזה ללוויין מסוננת כפעולה שאינה שליטה",
+   "announce" in _pol._NON_ACTIONABLE and "get_forecasts" in _pol._NON_ACTIONABLE)
+
+# --- חיתוך יכולות בין חברי הקבוצה ---
+def _cap(kind, ident="x", **kw):
+    return _smart.Capability(ident=ident, kind=kind, label=ident,
+                             action=ident, **kw)
+
+
+_a = _cap(_smart.KIND_CHOICE, "set_hvac_mode", field_name="hvac_mode",
+          options=("cool", "heat", "dry"))
+_b = _cap(_smart.KIND_CHOICE, "set_hvac_mode", field_name="hvac_mode",
+          options=("heat", "cool"))
+ok("בחירה מצטמצמת למה שכולם מכירים",
+   _smart._merge("set_hvac_mode", [_a, _b]).options == ("cool", "heat"))
+ok("והסדר נשאר של הראשון",
+   _smart._merge("set_hvac_mode", [_b, _a]).options == ("heat", "cool"))
+ok("בלי אפשרות משותפת היכולת נופלת",
+   _smart._merge("x", [_cap(_smart.KIND_CHOICE, options=("a",)),
+                       _cap(_smart.KIND_CHOICE, options=("b",))]) is None)
+
+_n1 = _cap(_smart.KIND_NUMBER, "set_temperature", field_name="temperature",
+           minimum=8, maximum=30, width=2)
+_n2 = _cap(_smart.KIND_NUMBER, "set_temperature", field_name="temperature",
+           minimum=16, maximum=28, width=2)
+_m = _smart._merge("set_temperature", [_n1, _n2])
+ok("טווח מספרי מצטמצם לצר ביותר", (_m.minimum, _m.maximum) == (16, 28))
+ok("ערך שהוקש חוקי אצל כל החברים", _m.width == 2)
+ok("יכולות מסוגים שונים אינן מתמזגות",
+   _smart._merge("x", [_cap(_smart.KIND_SIMPLE),
+                       _cap(_smart.KIND_CHOICE, options=("a",))]) is None)
+
+# --- מהתוכנית לעץ, עם יעד במקום ישות ---
+_gcaps = [
+    _smart.Capability(ident="turn_on", kind=_smart.KIND_SIMPLE, label="הדלקה",
+                      action="turn_on"),
+    _smart.Capability(ident=_smart.STATUS_ID, kind=_smart.KIND_STATUS,
+                      label="הקראת מצב"),
+]
+_gplan = _smart.build_plan(_gcaps, ["turn_on", _smart.STATUS_ID], {})
+_gh = fake_ha.FakeHass({
+    "light.a": fake_ha.FakeState("on", friendly_name="א"),
+    "light.b": fake_ha.FakeState("off", friendly_name="ב"),
+    "light.c": fake_ha.FakeState("on", friendly_name="ג"),
+})
+fake_ha.MATCHES.clear()
+fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c"]
+_ge = fake_ha.FakeEntry()
+_ge.domain = "ha_ivr"
+_ge.data = {"token": "T", "provider": "pbx"}
+_ge.subentries = {"g": types.SimpleNamespace(
+    subentry_type="smart_group", subentry_id="g", title="6",
+    data={"menu_path": "6", "label": "אורות מטבח", "target_domain": "light",
+          "target_area": "mtbh", "target_floor": "", "confirm_risky": False,
+          "plan": _gplan})}
+_gtree = menu.build_tree(_gh, _ge)
+_gnode = _gtree.items["6"]
+ok("צומת קבוצה נושא יעד ולא ישות", _gnode.is_group and not _gnode.entity)
+ok("היעד כולל סוג ומרחב",
+   (_gnode.target["domain"], _gnode.target["area"]) == ("light", "mtbh"))
+ok("היעד מושתל גם בילדים", all(c.is_group for c in _gnode.items.values()))
+ok("ולילדים אין מזהה ישות שמור",
+   all(not c.entity for c in _gnode.items.values()))
+
+# --- הישויות נפתרות בזמן השיחה ---
+ok("היעד נפתר לישויות",
+   _smart.match_entities(_gh, "light", "mtbh") ==
+   ["light.a", "light.b", "light.c"])
+fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c", "light.d"]
+_gh.states._states["light.d"] = fake_ha.FakeState("on", friendly_name="ד")
+ok("מכשיר שנוסף למרחב מצטרף מעצמו",
+   len(_smart.match_entities(_gh, "light", "mtbh")) == 4)
+fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c"]
+ok("יעד ריק אינו מחזיר דבר", _smart.match_entities(_gh, "light", "eyn") == [])
+
+# --- תווית כיעד ---
+_smart.entity_labels = lambda hass, eid: {"mzgnym"} if eid == "light.a" else set()
+_smart.resolve_label = lambda hass, label: label
+ok("תווית מסננת את מה שהתאים",
+   _smart.match_entities(_gh, "light", "mtbh", label="mzgnym") == ["light.a"])
+ok("תווית שאיש אינו נושא מחזירה ריק",
+   _smart.match_entities(_gh, "light", "mtbh", label="eyn") == [])
+ok("בלי תווית שום דבר לא מסונן",
+   len(_smart.match_entities(_gh, "light", "mtbh")) == 3)
+
+# --- סיכום מצב לקבוצה ---
+_gview = view.IvrView(_gh)
+_named = "".join(m.data for m in _gview._speak_many(["light.a", "light.b"]))
+ok("קבוצה קטנה מוקראת בשמות", "א" in _named and "ב" in _named)
+ok("ולא בספירה", not _named.startswith("1"))
+_big = ["light.a", "light.b", "light.c", "light.d", "light.e"]
+_gh.states._states["light.e"] = fake_ha.FakeState("off", friendly_name="ה")
+_sum = "".join(m.data for m in _gview._speak_many(_big))
+ok("קבוצה גדולה מסוכמת בספירה", "3" in _sum and "2" in _sum)
+ok("ושמות אינם נאמרים בה", "ה" not in _sum.replace("דלוקים", ""))
+_all_on = "".join(
+    m.data for m in _gview._speak_many(["light.a", "light.c", "light.d", "light.e2"]))
+ok("כשכולם באותו מצב לא נאמר מספר", "כולם" in _all_on)
+ok("ישות שאינה קיימת אינה מפילה סיכום",
+   _gview._speak_many(["light.nope"]) is not None)
+
+# --- הפעלה על הקבוצה, דרך ה-View ---
+_gh.config_entries = fake_ha.FakeConfigEntries([_ge])
+_gh.services.has_service = lambda *a: True
+_gv = view.IvrView(_gh)
+
+
+def _gpress(path, digit):
+    # אותו לולאה של הבדיקה הקודמת: לולאה חדשה יוצרת futures שאינם
+    # שייכים לה, ו-asyncio דוחה אותם.
+    resp = _loop5.run_until_complete(_gv.get(
+        fake_ha.FakeRequest(query={"path": path, "digit": digit, "step": "2"}),
+        "pbx", "T"))
+    return _json.loads(getattr(resp, "text", "") or "{}")
+
+
+_gh.services.calls.clear()
+_gres = _gpress("6", "1")
+ok("הפעולה נשלחה לכל חברי הקבוצה",
+   any(c[2].get("entity_id") == ["light.a", "light.b", "light.c"]
+       for c in _gh.services.calls))
+ok("ובדומיין של היעד",
+   any(c[:2] == ("light", "turn_on") for c in _gh.services.calls))
+ok("והמתקשר שומע כמה מכשירים הושפעו", "3" in _gres.get("say", ""))
+
+_gh.services.calls.clear()
+_gstat = _gpress("6", "2")
+ok("הקראת מצב אינה מפעילה דבר", not _gh.services.calls)
+ok("ומסכמת את הקבוצה", "כרגע" in _gstat.get("say", ""))
+# צומת הבן נושא את שם הפעולה, ולכן הדיווח חייב לקחת את שם הקבוצה
+# מהיעד — אחרת יוצא "הקראת מצב כרגע" במקום "אורות מטבח כרגע".
+ok("שם הקבוצה נאמר, לא שם הפעולה",
+   "אורות מטבח כרגע" in _gstat.get("say", ""))
+ok("כתובת Zigbee כשם נחשבת מזהה ולא שם",
+   view._looks_opaque("0xa4c138f59bc7b721") and view._looks_opaque("a4c138f59bc7b721"))
+ok("ושם אמיתי אינו נפסל",
+   not view._looks_opaque("Sonoff1") and not view._looks_opaque("מזגן סלון")
+   and not view._looks_opaque("ESP32"))
+ok("שם המכשיר מוקרא ולא מזהה גולמי",
+   "light.a" not in _gstat.get("say", ""))
+
+fake_ha.MATCHES[("light", "mtbh", "")] = []
+_gempty = _gpress("6", "1")
+ok("קבוצה ריקה נאמרת ואינה מושתקת", "אין מכשירים" in _gempty.get("say", ""))
+fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c"]
 
 print(f"\n{'FAIL' if FAIL else 'PASS'} — {PASS} עברו, {FAIL} נכשלו")
 sys.exit(1 if FAIL else 0)

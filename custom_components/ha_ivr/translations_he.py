@@ -143,10 +143,34 @@ OPTION_NAMES: Final[dict[str, str]] = {
     "home": "בית",
     "sleep": "שינה",
     "activity": "פעילות",
+    "medium low": "בינוני נמוך",
+    "medium_low": "בינוני נמוך",
+    "medium high": "בינוני גבוה",
+    "medium_high": "בינוני גבוה",
+    "quiet": "שקט",
+    "silent": "שקט",
+    "turbo": "מוגבר",
+    "strong": "חזק",
+    "max": "מרבי",
+    "min": "מזערי",
     # סיבוב
     "vertical": "אנכי",
     "horizontal": "אופקי",
     "both": "שניהם",
+    "default": "ברירת מחדל",
+    "swing": "סיבוב",
+    "full_swing": "סיבוב מלא",
+    "fixed": "קבוע",
+    "fixed_upper": "קבוע למעלה",
+    "fixed_upper_middle": "קבוע למעלה באמצע",
+    "fixed_middle": "קבוע באמצע",
+    "fixed_lower_middle": "קבוע למטה באמצע",
+    "fixed_lower": "קבוע למטה",
+    "swing_upper": "סיבוב למעלה",
+    "swing_upper_middle": "סיבוב למעלה באמצע",
+    "swing_middle": "סיבוב באמצע",
+    "swing_lower_middle": "סיבוב למטה באמצע",
+    "swing_lower": "סיבוב למטה",
     # כיוון
     "forward": "קדימה",
     "reverse": "אחורה",
@@ -230,5 +254,26 @@ def translate_field(field: str) -> str:
 
 
 def translate_option(option: str) -> str:
-    """ערך בחירה בעברית, או הערך המקורי אם אין תרגום."""
-    return OPTION_NAMES.get(str(option).lower(), str(option))
+    """ערך בחירה בעברית, או הערך המקורי אם אין תרגום.
+
+    מכשירים מדווחים על אותו ערך בשתי צורות — `medium low` ו-
+    `medium_low` — ולכן גם הקו התחתון וגם הרווח מנוסים. ערך
+    מורכב שאין לו תרגום שלם מתורגם חלק-חלק, כך ש-`fan_high`
+    יוצא "מאוורר גבוה" ולא נשאר באנגלית באמצע התפריט.
+    """
+    raw = str(option)
+    lowered = raw.lower().strip()
+    if found := OPTION_NAMES.get(lowered):
+        return found
+    swapped = lowered.replace("_", " ") if "_" in lowered else lowered.replace(" ", "_")
+    if found := OPTION_NAMES.get(swapped):
+        return found
+
+    parts = lowered.replace("_", " ").split()
+    if len(parts) > 1:
+        translated = [OPTION_NAMES.get(part, part) for part in parts]
+        # רק אם כל חלק תורגם. תערובת של עברית ואנגלית באותו פריט
+        # נשמעת גרוע יותר מאנגלית עקבית.
+        if all(t != p for t, p in zip(translated, parts)):
+            return " ".join(translated)
+    return raw

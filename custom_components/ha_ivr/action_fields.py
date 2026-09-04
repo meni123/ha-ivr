@@ -52,6 +52,51 @@ ENTITY_OPTION_ATTRIBUTES: dict[str, str] = {
     "effect": "effect_list",
 }
 
+# שדות שהטווח שלהם נקבע לפי הישות ולא לפי התיאור הגנרי. תיאור
+# `climate.set_temperature` מכריז על 0 עד 250 — הטווח התיאורטי של
+# השירות — בעוד שהמזגן עצמו מדווח 16 עד 30. ההפרש קריטי: רק טווח
+# אמיתי יודע כמה ספרות המתקשר עומד להקיש.
+ENTITY_RANGE_ATTRIBUTES: dict[str, tuple[str, str]] = {
+    "temperature": ("min_temp", "max_temp"),
+    "target_temp_high": ("min_temp", "max_temp"),
+    "target_temp_low": ("min_temp", "max_temp"),
+    "humidity": ("min_humidity", "max_humidity"),
+}
+
+
+def entity_number_range(
+    hass: HomeAssistant, entity_id: str, field: str, config: dict[str, Any] | None
+) -> tuple[float | None, float | None]:
+    """הטווח של שדה מספרי, מהישות אם היא מדווחת עליו.
+
+    מעדיף את מה שהמכשיר מדווח על פני התיאור הגנרי של השירות.
+    נופל בחזרה לתיאור, ולבסוף ל-None כשאין טווח כלל — שדה בלי
+    גבולות אינו ניתן להקראה כתפריט.
+    """
+    config = config or {}
+    low = config.get("min")
+    high = config.get("max")
+
+    if attributes := ENTITY_RANGE_ATTRIBUTES.get(field):
+        # לשדות האלה הטווח הגנרי חסר משמעות — `set_temperature`
+        # מכריז 0 עד 250, שהוא הטווח של השירות ולא של המזגן. אם
+        # המכשיר אינו מדווח על שלו, אין טווח: עדיף לא להציע את
+        # הפעולה מאשר להציע רשימה שאיש לא ביקש.
+        state = hass.states.get(entity_id)
+        low_attr = state.attributes.get(attributes[0]) if state else None
+        high_attr = state.attributes.get(attributes[1]) if state else None
+        if low_attr is None or high_attr is None:
+            return None, None
+        low, high = low_attr, high_attr
+
+    try:
+        return (
+            None if low is None else float(low),
+            None if high is None else float(high),
+        )
+    except (TypeError, ValueError):
+        return None, None
+
 
 
 async def async_action_fields(
