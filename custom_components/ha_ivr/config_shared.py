@@ -787,6 +787,30 @@ class SmartEntityFlowHandler(_PathMixin, ConfigSubentryFlow):
             step_id=step_id, errors=errors, data_schema=vol.Schema(schema)
         )
 
+    # ---- נקודות ההרחבה, שהקבוצה דורסת ----
+
+    async def _discover(self) -> list:
+        """היכולות של הנושא."""
+        return await smart_mod.async_discover(
+            self.hass, str(self._pending.get(CONF_TARGET_ENTITY, ""))
+        )
+
+    def _subject(self) -> str:
+        """מה שמוצג בכותרת מסך היכולות."""
+        return str(self._pending.get(CONF_TARGET_ENTITY, ""))
+
+    def _stored_data(self, plan: list) -> dict:
+        """מה שנשמר בתת-הרשומה, מלבד המסלול והתוכנית."""
+        return {CONF_TARGET_ENTITY: str(self._pending.get(CONF_TARGET_ENTITY, ""))}
+
+    def _default_title(self) -> str:
+        """הכותרת כשלא הוזן שם מוקרא."""
+        entity_id = str(self._pending.get(CONF_TARGET_ENTITY, ""))
+        state = self.hass.states.get(entity_id)
+        return str(
+            (state.attributes.get("friendly_name") if state else None) or entity_id
+        )
+
     # ---- שלב שני: אילו יכולות ----
 
     async def async_step_capabilities(self, user_input=None) -> SubentryFlowResult:

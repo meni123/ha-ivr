@@ -35,6 +35,9 @@ jobs:
       - name: check_gate
         run: python3 tests/check_gate.py
 
+      - name: check_methods
+        run: python3 tests/check_methods.py
+
   hassfest:
     name: hassfest
     runs-on: ubuntu-latest
