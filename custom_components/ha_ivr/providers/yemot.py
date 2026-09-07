@@ -15,7 +15,7 @@ import voluptuous as vol
 from .. import history
 from ..codec import YEMOT_CODEC
 from ..model import (
-    Action, CallContext, GoTo, Say, Terminal,
+    Action, CallContext, GoTo, Say, Terminal, spell_long_digits,
 )
 from ..outbound import OutboundError, clean_phones, digits
 
@@ -117,7 +117,7 @@ def _render_messages(messages: list[Say]) -> str:
     for item in messages:
         prefix = _PREFIX[item.kind]
         if item.kind == "text":
-            data = sanitize(item.data)
+            data = sanitize(spell_long_digits(item.data))
         elif item.kind in ("number", "digits"):
             data = numeric(item.data)
         else:

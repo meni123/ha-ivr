@@ -74,6 +74,44 @@ ACTION_NAMES: Final[dict[str, str]] = {
     # מים וסירנה
     "set_operation_mode": "מצב הפעלה",
     "set_away_mode": "מצב יציאה",
+    # רשימות משימות
+    "add_item": "הוספת פריט",
+    "update_item": "עדכון פריט",
+    "remove_item": "הסרת פריט",
+    "remove_completed_items": "ניקוי פריטים שהושלמו",
+    # מדיה, המשך
+    "media_play_pause": "נגינה או השהיה",
+    "media_seek": "דילוג בתוך הרצועה",
+    "play_media": "השמעת מדיה",
+    "browse_media": "עיון במדיה",
+    "search_media": "חיפוש מדיה",
+    "clear_playlist": "ניקוי רשימת ההשמעה",
+    "repeat_set": "מצב חזרה",
+    "shuffle_set": "ערבוב",
+    "join": "צירוף נגנים",
+    "unjoin": "פירוק צירוף",
+    "play_stream": "השמעת שידור",
+    # מצלמות
+    "enable_motion_detection": "הפעלת זיהוי תנועה",
+    "disable_motion_detection": "כיבוי זיהוי תנועה",
+    # בוררים
+    "select_first": "האפשרות הראשונה",
+    "select_last": "האפשרות האחרונה",
+    "set_options": "קביעת רשימת האפשרויות",
+    # מיזוג, המשך
+    "set_swing_horizontal_mode": "מצב סיבוב אופקי",
+    # יומן
+    "create_event": "יצירת אירוע",
+    # התראות והקראה
+    "notify": "שליחת הודעה",
+    "send_message": "שליחת הודעה",
+    "persistent_notification": "התראה בממשק",
+    "say": "הקראה",
+    "speak": "הקראה",
+    # בינה מלאכותית ושיחה
+    "process": "עיבוד משפט",
+    "generate_data": "יצירת נתונים",
+    "generate_image": "יצירת תמונה",
 }
 
 # --- שמות שדות ---
@@ -114,6 +152,39 @@ FIELD_NAMES: Final[dict[str, str]] = {
     "message": "הודעה",
     "duration": "משך",
     "tone": "צליל",
+    # תאורה
+    "brightness_step": "שינוי בהירות",
+    "brightness_step_pct": "שינוי בהירות באחוזים",
+    "profile": "פרופיל",
+    # מדיה
+    "enqueue": "הוספה לתור",
+    "announce": "הכרזה",
+    "repeat": "חזרה",
+    "shuffle": "ערבוב",
+    "seek_position": "מיקום ברצועה",
+    "search_query": "חיפוש",
+    "media_filter_classes": "סוגי מדיה",
+    "format": "פורמט",
+    # רשימות משימות
+    "item": "פריט",
+    "rename": "שם חדש",
+    "status": "מצב",
+    "summary": "כותרת",
+    "description": "תיאור",
+    # כללי
+    "code": "קוד",
+    "title": "כותרת",
+    "text": "טקסט",
+    "language": "שפה",
+    "location": "מיקום",
+    "options": "אפשרויות",
+    "cycle": "מחזורי",
+    "cache": "שמירה במטמון",
+    "instructions": "הוראות",
+    "task_name": "שם המשימה",
+    "stop_actions": "עצירת פעולות",
+    "skip_condition": "תנאי דילוג",
+    "conversation_id": "מזהה שיחה",
 }
 
 # --- ערכי בחירה נפוצים ---
@@ -171,6 +242,10 @@ OPTION_NAMES: Final[dict[str, str]] = {
     "swing_middle": "סיבוב באמצע",
     "swing_lower_middle": "סיבוב למטה באמצע",
     "swing_lower": "סיבוב למטה",
+    # מיקום אופקי. הצירופים (`left_center`) נבנים מהחלקים.
+    "left": "שמאל",
+    "right": "ימין",
+    "center": "מרכז",
     # כיוון
     "forward": "קדימה",
     "reverse": "אחורה",

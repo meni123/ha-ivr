@@ -41,6 +41,15 @@ _LOGGER = logging.getLogger(__name__)
 # שמות ומצבים ארוכה מדי להאזנה בטלפון, ומי שמקשיב לא יזכור אותה.
 NAME_EACH_UP_TO = 3
 
+# כמה מטלות מוקראות בשיחה, ובכמה תווים. רשימת קניות היא פריטים
+# קצרים ועשרה מהם סבירים; תור SMS הוא פסקה לכל פריט, ושישה כאלה
+# הם 690 תווים — כדקה של הקראה, ומעבר לתקרת הזמן של כל מנוע
+# הקראה מקומי. לכן תקציב תווים ולא רק ספירה: פריט קצר אינו נפגע,
+# ופריט ארוך נקטע.
+TODO_MAX_SPOKEN = 10
+TODO_ITEM_CHARS = 100
+TODO_TOTAL_CHARS = 320
+
 _STATES = {
     "on": "דולק", "off": "כבוי", "locked": "נעול", "unlocked": "לא נעול",
     "open": "פתוח", "closed": "סגור", "opening": "נפתח", "closing": "נסגר",
@@ -473,6 +482,10 @@ class IvrView(HomeAssistantView):
         name = self._friendly_name(node.entity, state)
 
         if not node.action:
+            # מצב של רשימת מטלות הוא מספר הפריטים הפתוחים בלבד.
+            # התוכן מגיע משירות תגובה.
+            if node.entity and node.entity.startswith("todo."):
+                return await self._speak_todo([node.entity], name)
             return [Say("text", f"{name} כרגע"), *_speak_state(state)]
 
         domain = node.entity.split(".", 1)[0]
@@ -515,6 +528,8 @@ class IvrView(HomeAssistantView):
             return [Say("text", f"אין מכשירים ב{name}")]
 
         if not node.action:
+            if target.get("domain") == "todo":
+                return await self._speak_todo(entity_ids, name)
             return [
                 Say("text", f"{name} כרגע"),
                 *self._speak_many(entity_ids),
@@ -593,6 +608,59 @@ class IvrView(HomeAssistantView):
             parts.append(Say("number", str(count)))
             parts.extend(_speak_state_word(value))
         return parts
+
+    async def _speak_todo(self, entity_ids: list[str], name: str) -> list[Say]:
+        """המטלות הפתוחות עצמן, ולא רק כמה יש.
+
+        המצב של ישות `todo` הוא מספר הפריטים הפתוחים, ולכן הקראת
+        מצב רגילה אומרת "שלוש" ולא מה הן. התוכן מגיע מ-
+        `todo.get_items`, שהוא שירות תגובה ומחזיר את הפריטים
+        במקום לשנות דבר. ברירת המחדל שלו היא הפתוחים בלבד, וזה
+        מה שרוצים לשמוע.
+        """
+        try:
+            async with asyncio.timeout(SERVICE_CALL_TIMEOUT):
+                response = await self.hass.services.async_call(
+                    "todo", "get_items", {"entity_id": entity_ids},
+                    blocking=True, return_response=True,
+                )
+        except Exception:  # noqa: BLE001 — השיחה ממשיכה גם בכשל
+            _LOGGER.exception("Reading the to-do list failed")
+            return [Say("text", "אירעה שגיאה בקריאת הרשימה")]
+
+        items: list[str] = []
+        for entity_id in entity_ids:
+            entry = (response or {}).get(entity_id) or {}
+            for item in entry.get("items") or []:
+                summary = str((item or {}).get("summary") or "").strip()
+                if summary:
+                    items.append(summary)
+
+        if not items:
+            return [Say("text", f"אין מטלות ב{name}")]
+
+        count = len(items)
+        says = [Say("text", name)]
+        says.append(
+            Say("text", "מטלה אחת") if count == 1
+            else Say("text", f"{count} מטלות")
+        )
+
+        spoken = 0
+        said = 0
+        for item in items[:TODO_MAX_SPOKEN]:
+            # שורות חדשות ורווחים כפולים מגיעים מתוכן SMS ואינם
+            # נשמעים; הם רק מאריכים את מה שנשלח להקראה.
+            text = " ".join(item.split())[:TODO_ITEM_CHARS]
+            if spoken and spoken + len(text) > TODO_TOTAL_CHARS:
+                break
+            says.append(Say("text", text))
+            spoken += len(text)
+            said += 1
+
+        if count > said:
+            says.append(Say("text", f"ועוד {count - said}"))
+        return says
 
     async def _call_and_wait(self, node):
         """הפעלת השירות והמתנה לשינוי מצב אמיתי, לא sleep קבוע."""

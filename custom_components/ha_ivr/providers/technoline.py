@@ -15,7 +15,7 @@ import voluptuous as vol
 
 from .. import history
 from ..codec import TECHNOLINE_CODEC
-from ..model import Action, CallContext, GoTo, Prompt, Say
+from ..model import Action, CallContext, GoTo, Prompt, Say, spell_long_digits
 from ..outbound import OutboundError
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,7 +94,11 @@ def _files(messages: list[Say]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for item in messages:
         if item.kind == "text":
-            out.append({"text": item.data[: MAX_MESSAGE_CHARS]})
+            # רצף ספרות ארוך מרוּוח, אחרת מנוע ההקראה קורא מספר
+            # טלפון כסכום.
+            out.append(
+                {"text": spell_long_digits(item.data)[: MAX_MESSAGE_CHARS]}
+            )
         elif item.kind == "number":
             out.append({"number": item.data})
         elif item.kind == "digits":

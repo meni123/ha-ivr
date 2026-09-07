@@ -2106,5 +2106,73 @@ _gempty = _gpress("6", "1")
 ok("קבוצה ריקה נאמרת ואינה מושתקת", "אין מכשירים" in _gempty.get("say", ""))
 fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c"]
 
+# ======================================================================
+print("\n== רשימת מטלות ==")
+# ======================================================================
+_th = fake_ha.FakeHass({"todo.list": fake_ha.FakeState("3", friendly_name="קניות")})
+_th.services.has_service = lambda *a: True
+_tv = view.IvrView(_th)
+_tloop = _th.loop
+
+
+def _todo(items):
+    _th.services.RESPONSES[("todo", "get_items")] = {
+        "todo.list": {"items": [{"summary": s} for s in items]}
+    }
+    return "".join(
+        m.data for m in _tloop.run_until_complete(
+            _tv._speak_todo(["todo.list"], "קניות"))
+    )
+
+
+_r = _todo(["חלב", "לחם", "ביצים"])
+ok("המטלות עצמן מוקראות", "חלב" in _r and "לחם" in _r and "ביצים" in _r)
+ok("ולא רק המספר", "3 מטלות" in _r)
+ok("רשימה ריקה נאמרת", "אין מטלות" in _todo([]))
+ok("מטלה אחת בלשון יחיד", "מטלה אחת" in _todo(["חלב"]))
+_long = _todo([f"פריט {i}" for i in range(1, 15)])
+ok("רשימה ארוכה נקטעת", "פריט 10" in _long and "פריט 11" not in _long)
+ok("והשארית נאמרת", "ועוד 4" in _long)
+
+# תור SMS: פריטים ארוכים, ולכן התקציב חוסם לפני הספירה.
+_sms = _todo([f"הודעה {i} " + "טקסט ארוך מאוד " * 12 for i in range(1, 7)])
+ok("פריט ארוך נקטע", len(_sms) < 600)
+ok("ולא כולם נאמרים", "ועוד" in _sms)
+ok("אבל הראשון כן", "הודעה 1" in _sms)
+# פריט קצר אינו נפגע מהתקציב.
+ok("רשימת קניות קצרה נאמרת במלואה",
+   all(x in _todo(["חלב", "לחם", "ביצים", "גבינה"]) for x in
+       ("חלב", "לחם", "ביצים", "גבינה")))
+_nl = _todo(["שורה ראשונה\nשורה שנייה   עם   רווחים"])
+ok("שורות חדשות ורווחים כפולים מתנקים",
+   "\n" not in _nl and "   " not in _nl)
+_th.services.calls.clear()
+_todo(["x"])
+ok("נקרא כשירות תגובה",
+   any(c[:2] == ("todo", "get_items") for c in _th.services.calls))
+
+# ======================================================================
+print("\n== רצף ספרות ארוך ==")
+# ======================================================================
+from custom_components.ha_ivr import model as _model  # noqa: E402
+
+_sd = _model.spell_long_digits
+ok("מספר טלפון מרוּוח לספרות",
+   _sd("הודעה מ 0501234567") == "הודעה מ 0 5 0 1 2 3 4 5 6 7")  # noleak
+ok("מספר הזמנה גם", _sd("הזמנה 3491359") == "הזמנה 3 4 9 1 3 5 9")
+ok("שעה אינה נפגעת", _sd("בשעה 18:51") == "בשעה 18:51")
+ok("טמפרטורה אינה נפגעת", _sd("22 מעלות") == "22 מעלות")
+ok("שנה אינה נפגעת", _sd("שנת 2026") == "שנת 2026")
+ok("שש ספרות עדיין נקראות כמספר", _sd("קוד 123456") == "קוד 123456")
+ok("שבע ספרות כבר לא", _sd("קוד 1234567") == "קוד 1 2 3 4 5 6 7")
+
+# שלושת הספקים מחילים את זה על טקסט חופשי.
+_msg = [_model.Say("text", "מ 0501234567")]  # noleak
+ok("המרכזייה מרווחת", "0 5 0" in pbx._say(_msg))
+_ym = yemot.render(_model.Terminal(_msg))
+ok("ימות מרווחת", "0 5 0" in str(_ym))
+_tl = technoline.render(_model.Terminal(_msg))
+ok("טכנוליין מרווחת", "0 5 0" in str(_tl))
+
 print(f"\n{'FAIL' if FAIL else 'PASS'} — {PASS} עברו, {FAIL} נכשלו")
 sys.exit(1 if FAIL else 0)

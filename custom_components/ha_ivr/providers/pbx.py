@@ -32,7 +32,9 @@ from typing import Any
 import voluptuous as vol
 
 from .. import history
-from ..model import Action, CallContext, GoTo, Prompt, Say, Terminal
+from ..model import (
+    Action, CallContext, GoTo, Prompt, Say, Terminal, spell_long_digits,
+)
 from ..outbound import OutboundError
 
 _LOGGER = logging.getLogger(__name__)
@@ -121,7 +123,11 @@ def _say(messages: list[Say]) -> str:
     הכול מתאחד למחרוזת אחת, הפיסוק הוא מה שנותן את המנגינה.
     """
     parts = [
-        str(item.data)
+        # רצף ספרות ארוך מרוּוח, אחרת מנוע ההקראה קורא מספר טלפון
+        # כסכום. חל על טקסט חופשי; `number` ו-`digits` כבר מוגשים
+        # כראוי בליבה.
+        spell_long_digits(item.data) if item.kind in ("text", "raw")
+        else str(item.data)
         for item in messages
         if item.kind in ("text", "raw", "number", "digits") and item.data
     ]

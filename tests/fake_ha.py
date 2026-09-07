@@ -414,8 +414,15 @@ class FakeServices:
     def async_register(self, *a, **k):
         return None
 
-    async def async_call(self, domain, service, data, blocking=False):
+    # תשובות לשירותי תגובה, שהבדיקה מזריקה: (domain, service) -> dict.
+    RESPONSES: dict = {}
+
+    async def async_call(self, domain, service, data, blocking=False,
+                         return_response=False):
         self.calls.append((domain, service, dict(data)))
+        if return_response:
+            return self.RESPONSES.get((domain, service), {})
+        return None
 
 
 class FakeBus:

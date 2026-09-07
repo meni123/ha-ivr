@@ -339,8 +339,15 @@ def _smart_child(hass, entity_id: str, confirmed: bool, raw: dict) -> dict | Non
     action = str(raw.get("action", "") or "")
     # `_label` על כל צומת שנוצר כאן: השם כבר מדויק, ואסור
     # ל-`_apply_spoken_names` לדרוס אותו בשם שנגזר מהפעולה.
+    # תווית שנשמרה כשם הפעולה הטכני מתורגמת עכשיו. התוכנית קפואה
+    # בכוונה כדי שהמספרים לא יזוזו, אבל שם באנגלית באמצע תפריט
+    # עברי אינו החלטה של המשתמש אלא תרגום שחסר בזמן ההגדרה.
+    stored = str(raw.get("label", "") or "").strip()
+    if not stored or stored == action:
+        stored = translate_action(action) if action else "הקראת מצב"
+
     base = {
-        "say": str(raw.get("label", "") or action),
+        "say": stored,
         "_label": True,
         "entity": entity_id,
         "confirmed": confirmed,
