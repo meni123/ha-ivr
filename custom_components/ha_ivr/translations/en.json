@@ -376,6 +376,47 @@
       },
       "entry_type": "Smart group"
     },
+    "smart_area": {
+      "title": "Area menu",
+      "step": {
+        "user": {
+          "title": "New area menu",
+          "description": "Pick a place. Every kind of device found there becomes one menu entry, acting on all of them together.",
+          "data": {
+            "target_area": "Area",
+            "target_floor": "Floor",
+            "target_label": "Label",
+            "menu_path": "Menu position",
+            "label": "Spoken name"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit area menu",
+          "description": "Name and position only. To change the place itself, add a new area menu; to change one kind of device, edit its group.",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name"
+          }
+        },
+        "pick": {
+          "title": "What to include",
+          "description": "One line per kind of device found. Clear anything you do not want."
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu.",
+        "nothing_chosen": "Pick at least one."
+      },
+      "abort": {
+        "nothing_here": "Nothing was found there that a menu can be built from."
+      },
+      "initiate_flow": {
+        "user": "Add area menu"
+      },
+      "entry_type": "Area menu"
+    },
     "submenu": {
       "title": "Submenu",
       "step": {

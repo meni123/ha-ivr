@@ -16,7 +16,13 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
+from types import MappingProxyType
+
+from homeassistant.config_entries import (
+    ConfigSubentry,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
+)
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.selector import (
     AreaSelector,
@@ -43,6 +49,7 @@ from .action_fields import (
 from . import smart as smart_mod
 from .const import (
     CONF_AREA,
+    SUBENTRY_TYPE_GROUP,
     CONF_CHANNEL,
     CONF_DOMAIN,
     CONF_FLOOR,
@@ -1167,6 +1174,300 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
                 "label": str(self._pending.get(CONF_LABEL_TARGET, "")),
             },
         )
+
+
+# ----------------------------------------------------------------------
+# תפריט אזור
+# ----------------------------------------------------------------------
+
+
+class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
+    """בוחרים מקום, ומקבלים תפריט של מה שיש בו.
+
+    ההיפוך של הקבוצה: שם בוחרים סוג ישות ואז מקום, וכאן קודם
+    המקום — כי לא תמיד יודעים מה יש באזור לפני שמסתכלים.
+
+    התוצאה אינה סוג צומת חדש אלא מחולל: הרשומה עצמה משמשת
+    כתת-תפריט, ותחתיה נוצרת קבוצה חכמה לכל סוג שנבחר. כל קבוצה
+    נשארת רשומה עצמאית, וניתן לערוך אותה אחר כך במסכים הקיימים
+    בלי לגעת בשאר האזור.
+    """
+
+    def __init__(self) -> None:
+        self._pending: dict[str, Any] = {}
+        self._found: list[tuple[str, int]] = []
+        self._caps: dict[str, list] = {}
+
+    async def async_step_user(self, user_input=None) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        current: dict[str, Any] = {}
+
+        if user_input is not None:
+            area = str(user_input.get(CONF_AREA, "") or "")
+            floor = str(user_input.get(CONF_FLOOR, "") or "")
+            label = str(user_input.get(CONF_LABEL_TARGET, "") or "")
+            path, err = self._validate_path(
+                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
+            )
+            if err:
+                errors[CONF_MENU_PATH] = err
+            elif not (area or floor or label):
+                errors[CONF_AREA] = "nothing_chosen"
+            else:
+                self._pending = {
+                    CONF_AREA: area,
+                    CONF_FLOOR: floor,
+                    CONF_LABEL_TARGET: label,
+                    CONF_MENU_PATH: path,
+                    CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
+                }
+                return await self.async_step_pick()
+            current = dict(user_input)
+
+        path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
+            self._get_entry()
+        )
+        return self.async_show_form(
+            step_id="user",
+            errors=errors,
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_AREA,
+                        description={"suggested_value": current.get(CONF_AREA, "")},
+                    ): AreaSelector(),
+                    vol.Optional(
+                        CONF_FLOOR,
+                        description={"suggested_value": current.get(CONF_FLOOR, "")},
+                    ): FloorSelector(),
+                    vol.Optional(
+                        CONF_LABEL_TARGET,
+                        description={
+                            "suggested_value": current.get(CONF_LABEL_TARGET, "")
+                        },
+                    ): LabelSelector(),
+                    vol.Required(
+                        CONF_MENU_PATH, default=to_form(path)
+                    ): self._path_selector(path, allow_none=False),
+                    vol.Optional(
+                        CONF_LABEL,
+                        description={
+                            "suggested_value": str(current.get(CONF_LABEL, "") or "")
+                        },
+                    ): str,
+                }
+            ),
+        )
+
+    # ---- עריכה: שם ומיקום בלבד ----
+
+    async def async_step_reconfigure(self, user_input=None) -> SubentryFlowResult:
+        """שינוי שם ומיקום. היעד עצמו אינו נערך כאן.
+
+        שינוי המרחב היה מחייב ליצור מחדש את כל הקבוצות שתחתיו,
+        ולמחוק את מה שנערך בהן בינתיים. מי שרוצה מרחב אחר יוצר
+        תפריט אזור חדש; מי שרוצה לשנות סוג אחד עורך את הקבוצה
+        שלו ישירות.
+
+        מיקום שמשתנה גורר איתו את הקבוצות: הן תלויות תחתיו לפי
+        הנתיב, ובלי זה הן היו נשארות יתומות במקום הישן.
+        """
+        subentry = self._get_reconfigure_subentry()
+        data = dict(subentry.data)
+        old = str(data.get(CONF_MENU_PATH, ""))
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            path, err = self._validate_path(
+                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
+            )
+            if err:
+                errors[CONF_MENU_PATH] = err
+            else:
+                name = str(user_input.get(CONF_LABEL, "") or "").strip()
+                if path != old:
+                    self._move_children(old, path)
+                data[CONF_MENU_PATH] = path
+                data[CONF_LABEL] = name
+                return self.async_update_and_abort(
+                    self._get_entry(), subentry,
+                    title=f"{path} — {name or self._place_name()}", data=data,
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            errors=errors,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_MENU_PATH, default=to_form(old)
+                    ): self._path_selector(old, allow_none=False),
+                    vol.Optional(
+                        CONF_LABEL,
+                        description={
+                            "suggested_value": str(data.get(CONF_LABEL, "") or "")
+                        },
+                    ): str,
+                }
+            ),
+        )
+
+    def _move_children(self, old: str, new: str) -> None:
+        """העברת הקבוצות שתחת האזור למיקום החדש."""
+        entry = self._get_entry()
+        prefix = f"{old}/"
+        for subentry in list(entry.subentries.values()):
+            if subentry.subentry_type != SUBENTRY_TYPE_GROUP:
+                continue
+            path = str(subentry.data.get(CONF_MENU_PATH, ""))
+            if not path.startswith(prefix):
+                continue
+            moved = f"{new}/{path[len(prefix):]}"
+            data = dict(subentry.data)
+            data[CONF_MENU_PATH] = moved
+            self.hass.config_entries.async_update_subentry(
+                entry, subentry, data=data,
+                title=f"{moved} — {subentry.title.split('— ', 1)[-1]}",
+            )
+
+    # ---- שלב שני: מה נכנס, לכל סוג בנפרד ----
+
+    async def async_step_pick(self, user_input=None) -> SubentryFlowResult:
+        area = str(self._pending.get(CONF_AREA, ""))
+        floor = str(self._pending.get(CONF_FLOOR, ""))
+        label = str(self._pending.get(CONF_LABEL_TARGET, ""))
+
+        if not self._found:
+            self._found = await smart_mod.async_domains_in(
+                self.hass, area, floor, label
+            )
+            if not self._found:
+                return self.async_abort(reason="nothing_here")
+            for domain, _ in self._found:
+                self._caps[domain] = await smart_mod.async_discover_group(
+                    self.hass, domain, area, floor, label
+                )
+
+        labels = {self._domain_label(d, n): d for d, n in self._found}
+
+        if user_input is not None:
+            chosen = {
+                labels[key]: list(values or [])
+                for key, values in user_input.items()
+                if key in labels and values
+            }
+            if not chosen:
+                return self.async_show_form(
+                    step_id="pick",
+                    data_schema=self._pick_schema(labels),
+                    errors={"base": "nothing_chosen"},
+                )
+            return self._finish(chosen)
+
+        return self.async_show_form(
+            step_id="pick", data_schema=self._pick_schema(labels)
+        )
+
+    def _domain_label(self, domain: str, count: int) -> str:
+        """שם הסוג עם מספר החברים, כדי שיהיה ברור על כמה זה פועל."""
+        name = DOMAIN_NAMES.get(domain, domain)
+        return name if count == 1 else f"{name} ({count})"
+
+    def _pick_schema(self, labels: dict[str, str]) -> vol.Schema:
+        """שדה נפרד לכל סוג.
+
+        רשימה אחת מעורבת הייתה מציגה "הדלקה" פעמיים בלי לומר של
+        מי. שדה לכל סוג נותן את ההפרדה בלי מנגנון נוסף.
+        """
+        schema: dict[Any, Any] = {}
+        for text, domain in labels.items():
+            found = [
+                c for c in self._caps.get(domain, [])
+                if c.kind != smart_mod.KIND_STATUS
+            ] + [
+                c for c in self._caps.get(domain, [])
+                if c.kind == smart_mod.KIND_STATUS
+            ]
+            options = [
+                SelectOptionDict(value=c.ident, label=c.label) for c in found
+            ]
+            schema[vol.Optional(text, default=[c.ident for c in found])] = (
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                        sort=False,
+                    )
+                )
+            )
+        return vol.Schema(schema)
+
+    # ---- יצירה ----
+
+    def _finish(self, chosen: dict[str, list[str]]) -> SubentryFlowResult:
+        """תת-התפריט נוצר כרשומה הזו, והקבוצות מתווספות תחתיו."""
+        entry = self._get_entry()
+        base = str(self._pending.get(CONF_MENU_PATH, ""))
+        area = str(self._pending.get(CONF_AREA, ""))
+        floor = str(self._pending.get(CONF_FLOOR, ""))
+        label = str(self._pending.get(CONF_LABEL_TARGET, ""))
+
+        for index, (domain, idents) in enumerate(chosen.items()):
+            if index >= len(MENU_DIGITS):
+                _LOGGER.warning(
+                    "Only %s kinds fit under one menu level. The rest were dropped",
+                    len(MENU_DIGITS),
+                )
+                break
+            plan = smart_mod.build_plan(self._caps.get(domain, []), idents, {})
+            if not plan:
+                continue
+            title = self._domain_label(domain, 0).split(" (")[0]
+            self.hass.config_entries.async_add_subentry(
+                entry,
+                ConfigSubentry(
+                    data=MappingProxyType(
+                        {
+                            CONF_DOMAIN: domain,
+                            CONF_AREA: area,
+                            CONF_FLOOR: floor,
+                            CONF_LABEL_TARGET: label,
+                            CONF_MENU_PATH: f"{base}/{MENU_DIGITS[index]}",
+                            CONF_LABEL: "",
+                            CONF_CONFIRM_RISKY: False,
+                            CONF_PLAN: plan,
+                        }
+                    ),
+                    subentry_type=SUBENTRY_TYPE_GROUP,
+                    title=f"{base}/{MENU_DIGITS[index]} — {title}",
+                    unique_id=None,
+                ),
+            )
+
+        name = str(self._pending.get(CONF_LABEL, "")) or self._place_name()
+        return self.async_create_entry(
+            title=f"{base} — {name}",
+            data={
+                CONF_AREA: area,
+                CONF_FLOOR: floor,
+                CONF_LABEL_TARGET: label,
+                CONF_MENU_PATH: base,
+                CONF_LABEL: name,
+            },
+        )
+
+    def _place_name(self) -> str:
+        """שם המקום, לכשלא הוזן שם מוקרא."""
+        from . import menu as menu_mod  # noqa: PLC0415
+
+        if area := str(self._pending.get(CONF_AREA, "")):
+            return menu_mod._area_name(self.hass, area)
+        if floor := str(self._pending.get(CONF_FLOOR, "")):
+            return menu_mod._floor_name(self.hass, floor)
+        if label := str(self._pending.get(CONF_LABEL_TARGET, "")):
+            return menu_mod._label_name(self.hass, label)
+        return "אזור"
 
 
 class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):

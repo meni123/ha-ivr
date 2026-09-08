@@ -544,6 +544,35 @@ def match_entities(
     return kept
 
 
+async def async_domains_in(
+    hass: HomeAssistant, area: str = "", floor: str = "", label: str = ""
+) -> list[tuple[str, int]]:
+    """סוגי הישויות שנמצאים ביעד, וכמה מכל סוג.
+
+    זו הדרך ההפוכה לבחירת סוג מראש: קודם המקום, ומתוכו מה שיש בו.
+    מוחזרים רק סוגים שאפשר לבנות מהם תפריט קבוצתי — הסינון הוא
+    אותו סינון של בורר הסוג, ולכן אין כאן רשימה נפרדת לתחזק.
+    """
+    from .policy import domain_is_blocked, domain_is_groupable  # noqa: PLC0415
+
+    found: dict[str, int] = {}
+    for state in hass.states.async_all():
+        domain = state.entity_id.split(".", 1)[0]
+        if domain in found:
+            continue
+        if domain_is_blocked(domain) or not domain_is_groupable(domain):
+            continue
+        if not available_actions(hass, domain):
+            continue
+        members = match_entities(hass, domain, area, floor, label=label)
+        if not members:
+            continue
+        if not await async_domain_is_usable(hass, domain):
+            continue
+        found[domain] = len(members)
+    return sorted(found.items())
+
+
 async def async_discover_group(
     hass: HomeAssistant, domain: str, area: str = "", floor: str = "",
     label: str = "",

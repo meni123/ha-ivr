@@ -36,6 +36,7 @@ from .const import (
     CONF_LABEL_TARGET,
     CONF_GOTO_TARGET,
     CONF_PLAN,
+    SUBENTRY_TYPE_AREA,
     SUBENTRY_TYPE_GROUP,
     SUBENTRY_TYPE_ITEM,
     SUBENTRY_TYPE_SMART,
@@ -101,9 +102,12 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
     root.setdefault("intro", str(entry.options.get(CONF_INTRO, "") or ""))
 
     # תתי-תפריטים תחילה, כדי שהשם וההקדמה יהיו במקום כשהפריטים
-    # נתלים תחתיהם.
+    # נתלים תחתיהם. תפריט אזור הוא תת-תפריט לכל דבר — הקבוצות
+    # שנוצרו איתו תלויות תחתיו כמו כל פריט אחר.
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_SUBMENU:
+        if subentry.subentry_type not in (
+            SUBENTRY_TYPE_SUBMENU, SUBENTRY_TYPE_AREA,
+        ):
             continue
         path = normalize_path(subentry.data.get(CONF_MENU_PATH))
         if not path:
@@ -549,7 +553,8 @@ def used_paths(entry: ConfigEntry, exclude: str = "") -> set[str]:
         if subentry.subentry_type not in (
             SUBENTRY_TYPE_ITEM,
             SUBENTRY_TYPE_SMART,
-            SUBENTRY_TYPE_GROUP,
+            SUBENTRY_TYPE_AREA,
+    SUBENTRY_TYPE_GROUP,
             SUBENTRY_TYPE_SUBMENU,
             SUBENTRY_TYPE_GOTO,
             SUBENTRY_TYPE_ALERTS,
@@ -566,7 +571,9 @@ def submenu_paths(entry: ConfigEntry, exclude: str = "") -> dict[str, str]:
     """תתי-התפריטים שהוגדרו, כמיפוי נתיב לשם."""
     found: dict[str, str] = {}
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_SUBMENU:
+        if subentry.subentry_type not in (
+            SUBENTRY_TYPE_SUBMENU, SUBENTRY_TYPE_AREA,
+        ):
             continue
         if subentry.subentry_id == exclude:
             continue

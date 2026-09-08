@@ -39,6 +39,7 @@ from .config_shared import (
     GoToFlowHandler,
     MenuItemFlowHandler,
     SmartEntityFlowHandler,
+    SmartAreaFlowHandler,
     SmartGroupFlowHandler,
     SubMenuFlowHandler,
     csv_list,
@@ -54,6 +55,7 @@ from .const import (
     SUBENTRY_TYPE_CONTACT,
     SUBENTRY_TYPE_GOTO,
     SUBENTRY_TYPE_ITEM,
+    SUBENTRY_TYPE_AREA,
     SUBENTRY_TYPE_GROUP,
     SUBENTRY_TYPE_SMART,
     SUBENTRY_TYPE_SUBMENU,
@@ -181,6 +183,7 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
             SUBENTRY_TYPE_ITEM: MenuItemFlowHandler,
             SUBENTRY_TYPE_SMART: SmartEntityFlowHandler,
             SUBENTRY_TYPE_GROUP: SmartGroupFlowHandler,
+            SUBENTRY_TYPE_AREA: SmartAreaFlowHandler,
             SUBENTRY_TYPE_SUBMENU: SubMenuFlowHandler,
             SUBENTRY_TYPE_GOTO: GoToFlowHandler,
         }

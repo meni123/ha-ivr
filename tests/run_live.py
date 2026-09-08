@@ -2174,5 +2174,63 @@ ok("ימות מרווחת", "0 5 0" in str(_ym))
 _tl = technoline.render(_model.Terminal(_msg))
 ok("טכנוליין מרווחת", "0 5 0" in str(_tl))
 
+# ======================================================================
+print("\n== תפריט אזור ==")
+# ======================================================================
+# תת-רשומה מסוג `smart_area` היא תת-תפריט לכל דבר, והקבוצות
+# שנוצרו איתה תלויות תחתיה.
+_ah = fake_ha.FakeHass({
+    "light.a": fake_ha.FakeState("on", friendly_name="אור"),
+    "climate.a": fake_ha.FakeState("cool", friendly_name="מזגן",
+                                   hvac_modes=["cool", "heat"]),
+})
+fake_ha.MATCHES.clear()
+fake_ha.MATCHES[("light", "slvn", "")] = ["light.a"]
+fake_ha.MATCHES[("climate", "slvn", "")] = ["climate.a"]
+
+_acaps = [_smart.Capability("turn_on", _smart.KIND_SIMPLE, "הדלקה",
+                            action="turn_on")]
+_aplan = _smart.build_plan(_acaps, ["turn_on"], {})
+_ae = fake_ha.FakeEntry()
+_ae.subentries = {
+    "area": types.SimpleNamespace(
+        subentry_type="smart_area", subentry_id="area", title="1",
+        data={"menu_path": "1", "label": "סלון", "target_area": "slvn"}),
+    "g1": types.SimpleNamespace(
+        subentry_type="smart_group", subentry_id="g1", title="1/1",
+        data={"menu_path": "1/1", "label": "", "target_domain": "light",
+              "target_area": "slvn", "target_floor": "", "target_label": "",
+              "confirm_risky": False, "plan": _aplan}),
+    "g2": types.SimpleNamespace(
+        subentry_type="smart_group", subentry_id="g2", title="1/2",
+        data={"menu_path": "1/2", "label": "", "target_domain": "climate",
+              "target_area": "slvn", "target_floor": "", "target_label": "",
+              "confirm_risky": False, "plan": _aplan}),
+}
+_atree = menu.build_tree(_ah, _ae)
+_anode = _atree.items["1"]
+ok("תפריט האזור הוא תת-תפריט", _anode.is_menu)
+ok("ושמו נלקח מההגדרה", _anode.say == "סלון")
+ok("הקבוצות תלויות תחתיו", sorted(_anode.items) == ["1", "2"])
+ok("וכל אחת נושאת את היעד שלה",
+   _anode.items["1"].target["domain"] == "light"
+   and _anode.items["2"].target["domain"] == "climate")
+
+# המיקום נתפס, אחרת הטופס יציע אותו שוב.
+ok("מיקום תפריט האזור נחשב תפוס", "1" in menu.used_paths(_ae))
+# כל סוג תת-רשומה חייב להיות ניתן לעריכה: Home Assistant מציג
+# את כפתור העריכה לפי קיום `async_step_reconfigure`, ובלעדיו
+# נוצר פריט שאי אפשר לשנות בו שם או מיקום.
+from custom_components.ha_ivr import config_shared as _cs  # noqa: E402
+
+_handlers = ("MenuItemFlowHandler", "SmartEntityFlowHandler",
+             "SmartGroupFlowHandler", "SmartAreaFlowHandler",
+             "SubMenuFlowHandler", "GoToFlowHandler", "AlertsFlowHandler",
+             "ContactFlowHandler")
+_no_edit = [h for h in _handlers
+            if not hasattr(getattr(_cs, h), "async_step_reconfigure")]
+ok("כל סוגי תת-הרשומות ניתנים לעריכה", not _no_edit)
+ok("והוא מוצע כתת-תפריט לתלייה", "1" in menu.submenu_paths(_ae))
+
 print(f"\n{'FAIL' if FAIL else 'PASS'} — {PASS} עברו, {FAIL} נכשלו")
 sys.exit(1 if FAIL else 0)

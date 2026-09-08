@@ -29,6 +29,9 @@ SUBENTRY_TYPE_SMART: Final = "smart_entity"
 # קבוצה: כל הישויות מסוג מסוים במרחב, בקומה או בכל הבית. אותו
 # מנגנון גילוי, אלא שהיכולות הן החיתוך של כל החברים. ראו `smart.py`.
 SUBENTRY_TYPE_GROUP: Final = "smart_group"
+# תפריט אזור: בוחרים מרחב, והאינטגרציה יוצרת תחתיו קבוצה לכל סוג
+# ישות שנמצא בו. הרשומה עצמה משמשת כתת-תפריט בלבד.
+SUBENTRY_TYPE_AREA: Final = "smart_area"
 # שלוחה שמקריאה את ההתראות האחרונות שנשלחו. ראו `announce.log_alert`.
 SUBENTRY_TYPE_ALERTS: Final = "alerts"
 
