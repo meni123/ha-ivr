@@ -12,8 +12,6 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -29,25 +27,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """חיישן לכל פריט."""
-    # ההתקן ההורה נוצר מפורשות. בלעדיו כל via_device מצביע להתקן
-    # שאינו קיים, HA מזהיר, וההתנהגות אמורה להפסיק לעבוד בגרסה
-    # עתידית.
-    dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(entry.domain, entry.entry_id)},
-        # שם הספק נכנס לשם ההתקן: בלעדיו כל הרשומות נקראות
-        # "תפריט טלפוני", ו-HA מפרידה ביניהן במספרים בלבד —
-        # מזהי ישויות כמו `_2` ו-`_2_2` שאי אפשר לזהות לפיהם
-        # למי הם שייכים.
-        #
-        # מזהי הישויות הקיימות אינם משתנים מזה: הם נקבעו ברישום
-        # ונשארים. השם משפיע על מה שנוצר מכאן והלאה, ועל מה
-        # שמוצג במסך ההתקן.
-        name=f"תפריט טלפוני — {entry.title}",
-        manufacturer="IVR",
-        model="שכבת ספק",
-        entry_type=DeviceEntryType.SERVICE,
-    )
 
     for subentry_id, subentry in entry.subentries.items():
         if subentry.subentry_type != SUBENTRY_TYPE_ITEM:

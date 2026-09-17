@@ -1014,6 +1014,14 @@ for name, drv in DRIVERS:
     for label, action in (("prompt", prompt), ("terminal", term), ("goto", goto)):
         check(f"{name}.respond({label})", lambda d=drv, a=action: d.respond(a, cfg))
 
+print("\n== טכנוליין: המעבר הוא נתיב מוחלט ==")
+check("בלי לוכסן מקבל לוכסן",
+      lambda: technoline.render(GoTo(target="200", messages=[]))[-1]
+      == {"type": "goTo", "goTo": "/200"})
+check("נתיב מקונן נשאר כמו שהוא",
+      lambda: technoline.render(GoTo(target="/1/3", messages=[]))[-1]
+      == {"type": "goTo", "goTo": "/1/3"})
+
 print("\n== פענוח בקשות נכנסות, חתימה אחידה ==")
 check("yemot.parse", lambda: yemot.parse({"ApiCallId": "c", "s2_1": "7"}, {}))
 check("technoline.parse", lambda: technoline.parse({"PBXcallId": "c", "s2_1": "7"}, {}))

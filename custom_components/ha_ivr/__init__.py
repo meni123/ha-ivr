@@ -92,6 +92,7 @@ try:
 
     from . import registry
     from .const import SATELLITES, SERVICE_SEND_CALL
+    from .entity import ensure_parent_device
     from .outbound import OutboundError, clean_phones
     from .providers import ensure_registered as PROVIDERS_REGISTER
     from .stream import StreamView
@@ -163,6 +164,9 @@ if _HA:
                 DOMAIN, SERVICE_SEND_CALL, _handle_send_call(hass),
                 schema=_send_call_schema(),
             )
+
+        # ההתקן הראשי קודם לפלטפורמות: כל ישות מקשרת אליו לפי מזהה.
+        ensure_parent_device(hass, entry)
 
         await hass.config_entries.async_forward_entry_setups(
             entry, _platforms(driver)

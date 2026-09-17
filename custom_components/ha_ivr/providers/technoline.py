@@ -22,12 +22,21 @@ _LOGGER = logging.getLogger(__name__)
 
 DRIVER_ID = "technoline"
 
-# goTo מקבל מזהה שלוחה, ולכן פריט "מעבר" מוצע בתפריט.
+# יש פקודת מעבר, ולכן פריט "מעבר" מוצע בתפריט.
 SUPPORTS_GOTO = True
 
-# `goTo` מקבל מזהה שלוחה, בעוד ה-`target` של `transfer_extension`
-# הוא נתיב בעץ. שני דברים שונים באותה מערכת, ולכן הרמז מפורש.
-GOTO_TARGET_HINT = "מזהה שלוחה אצל טכנוליין, למשל 200"
+# `goTo` מקבל נתיב בעץ השלוחות. בלי לוכסן מוביל הוא יחסי לשלוחה
+# הנוכחית — ולכן "200" לשלוחה שיושבת בתפריט הראשי אינו נמצא, והמרכזייה
+# חוזרת לתפריט. עם לוכסן ("/200") הוא מוחלט. מי שלא כתב לוכסן
+# מקבל אותו: שלוחה בלי היררכיה היא כמעט תמיד בתפריט הראשי.
+GOTO_TARGET_HINT = "מספר השלוחה אצל טכנוליין עם לוכסן לפניו, למשל /200; שלוחה מקוננת — /1/3"
+
+
+def _goto_command(target: str) -> dict[str, Any]:
+    target = str(target).strip()
+    if not target.startswith("/"):
+        target = "/" + target
+    return {"type": "goTo", "goTo": target}
 
 # יש ערוץ סטרימינג, ולכן מסך העוזר הקולי קיים באינטגרציה הזו.
 # השם שמוצג בבורר הספק ובכותרת הרשומה.
@@ -139,7 +148,7 @@ def render(action: Action) -> list[dict[str, Any]]:
             chain.append(
                 {"type": "simpleMessage", "files": _files(action.messages)}
             )
-        chain.append({"type": "goTo", "goTo": action.target})
+        chain.append(_goto_command(action.target))
         return chain
 
     if isinstance(action, Prompt):

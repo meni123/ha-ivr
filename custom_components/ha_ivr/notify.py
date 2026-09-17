@@ -28,6 +28,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import registry
+from .entity import child_device_info
 from .const import (
     CONF_CALLER_ID,
     CONF_CHANNEL,
@@ -65,13 +66,10 @@ class IvrNotify(NotifyEntity):
         # לשם המכשיר, ושניהם זהים היו מייצרים מזהה כפול.
         # `None` מציין "אני המכשיר עצמו".
         self._attr_name = None
-        self._attr_device_info = DeviceInfo(
-            identifiers={(entry.domain, f"{entry.entry_id}_{subentry.subentry_id}")},
-            name=subentry.title,
-            manufacturer="IVR",
-            model="נמען התראה",
-            via_device=(entry.domain, entry.entry_id),
-        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return child_device_info(self.hass, self._entry, self._subentry, "נמען התראה")
 
     async def async_send_message(self, message: str, title: str | None = None) -> None:
         """חיוג לנמען והשמעת ההודעה.
