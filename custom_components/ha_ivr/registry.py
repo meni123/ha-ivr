@@ -61,7 +61,15 @@ _DRIVERS: dict[str, Driver] = {}
 
 
 def register(driver: Driver) -> None:
-    """רישום דרייבר. נקרא מ-`async_setup` של אינטגרציית הספק."""
+    """רישום דרייבר. נקרא מ-`providers.ensure_registered`.
+
+    `ensure_registered` נקרא מכל שלב בטופס וגם מ-
+    `async_get_supported_subentry_types`, ש-HA קוראת לה פעם לכל רשומה.
+    רישום חוזר של אותו אובייקט הוא אפוא שגרה, ואינו נרשם ביומן —
+    אחרת כל עלייה כותבת את ארבעת הספקים פעם לכל רשומה.
+    """
+    if _DRIVERS.get(driver.DRIVER_ID) is driver:
+        return
     _DRIVERS[driver.DRIVER_ID] = driver
     _LOGGER.debug("Registered driver %s", driver.DRIVER_ID)
 

@@ -576,9 +576,30 @@ ok("המרשם ריק לפני הרישום", not registry.registered())
 _provs.ensure_registered()
 ok("ensure_registered ממלא את המרשם",
    set(registry.registered()) == {"pbx", "technoline", "vonage", "yemot"})
+import logging as _logging  # noqa: E402
+
+
+class _Count(_logging.Handler):
+    def __init__(self):
+        super().__init__(_logging.DEBUG)
+        self.lines = 0
+
+    def emit(self, record):
+        self.lines += 1
+
+
+_reg_log = _logging.getLogger(registry.__name__)
+_counter, _prev_level = _Count(), _reg_log.level
+_reg_log.addHandler(_counter)
+_reg_log.setLevel(_logging.DEBUG)
 _provs.ensure_registered()
+_reg_log.removeHandler(_counter)
+_reg_log.setLevel(_prev_level)
 ok("קריאה חוזרת אינה מכפילה",
    len(registry.registered()) == 4)
+# HA קוראת ל-async_get_supported_subentry_types פעם לכל רשומה, ומשם
+# ensure_registered. רישום חוזר של אותו ספק אינו כותב ליומן.
+ok("קריאה חוזרת אינה כותבת ליומן", _counter.lines == 0)
 
 _flow_src2 = (_core_dir / "config_flow.py").read_text("utf-8")
 _steps = [s for s in ("async_step_user", "async_step_settings",
