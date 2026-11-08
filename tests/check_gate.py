@@ -1,4 +1,4 @@
-"""השער בסטרימינג: כל מסלול יציאה מ-`_speak` חייב לפתוח אותו.
+"""השער בסטרימינג: כל מסלול יציאה מ-`_speak` ומ-`_speak_stream` חייב לפתוח אותו.
 
 השער נסגר לפני שאנחנו מדברים (`_muted = True` ב-STT_VAD_END). מי
 שיוצא מ-`_speak` בלי `await self._resume(...)` משאיר את הקלט סגור,
@@ -20,6 +20,8 @@
 **היעד עבר ל-`satellite.py` ב-0.28.0.** `_speak` הלך אחרי הצינור,
 ו-`stream.py` נשאר הסוקט בלבד — אין בו עוד שער לשמור עליו.
 
+**`_speak_stream` נוסף ב-1.8.0** — אותו חוזה, להקראה שמגיעה בזרימה.
+
     python3 tests/check_gate.py
 """
 
@@ -31,7 +33,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / "custom_components" / "ha_ivr" / "satellite.py"
-GUARDED = "_speak"
+GUARDED = ("_speak", "_speak_stream")
 OPENER = "_resume"
 
 # הבלוק אינו נופל החוצה — הוא מסתיים ב-return או ב-raise.
@@ -107,34 +109,38 @@ def _analyze(body: list[ast.stmt], opened: bool, bad: list[int]):
 
 def main() -> int:
     tree = ast.parse(TARGET.read_text("utf-8"))
-    target = next(
-        (
-            n for n in ast.walk(tree)
-            if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
-            and n.name == GUARDED
-        ),
-        None,
-    )
-    if target is None:
-        print(f"FAIL — {GUARDED} אינה קיימת ב-{TARGET.name}. אם היא שונתה "
-              f"את שמה, יש לעדכן כאן — לא למחוק את הבדיקה")
-        return 1
+    failed = False
+    for name in GUARDED:
+        target = next(
+            (
+                n for n in ast.walk(tree)
+                if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+                and n.name == name
+            ),
+            None,
+        )
+        if target is None:
+            print(f"FAIL — {name} אינה קיימת ב-{TARGET.name}. אם היא שונתה "
+                  f"את שמה, יש לעדכן כאן — לא למחוק את הבדיקה")
+            failed = True
+            continue
 
-    bad: list[int] = []
-    end = _analyze(target.body, False, bad)
-    if end is not EXITS and not end:
-        bad.append(target.body[-1].lineno)
+        bad: list[int] = []
+        end = _analyze(target.body, False, bad)
+        if end is not EXITS and not end:
+            bad.append(target.body[-1].lineno)
 
-    if bad:
-        print(f"FAIL — {GUARDED} יוצאת בלי לפתוח את השער:")
-        for line in sorted(bad):
-            print(f"  {TARGET.name}:{line}")
-        print(f"\n  כל יציאה חייבת `await self.{OPENER}(...)` לפניה.")
-        print("  בלעדיה הקלט נשאר סגור והשיחה מתה בשקט.")
-        return 1
+        if bad:
+            print(f"FAIL — {name} יוצאת בלי לפתוח את השער:")
+            for line in sorted(bad):
+                print(f"  {TARGET.name}:{line}")
+            print(f"\n  כל יציאה חייבת `await self.{OPENER}(...)` לפניה.")
+            print("  בלעדיה הקלט נשאר סגור והשיחה מתה בשקט.")
+            failed = True
+            continue
 
-    print(f"PASS — כל מסלולי היציאה מ-{GUARDED} פותחים את השער")
-    return 0
+        print(f"PASS — כל מסלולי היציאה מ-{name} פותחים את השער")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

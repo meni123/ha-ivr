@@ -88,7 +88,7 @@ try:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.const import Platform
     from homeassistant.core import ServiceCall
-    from homeassistant.exceptions import HomeAssistantError
+    from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 
     from . import registry
     from .const import SATELLITES, SERVICE_SEND_CALL
@@ -148,14 +148,16 @@ if _HA:
             platforms += [Platform.ASSIST_SATELLITE, Platform.SELECT]
         return platforms
 
-    async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         driver = registry.for_entry(entry)
         if driver is None:
-            _LOGGER.error(
-                "Entry %s names an unknown provider: %r",
-                entry.entry_id, entry.data.get(CONF_PROVIDER),
+            raise ConfigEntryError(
+                translation_domain=DOMAIN,
+                translation_key="no_driver",
+                translation_placeholders={
+                    "provider": str(entry.data.get(CONF_PROVIDER, ""))
+                },
             )
-            return False
 
         entry.async_on_unload(entry.add_update_listener(_reload))
 
@@ -189,30 +191,27 @@ if _HA:
                 stop = getattr(driver, "async_stop_transport", None)
                 entry.async_on_unload(lambda s=server, f=stop: _stop_transport(f, s))
 
-        return True
-
     async def _stop_transport(stop, server) -> None:
         """סגירת התחבורה של הדרייבר ב-unload, אם הוגדרה."""
         if stop is not None:
             with contextlib.suppress(Exception):
                 await stop(server)
 
-    async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         from .view import reset_warnings  # noqa: PLC0415
 
         reset_warnings()
         driver = registry.for_entry(entry)
         if driver is None:
-            return True
+            return
 
-        unloaded = await hass.config_entries.async_unload_platforms(
+        await hass.config_entries.async_unload_platforms_or_raise(
             entry, _platforms(driver)
         )
         # השירות יורד רק עם הרשומה האחרונה: הוא של הדומיין, לא
         # של הרשומה, ומי שמסיר ספק אחד מתוך שניים עדיין צריך אותו.
-        if unloaded and len(hass.config_entries.async_entries(DOMAIN)) <= 1:
+        if len(hass.config_entries.async_entries(DOMAIN)) <= 1:
             hass.services.async_remove(DOMAIN, SERVICE_SEND_CALL)
-        return unloaded
 
     async def _reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
         await hass.config_entries.async_reload(entry.entry_id)

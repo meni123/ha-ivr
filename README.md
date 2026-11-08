@@ -4,7 +4,7 @@
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![בדיקות](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml/badge.svg)](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml)
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.6%2B-41BDF5.svg)](https://www.home-assistant.io)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%2B-41BDF5.svg)](https://www.home-assistant.io)
 [![רישיון](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > **English:** [README.en.md](README.en.md)
@@ -80,7 +80,7 @@ AudioSocket (PCM גולמי, בלי קודק). ראו [docs/pbx.md](docs/pbx.md)
 
 | הדרישה | הפירוט |
 |---|---|
-| Home Assistant | 2024.6 ומעלה |
+| Home Assistant | 2026.11 ומעלה |
 | כתובת HTTPS חיצונית | הספק פונה **פנימה** אל השרת שלכם. מנהרת Cloudflare, Nginx, DuckDNS — כל פתרון |
 | הצפנה | חובה. הטוקן עובר בתוך הכתובת |
 | חשבון אצל ספק | ימות המשיח, טכנוליין או Vonage |

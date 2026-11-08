@@ -1193,6 +1193,70 @@ ok("מה שאינו WAV מוחזר כאפסים", audio.wav_format(b"ID3junk") =
 ok("resample בקצב זהה אינו נוגע באודיו",
    audio.resample(b"\x01\x02", 8000, 8000) == b"\x01\x02")
 
+# הקראה בזרימה: הכותרת נכתבת לפני שהאורך ידוע, ולכן מקטע ה-data
+# מוצהר באורך 0 וה-PCM כולו אחריו. כך כותב אותה Wyoming ב-HA.
+_shdr = (b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt "
+         + (16).to_bytes(4, "little") + (1).to_bytes(2, "little")
+         + (1).to_bytes(2, "little")
+         + (44100).to_bytes(4, "little") + (88200).to_bytes(4, "little")
+         + (2).to_bytes(2, "little") + (16).to_bytes(2, "little")
+         + b"data" + (0).to_bytes(4, "little"))
+ok("strip_wav על הקראה מזרימה מחזיר את ה-PCM ולא שקט",
+   audio.strip_wav(_shdr + b"\x01\x02" * 50) == (b"\x01\x02" * 50, 44100))
+ok("strip_wav על הקראה מזרימה חותך בית יתום",
+   audio.strip_wav(_shdr + b"\x01\x02\x03") == (b"\x01\x02", 44100))
+ok("wav_data_start מוצא קצב והיסט", audio.wav_data_start(_shdr) == (44100, 44))
+ok("wav_data_start מחכה לכותרת שלמה", audio.wav_data_start(_shdr[:30]) is None)
+ok("wav_data_start מזהה שאינו WAV", audio.wav_data_start(b"ID3" + b"\x00" * 20) == (0, -1))
+ok("strip_wav על קובץ רגיל לא השתנה",
+   audio.strip_wav(_hdr) == (b"\x00" * 8, 16000))
+
+# הכפלה עם מסנן: אורך כפול, רציפות בין מסגרות, ושקט נשאר שקט
+_u = audio.Upsampler2x()
+if _u.available:
+    import math as _m
+    _tone = b"".join(int(8000 * _m.sin(2 * _m.pi * 440 * i / 8000)).to_bytes(2, "little", signed=True)
+                     for i in range(1600))
+    _one = audio.Upsampler2x().process(_tone)
+    _u2 = audio.Upsampler2x()
+    _split = _u2.process(_tone[:640]) + _u2.process(_tone[640:])
+    ok("Upsampler2x מכפיל את האורך", len(_one) == 2 * len(_tone))
+    ok("Upsampler2x רציף בין מסגרות", _one == _split)
+    ok("Upsampler2x: שקט נשאר שקט", set(audio.Upsampler2x().process(b"\x00" * 640)) == {0})
+else:
+    ok("Upsampler2x כבוי בלי numpy", not _u.available)
+
+print("\n== סוף דיבור ==")
+from custom_components.ha_ivr import endpoint  # noqa: E402
+
+
+def _ep_run(probs, silence=1.2):
+    ep = endpoint.Endpointer(silence)
+    for i, p in enumerate(probs):
+        if ep.step(p):
+            return i
+    return None
+
+
+_talk = [0.9] * 100
+# הפסקה של חצי שנייה באמצע משפט — כאן ה-VAD של הצינור חתך מתקשרים
+ok("הפסקה של 0.55 ש׳ באמצע משפט אינה סוף",
+   _ep_run(_talk + [0.1] * 55 + _talk) is None)
+# הסתברות מהבהבת לאורך דיבור רציף: שקט מצטבר, אבל אף פעם לא רצוף
+ok("דיבור מהבהב אינו נחתך",
+   _ep_run(([0.9] * 30 + [0.1] * 20) * 20) is None)
+ok("שקט רצוף של 1.2 ש׳ אחרי דיבור הוא סוף",
+   _ep_run(_talk + [0.1] * 130) == 100 + 119)
+ok("אמצע (0.3-0.5) אינו מוסיף לשקט ואינו מאפס אותו",
+   _ep_run(_talk + [0.1] * 60 + [0.4] * 50 + [0.1] * 60) == 100 + 60 + 50 + 59)
+ok("בלי דיבור אין סוף — הצינור מסיים בתקרת הזמן",
+   _ep_run([0.1] * 2000) is None)
+ok("רעש קצר בתחילת התור אינו פותח פקודה",
+   _ep_run([0.9] * 10 + [0.1] * 300) is None)
+ok("הרגישות ממופה לשניות",
+   endpoint.SILENCE_BY_SENSITIVITY == {"aggressive": 0.5, "default": 0.8, "relaxed": 1.2})
+ok("בלי מנוע VAD הזיהוי כבוי ואינו חותך", not endpoint.Endpointer(0.8, None).feed(b"\x00" * 6400))
+
 print("\n== שכבת הסטרימינג ==")
 from custom_components.ha_ivr import stream  # noqa: E402
 

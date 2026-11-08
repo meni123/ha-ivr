@@ -111,6 +111,56 @@ def resample(pcm: bytes, src_rate: int, dst_rate: int) -> bytes:
     return out.tobytes()
 
 
+# הכפלת קצב 8k→16k לזיהוי הדיבור: אפסים בין הדגימות ומסנן מעביר-נמוכים
+# (sinc בחלון האנינג). אינטרפולציה לינארית משאירה בתדרים הגבוהים תמונות
+# של הספקטרום, ופוגעת בדיוק התמלול.
+UP2_TAPS = 31
+
+
+def _up2_taps() -> list[float]:
+    centre = (UP2_TAPS - 1) / 2
+    taps = []
+    for i in range(UP2_TAPS):
+        x = i - centre
+        sinc = 1.0 if x == 0 else math.sin(math.pi * x / 2) / (math.pi * x / 2)
+        taps.append(sinc * (0.5 - 0.5 * math.cos(2 * math.pi * i / (UP2_TAPS - 1))))
+    return taps
+
+
+class Upsampler2x:
+    """הכפלת קצב עם מסנן, לזרם של מסגרות. שומר את זנב המסנן בין מסגרות.
+
+    דורש numpy (קיים בכל התקנת HA). בלעדיו `available` כבוי, והקורא
+    נשאר עם `resample` הלינארי.
+    """
+
+    def __init__(self) -> None:
+        try:
+            import numpy as np  # noqa: PLC0415
+        except ImportError:
+            self._np = None
+            return
+        self._np = np
+        self._taps = np.array(_up2_taps())
+        self._hist = np.zeros(UP2_TAPS - 1)
+
+    @property
+    def available(self) -> bool:
+        return self._np is not None
+
+    def process(self, pcm: bytes) -> bytes:
+        np = self._np
+        samples = np.frombuffer(pcm[: len(pcm) - (len(pcm) % 2)], dtype="<i2")
+        if not samples.size:
+            return b""
+        up = np.zeros(samples.size * 2)
+        up[::2] = samples
+        joined = np.concatenate((self._hist, up))
+        out = np.convolve(joined, self._taps, mode="valid")
+        self._hist = joined[-(UP2_TAPS - 1):]
+        return np.clip(np.rint(out), -32768, 32767).astype("<i2").tobytes()
+
+
 def strip_wav(data: bytes) -> tuple[bytes, int]:
     """חילוץ ה-PCM והקצב מקובץ WAV, בלי wave ובלי קובץ זמני."""
     if len(data) < 44 or data[:4] != b"RIFF":
@@ -125,9 +175,40 @@ def strip_wav(data: bytes) -> tuple[bytes, int]:
         if chunk_id == b"fmt " and body + 8 <= len(data):
             rate = int.from_bytes(data[body + 4 : body + 8], "little") or PIPELINE_RATE
         elif chunk_id == b"data":
-            return data[body : body + size], rate
+            if size == 0:
+                # כותרת של הקראה בזרימה: האורך לא ידוע כשהיא נכתבת,
+                # ולכן הוא 0, וה-PCM כולו אחריה. בלי זה הקראה מלאה
+                # שנאספה מזרימה חוזרת ריקה, והשיחה שותקת.
+                size = len(data) - body
+            pcm = data[body : body + size]
+            return pcm[: len(pcm) - (len(pcm) % 2)], rate
         pos = body + size + (size % 2)
     return b"", rate
+
+
+def wav_data_start(head: bytes) -> tuple[int, int] | None:
+    """תחילת ה-PCM בהקראה שמגיעה בזרימה: (קצב, היסט).
+
+    `None` כשעוד לא הגיעה כותרת שלמה, ו-`(0, -1)` כשזה אינו WAV.
+    בזרימה הכותרת מגיעה ראשונה ואחריה PCM ללא סוף ידוע, ולכן
+    `strip_wav` — שמחכה לקובץ שלם — אינו מתאים כאן.
+    """
+    if len(head) < 12:
+        return None
+    if head[:4] != b"RIFF" or head[8:12] != b"WAVE":
+        return 0, -1
+    rate = PIPELINE_RATE
+    pos = 12
+    while pos + 8 <= len(head):
+        chunk_id = head[pos : pos + 4]
+        size = int.from_bytes(head[pos + 4 : pos + 8], "little")
+        body = pos + 8
+        if chunk_id == b"data":
+            return rate, body
+        if chunk_id == b"fmt " and body + 8 <= len(head):
+            rate = int.from_bytes(head[body + 4 : body + 8], "little") or PIPELINE_RATE
+        pos = body + size + (size % 2)
+    return None
 
 
 def wav_format(data: bytes) -> tuple[int, int, int]:

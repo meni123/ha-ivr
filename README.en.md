@@ -2,7 +2,7 @@
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![Tests](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml/badge.svg)](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml)
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.6%2B-41BDF5.svg)](https://www.home-assistant.io)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%2B-41BDF5.svg)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > **עברית:** [README.md](README.md)
@@ -52,7 +52,7 @@ tree; the next screen picks the action:
 
 | Requirement | Detail |
 |---|---|
-| Home Assistant | 2024.6 or newer |
+| Home Assistant | 2026.11 or newer |
 | External HTTPS address | The provider calls **into** your server. Cloudflare tunnel, Nginx, DuckDNS — any solution |
 | TLS | Mandatory. The token travels inside the URL |
 | A provider account | Yemot HaMashiach, Technoline or Vonage |

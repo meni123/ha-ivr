@@ -10,11 +10,6 @@ from homeassistant.helpers.entity import Entity
 from .const import CONF_ACTION, CONF_MENU_PATH, CONF_TARGET_ENTITY
 from .menu import normalize_path
 
-# `via_device` (זוג מזהים) הוצא משימוש לטובת `via_device_id` (מזהה
-# רישום). גרסאות ישנות אינן מכירות את החדש, ולכן הבחירה לפי מה
-# ש-DeviceInfo של הגרסה הרצה מצהיר.
-_VIA_BY_ID = "via_device_id" in getattr(DeviceInfo, "__annotations__", {})
-
 
 def ensure_parent_device(hass, entry) -> str:
     """ההתקן הראשי של הרשומה; נוצר אם חסר. מחזיר את מזהה הרישום.
@@ -43,17 +38,13 @@ def ensure_parent_device(hass, entry) -> str:
 
 def child_device_info(hass, entry, subentry: ConfigSubentry, model: str) -> DeviceInfo:
     """התקן משלו לפריט, מקושר להתקן הראשי."""
-    info = DeviceInfo(
+    return DeviceInfo(
         identifiers={(entry.domain, f"{entry.entry_id}_{subentry.subentry_id}")},
         name=subentry.title,
         manufacturer="IVR",
         model=model,
+        via_device_id=ensure_parent_device(hass, entry),
     )
-    if _VIA_BY_ID:
-        info["via_device_id"] = ensure_parent_device(hass, entry)
-    else:
-        info["via_device"] = (entry.domain, entry.entry_id)
-    return info
 
 
 class IvrItemEntity(Entity):

@@ -464,7 +464,10 @@ def entity_labels(hass: HomeAssistant, entity_id: str) -> set[str]:
         if device is not None:
             labels |= set(device.labels or ())
 
-    area_id = entry.area_id or (device.area_id if device is not None else None)
+    # מכשיר-בן בלי מרחב משלו יורש את המרחב של ההורה
+    area_id = entry.area_id or (
+        dr.async_get_effective_area_id(hass, device) if device is not None else None
+    )
     if area_id:
         area = ar.async_get(hass).async_get_area(area_id)
         if area is not None:

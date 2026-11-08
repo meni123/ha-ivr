@@ -170,8 +170,10 @@ def install() -> None:
     ha.__path__ = []
     _module("homeassistant.core", HomeAssistant=_Any, Context=_Any,
             callback=_passthrough, ServiceCall=_Any, Event=_Any)
+    _hae = type("HomeAssistantError", (Exception,), {})
     _module("homeassistant.exceptions",
-            HomeAssistantError=type("HomeAssistantError", (Exception,), {}))
+            HomeAssistantError=_hae,
+            ConfigEntryError=type("ConfigEntryError", (_hae,), {}))
     _module("homeassistant.const", Platform=types.SimpleNamespace(
         SENSOR="sensor", ASSIST_SATELLITE="assist_satellite", SELECT="select",
         NOTIFY="notify"))
@@ -228,7 +230,8 @@ def install() -> None:
     _module("homeassistant.helpers.floor_registry", async_get=_Any)
     _module("homeassistant.helpers.device_registry",
             DeviceInfo=dict, DeviceEntryType=types.SimpleNamespace(SERVICE="service"),
-            async_get=_Any)
+            async_get=_Any,
+            async_get_effective_area_id=lambda hass, device: device.area_id)
     _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=_Any)
     _module("homeassistant.helpers.restore_state", RestoreEntity=object)
     _module("homeassistant.helpers.dispatcher",

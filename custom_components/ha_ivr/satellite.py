@@ -46,17 +46,30 @@ from .audio import (
     DEFAULT_ECHO_TAIL,
     PIPELINE_RATE,
     PROVIDER_RATE,
+    Upsampler2x,
     error_tone,
     listen_tone,
     resample,
     strip_wav,
     thinking_tone,
+    wav_data_start,
     wav_format,
 )
 from .const import DEFAULT_EXIT_PHRASES
+from .endpoint import SILENCE_BY_SENSITIVITY, Endpointer, make_vad
 from .outbound import OutboundError
 
 _LOGGER = logging.getLogger(__name__)
+
+# שקט שמועבר ל-VAD של הצינור כשהזיהוי שלנו פעיל: מספיק גדול כדי שלא
+# יחתוך לעולם, והצינור נשאר רק עם תקרת הזמן שלו (15 שניות).
+PIPELINE_VAD_OFF_SEC = 10.0
+
+# הקראה בזרימה: כמה אודיו נשלח לקו בכל פעם, וכמה מותר שיחכה אצל הספק
+# לפני שליחת החתיכה הבאה. הספקים מקבלים בלוק ומנגנים אותו לאורך זמן;
+# המרווח מונע הצטברות אצלם בלי ליצור חורים בין חתיכות.
+STREAM_PIECE_SEC = 0.5
+STREAM_LEAD_SEC = 0.5
 
 # דומיין התרגום של הודעות השגיאה.
 ERROR_DOMAIN = "ha_ivr"
@@ -115,6 +128,12 @@ class IvrSatellite(AssistSatelliteEntity):
         self._tts_pending = False
         self._failed_this_run = False
         self._leaving = False
+        # הקראה בזרימה: הטוקן מגיע ב-RUN_START, וההשמעה מתחילה כשהצינור
+        # מסמן שהתשובה ארוכה מספיק. כשהיא רצה, TTS_END כבר אינו שלנו.
+        self._stream_token: str | None = None
+        self._stream_task: asyncio.Task | None = None
+        # סוף הדיבור כבר טופל בתור הזה — מאיתנו או מהצינור, הראשון מנצח.
+        self._speech_over = False
         # מדידת עוצמת הקלט, לאבחון בלבד.
         self._level_sum = 0.0
         self._level_peak = 0
@@ -313,12 +332,52 @@ class IvrSatellite(AssistSatelliteEntity):
         self._level_count = 0
 
     async def _stt_stream(self):
-        """האודיו מהקו, מומר לקצב שהצינור מצפה לו."""
+        """האודיו מהקו, מומר לקצב שהצינור מצפה לו.
+
+        סוף הדיבור נקבע כאן (`endpoint.py`) ולא ב-VAD של הצינור, שחותך
+        מתקשרים באמצע משפט. כשהזיהוי שלנו מכריע, הזרם פשוט נגמר — ה-STT
+        מסיים כרגיל — ואנחנו עושים מה שהצינור היה עושה ב-STT_VAD_END.
+        """
+        vad = make_vad()
+        endpointer = Endpointer(self._endpoint_silence(), vad) if vad else None
+        # קו של 8k: הכפלה עם מסנן, לא לינארית — ראו `audio.Upsampler2x`
+        up = Upsampler2x() if self._rate * 2 == PIPELINE_RATE else None
+        if up is not None and not up.available:
+            up = None
         while True:
             chunk = await self._audio.get()
             if chunk is None:
                 return
-            yield resample(chunk, self._rate, PIPELINE_RATE)
+            audio = up.process(chunk) if up else resample(chunk, self._rate, PIPELINE_RATE)
+            yield audio
+            if endpointer is not None and endpointer.feed(audio):
+                _LOGGER.debug("Stream: end of speech (continuous silence)")
+                self._end_of_speech()
+                return
+
+    def _endpoint_silence(self) -> float:
+        """שניות השקט הרצוף לפי בורר הרגישות של הרשומה."""
+        entity_id = self.vad_sensitivity_entity_id
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return SILENCE_BY_SENSITIVITY.get(
+            state.state if state else "default", SILENCE_BY_SENSITIVITY["default"]
+        )
+
+    def _resolve_vad_sensitivity(self) -> float:
+        """ה-VAD של הצינור נשאר רק כתקרת זמן כשהזיהוי שלנו זמין."""
+        if make_vad() is None:
+            return super()._resolve_vad_sensitivity()
+        return PIPELINE_VAD_OFF_SEC
+
+    def _end_of_speech(self) -> None:
+        """המתקשר סיים לדבר: השתקה וצליל "חושב". פעם אחת לתור."""
+        if self._speech_over:
+            return
+        self._speech_over = True
+        self._muted = True
+        # הצליל כאן ולא ב-STT_END: בין השניים יש עוד המרה,
+        # ובלעדיו המתקשר שומע שנייה של שקט.
+        self.hass.async_create_task(self._send_tone(thinking_tone))
 
     async def _check_hangup(self) -> None:
         """ניתוק לפי היעדר אודיו.
@@ -389,6 +448,9 @@ class IvrSatellite(AssistSatelliteEntity):
         self._heard_this_run = False
         self._tts_pending = False
         self._failed_this_run = False
+        self._stream_token = None
+        self._stream_task = None
+        self._speech_over = False
 
     async def _end_turn(self) -> None:
         """סגירת תור."""
@@ -458,10 +520,8 @@ class IvrSatellite(AssistSatelliteEntity):
                 _LOGGER.warning("Stream: resetting the conversation after a failure")
                 self._conversation_id = None
         elif event.type is PipelineEventType.STT_VAD_END:
-            self._muted = True
-            # הצליל כאן ולא ב-STT_END: בין השניים יש עוד המרה,
-            # ובלעדיו המתקשר שומע שנייה של שקט.
-            self.hass.async_create_task(self._send_tone(thinking_tone))
+            # מגיע רק כשהצינור הכריע לפנינו — בפועל בתקרת הזמן שלו.
+            self._end_of_speech()
         elif event.type is PipelineEventType.STT_END:
             self._silent_runs = 0
             self._heard_this_run = True
@@ -474,7 +534,29 @@ class IvrSatellite(AssistSatelliteEntity):
                 # יש קפיצת לולאה שבה הצינור ממשיך לרוץ.
                 self._leaving = True
                 self.hass.async_create_task(self.request_leave())
+        elif event.type is PipelineEventType.RUN_START:
+            output = (event.data or {}).get("tts_output") or {}
+            self._stream_token = (
+                str(output["token"])
+                if output.get("stream_response") and output.get("token")
+                else None
+            )
+        elif event.type is PipelineEventType.INTENT_PROGRESS:
+            # הצינור מסמן פעם אחת, כשהתשובה עברה סף אורך. תשובה קצרה
+            # ממנו אינה מסומנת כלל ומגיעה כרגיל ב-TTS_END.
+            if (
+                (event.data or {}).get("tts_start_streaming")
+                and self._stream_token
+                and self._stream_task is None
+            ):
+                self._tts_pending = True
+                self._stream_task = self.hass.async_create_task(
+                    self._speak_stream(self._stream_token)
+                )
         elif event.type is PipelineEventType.TTS_END and event.data:
+            if self._stream_task is not None:
+                # ההקראה כבר מתנגנת בזרימה, ו-`_speak_stream` פותח את השער.
+                return
             self._tts_pending = True
             self.hass.async_create_task(self._speak(event.data))
 
@@ -530,6 +612,115 @@ class IvrSatellite(AssistSatelliteEntity):
         # הייתה הקראה בתור; תור עם הקראה נשאר ב-RESPONDING.
         self.tts_response_finished()
         await self._resume()
+
+    async def _speak_stream(self, token: str) -> None:
+        """שליחת ההקראה לקו תוך כדי שהיא נוצרת.
+
+        המשפט הראשון נשמע עוד לפני שהמודל סיים לכתוב את האחרון.
+        אותו חוזה כמו `_speak`: כל מסלול יציאה פותח את השער, ו-
+        `tests/check_gate.py` אוכף את זה גם כאן.
+        """
+        stream = tts.async_get_stream(self.hass, token)
+        if stream is None or stream.extension != "wav":
+            _LOGGER.error(
+                "Stream: the streamed speech is not available as wav (%s)",
+                getattr(stream, "extension", None),
+            )
+            await self._resume(failed=True)
+            return
+
+        if not await self._play_stream(stream):
+            await self._resume(failed=True)
+            return
+
+        self.tts_response_finished()
+        await self._resume()
+
+    async def _play_stream(self, stream) -> bool:
+        """קריאת ההקראה מהזרם ושליחתה בחתיכות. האם נשמע משהו."""
+        loop = asyncio.get_running_loop()
+        head = b""
+        pending = b""
+        rate = 0
+        until = loop.time()
+        played = False
+
+        try:
+            async for chunk in stream.async_stream_result():
+                if self._session is None or self._leaving:
+                    return played
+                if not rate:
+                    head += chunk
+                    start = wav_data_start(head)
+                    if start is None:
+                        continue
+                    rate, offset = start
+                    _, channels, bits = wav_format(head)
+                    if offset < 0 or channels != 1 or bits != 16:
+                        _LOGGER.error(
+                            "Stream: the streamed speech is not 16-bit mono wav "
+                            "(channels=%s, bits=%s)", channels, bits,
+                        )
+                        return False
+                    pending = head[offset:]
+                else:
+                    pending += chunk
+
+                piece = int(rate * STREAM_PIECE_SEC) * 2
+                while len(pending) >= piece:
+                    until = await self._queue_audio(
+                        resample(pending[:piece], rate, self._rate), until
+                    )
+                    pending = pending[piece:]
+                    played = True
+
+            if pending and rate:
+                until = await self._queue_audio(resample(pending, rate, self._rate), until)
+                played = True
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Stream: could not read the streamed speech")
+
+        if played:
+            await self._wait_played(until)
+            self._drain()
+        return played
+
+    async def _wait_played(self, estimate: float) -> None:
+        """המתנה עד שהקו סיים לנגן, ועוד זנב ההד.
+
+        תחבורה שיודעת מתי השידור שלה נגמר (`playout_end`) קובעת; אחרת
+        ההערכה לפי משך האודיו. פתיחת הקלט לפני הסוף מכניסה את זנב
+        התשובה לתור הבא, והוא נסגר בדיוק כשהמתקשר מתחיל לדבר.
+        """
+        loop = asyncio.get_running_loop()
+        end = estimate
+        playout_end = getattr(self._session, "playout_end", None)
+        if callable(playout_end):
+            actual = playout_end()
+            _LOGGER.debug(
+                "Stream: streamed answer ends at the line %+.2fs from the estimate",
+                actual - estimate,
+            )
+            end = max(end, actual)
+        tail = float(self._options.get("stream_echo_tail", DEFAULT_ECHO_TAIL))
+        await asyncio.sleep(max(0.0, end - loop.time()) + tail)
+
+    async def _queue_audio(self, pcm: bytes, until: float) -> float:
+        """שליחת חתיכה לקו, ומתי היא תסתיים לפי השעון.
+
+        ממתין עד שמה שכבר אצל הספק כמעט נגמר, כדי שלא יצטבר שם
+        אודיו: אצל ספק שמקבל בלוק ומנגן אותו, הצטברות היא השהיה.
+        """
+        session = self._session
+        if not pcm or session is None:
+            return until
+        loop = asyncio.get_running_loop()
+        wait = until - loop.time() - STREAM_LEAD_SEC
+        if wait > 0:
+            await asyncio.sleep(wait)
+        async with self._out:
+            await session.send_audio(pcm)
+        return max(loop.time(), until) + len(pcm) / 2 / self._rate
 
     async def _fetch_tts(self, token: str) -> tuple[bytes, int]:
         """ה-PCM של ההקראה, לפי הטוקן שהצינור החזיר.

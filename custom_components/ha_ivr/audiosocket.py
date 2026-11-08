@@ -175,6 +175,8 @@ class AudioSocketSession:
         # יוצאים בקצב אמת כפי ש-Asterisk מצפה.
         self._tx: asyncio.Queue[bytes] = asyncio.Queue()
         self._tx_task: asyncio.Task | None = None
+        # שעון הניגון של `_tx_loop`: מתי תסתיים המסגרת האחרונה שנשלחה.
+        self._play_t = 0.0
 
     # -- מחזור החיים ---------------------------------------------------
 
@@ -282,6 +284,16 @@ class AudioSocketSession:
 
     # -- חוזה ה-session (הלוויין קורא לאלה) ---------------------------
 
+    def playout_end(self) -> float:
+        """מתי, בשעון הלולאה, יסתיים בקו כל מה שכבר נשלח.
+
+        השעון של `_tx_loop` ועוד מה שעוד ממתין בתור. זו התשובה האמיתית;
+        ההערכה של הלוויין מניחה שהשידור לא פיגר, וכשהלולאה עמוסה
+        (הקראה בזרימה) הוא כן מפגר, והקלט נפתח באמצע התשובה.
+        """
+        loop = asyncio.get_running_loop()
+        return max(loop.time(), self._play_t) + self._tx.qsize() * FRAME_SEC
+
     async def send_audio(self, pcm: bytes) -> None:
         """PCM החוצה — נדחף לתור השידור וחוזר מיד.
 
@@ -307,19 +319,19 @@ class AudioSocketSession:
         ל-backpressure; זרם 8kHz קטן מכדי להציף את חוצץ הכתיבה.
         """
         loop = asyncio.get_running_loop()
-        play_t = loop.time()
+        self._play_t = loop.time()
         since_drain = 0
         try:
             while not self._writer.is_closing():
                 try:
                     frame = await asyncio.wait_for(self._tx.get(), timeout=0.5)
                 except TimeoutError:
-                    play_t = loop.time()  # שקט — אפס את שעון הניגון
+                    self._play_t = loop.time()  # שקט — אפס את שעון הניגון
                     continue
                 now = loop.time()
-                if play_t < now:  # פיגרנו; פער שקט כבר נוצר בקו
-                    play_t = now
-                lead = play_t - now
+                if self._play_t < now:  # פיגרנו; פער שקט כבר נוצר בקו
+                    self._play_t = now
+                lead = self._play_t - now
                 if lead > _TX_LEAD:  # מוקדם מדי — האט לשמירת הכרית
                     await asyncio.sleep(lead - _TX_LEAD)
                 with contextlib.suppress(ConnectionError, RuntimeError):
@@ -328,7 +340,7 @@ class AudioSocketSession:
                     if since_drain >= 25:
                         await self._writer.drain()
                         since_drain = 0
-                play_t += FRAME_SEC
+                self._play_t += FRAME_SEC
         except asyncio.CancelledError:
             raise
 
