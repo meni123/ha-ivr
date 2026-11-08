@@ -30,10 +30,7 @@ from .const import (
     CONF_TARGET_ENTITY,
     MENU_DIGITS,
     MENU_MAX_DEPTH,
-    CONF_AREA,
     CONF_DOMAIN,
-    CONF_FLOOR,
-    CONF_LABEL_TARGET,
     CONF_GOTO_TARGET,
     CONF_PLAN,
     SUBENTRY_TYPE_AREA,
@@ -404,11 +401,11 @@ def _expand_group(hass, node: dict, data) -> None:
     `target`, והוא נפתר לרשימת ישויות רק בזמן השיחה. מכשיר שנוסף
     למרחב מצטרף מעצמו, ולכן כאן לא נשמר שום מזהה ישות.
     """
+    from .smart import stored_target  # noqa: PLC0415
+
     target = {
         "domain": str(data.get(CONF_DOMAIN, "") or ""),
-        "area": str(data.get(CONF_AREA, "") or ""),
-        "floor": str(data.get(CONF_FLOOR, "") or ""),
-        "label": str(data.get(CONF_LABEL_TARGET, "") or ""),
+        "target": stored_target(data),
     }
     if not target["domain"]:
         return
@@ -457,14 +454,27 @@ def _apply_target(node: dict, target: dict) -> None:
 def _group_name(hass, target: dict) -> str:
     """שם מדובר ליעד, כשלא הוזן שם ידני."""
     domain = DOMAIN_NAMES.get(target["domain"], target["domain"])
-    where = ""
-    if target.get("area"):
-        where = _area_name(hass, target["area"])
-    elif target.get("floor"):
-        where = _floor_name(hass, target["floor"])
-    elif target.get("label"):
-        where = _label_name(hass, target["label"])
-    return f"{domain} ב{where}".strip() if where else f"{domain} בבית"
+    where = place_name(hass, target.get("target") or {})
+    if where:
+        return f"{domain} ב{where}"
+    if any((target.get("target") or {}).get(k) for k in ("device_id", "entity_id")):
+        return domain
+    return f"{domain} בבית"
+
+
+def place_name(hass, target: dict) -> str:
+    """שמות המקומות ביעד: "סלון", "סלון ומטבח", "סלון, מטבח וחדר שינה"."""
+    names = [
+        str(name)
+        for name in (
+            *(_area_name(hass, i) for i in target.get("area_id") or ()),
+            *(_floor_name(hass, i) for i in target.get("floor_id") or ()),
+            *(_label_name(hass, i) for i in target.get("label_id") or ()),
+        )
+    ]
+    if len(names) < 2:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} ו{names[-1]}"
 
 
 def _area_name(hass, area_id: str) -> str:

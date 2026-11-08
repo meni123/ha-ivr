@@ -25,10 +25,8 @@ from homeassistant.config_entries import (
 )
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.selector import (
-    AreaSelector,
+    EntityFilterSelectorConfig,
     EntitySelector,
-    FloorSelector,
-    LabelSelector,
     EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
@@ -37,6 +35,8 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TargetSelector,
+    TargetSelectorConfig,
 )
 
 from .action_fields import (
@@ -48,13 +48,11 @@ from .action_fields import (
 )
 from . import smart as smart_mod
 from .const import (
-    CONF_AREA,
     SUBENTRY_TYPE_GROUP,
     CONF_CHANNEL,
     CONF_DOMAIN,
-    CONF_FLOOR,
-    CONF_LABEL_TARGET,
     CONF_PLAN,
+    CONF_TARGET,
     DOMAIN_NAMES,
     CONF_TRUNK,
     CONF_CALLER_ID,
@@ -1025,6 +1023,25 @@ class SmartEntityFlowHandler(_PathMixin, ConfigSubentryFlow):
 # ----------------------------------------------------------------------
 
 
+def _target_value(current: dict) -> dict:
+    """היעד להצגה בבורר — גם מרשומה שנשמרה בשדות הישנים."""
+    if isinstance(current.get(CONF_TARGET), dict):
+        return smart_mod.form_target(smart_mod.clean_target(current[CONF_TARGET]))
+    return smart_mod.form_target(smart_mod.stored_target(current))
+
+
+def _target_selector(domain: str = "") -> TargetSelector:
+    """בורר היעד של Home Assistant, כולל "החרגת יעד".
+
+    כשהסוג כבר ידוע, רשימת הישויות בבורר מצטמצמת אליו.
+    """
+    if not domain:
+        return TargetSelector()
+    return TargetSelector(
+        TargetSelectorConfig(entity=EntityFilterSelectorConfig(domain=domain))
+    )
+
+
 class SmartGroupFlowHandler(SmartEntityFlowHandler):
     """כל הישויות מסוג מסוים במרחב, בקומה או בכל הבית.
 
@@ -1038,6 +1055,7 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
     ) -> SubentryFlowResult:
         errors: dict[str, str] = {}
         current = current or {}
+        self._where = _target_value(current)
 
         if user_input is not None:
             domain = str(user_input.get(CONF_DOMAIN, "") or "")
@@ -1054,16 +1072,11 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
             else:
                 self._pending = {
                     CONF_DOMAIN: domain,
-                    CONF_AREA: str(user_input.get(CONF_AREA, "") or ""),
-                    CONF_FLOOR: str(user_input.get(CONF_FLOOR, "") or ""),
-                    CONF_LABEL_TARGET: str(
-                        user_input.get(CONF_LABEL_TARGET, "") or ""
-                    ),
                     CONF_MENU_PATH: path,
                     CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
                     CONF_CONFIRM_RISKY: confirmed,
                 }
-                return await self.async_step_capabilities()
+                return await self.async_step_where()
             current = {**current, **user_input}
 
         path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
@@ -1075,18 +1088,6 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
             vol.Required(
                 CONF_DOMAIN, description={"suggested_value": domain}
             ): await self._domain_selector(),
-            vol.Optional(
-                CONF_AREA,
-                description={"suggested_value": current.get(CONF_AREA, "")},
-            ): AreaSelector(),
-            vol.Optional(
-                CONF_FLOOR,
-                description={"suggested_value": current.get(CONF_FLOOR, "")},
-            ): FloorSelector(),
-            vol.Optional(
-                CONF_LABEL_TARGET,
-                description={"suggested_value": current.get(CONF_LABEL_TARGET, "")},
-            ): LabelSelector(),
             vol.Required(
                 CONF_MENU_PATH, default=to_form(path)
             ): self._path_selector(path),
@@ -1109,6 +1110,39 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
 
         return self.async_show_form(
             step_id=step_id, errors=errors, data_schema=vol.Schema(schema)
+        )
+
+    async def async_step_where(self, user_input=None) -> SubentryFlowResult:
+        """איפה — במסך נפרד, כדי שהבורר יציג רק את הסוג שנבחר.
+
+        באותו מסך עם בורר הסוג, הבורר היה מציג את כל המכשירים בבית,
+        וגם ההחרגה הייתה מציעה מכשירים שממילא אינם בקבוצה.
+        """
+        domain = str(self._pending.get(CONF_DOMAIN, ""))
+        errors: dict[str, str] = {}
+        where = getattr(self, "_where", {}) or {}
+
+        if user_input is not None:
+            target = smart_mod.clean_target(user_input.get(CONF_TARGET))
+            if smart_mod.match_entities(self.hass, domain, target):
+                self._pending[CONF_TARGET] = target
+                return await self.async_step_capabilities()
+            errors[CONF_TARGET] = "no_members"
+            where = smart_mod.form_target(target)
+
+        return self.async_show_form(
+            step_id="where",
+            errors=errors,
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_TARGET, description={"suggested_value": where}
+                    ): _target_selector(domain),
+                }
+            ),
+            description_placeholders={
+                "kind": DOMAIN_NAMES.get(domain, domain)
+            },
         )
 
     async def _domain_selector(self):
@@ -1146,9 +1180,7 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
         return await smart_mod.async_discover_group(
             self.hass,
             str(self._pending.get(CONF_DOMAIN, "")),
-            str(self._pending.get(CONF_AREA, "")),
-            str(self._pending.get(CONF_FLOOR, "")),
-            str(self._pending.get(CONF_LABEL_TARGET, "")),
+            self._pending.get(CONF_TARGET) or {},
         )
 
     def _subject(self) -> str:
@@ -1157,9 +1189,7 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
     def _stored_data(self, plan: list) -> dict:
         return {
             CONF_DOMAIN: str(self._pending.get(CONF_DOMAIN, "")),
-            CONF_AREA: str(self._pending.get(CONF_AREA, "")),
-            CONF_FLOOR: str(self._pending.get(CONF_FLOOR, "")),
-            CONF_LABEL_TARGET: str(self._pending.get(CONF_LABEL_TARGET, "")),
+            CONF_TARGET: self._pending.get(CONF_TARGET) or {},
         }
 
     def _default_title(self) -> str:
@@ -1169,9 +1199,7 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
             self.hass,
             {
                 "domain": str(self._pending.get(CONF_DOMAIN, "")),
-                "area": str(self._pending.get(CONF_AREA, "")),
-                "floor": str(self._pending.get(CONF_FLOOR, "")),
-                "label": str(self._pending.get(CONF_LABEL_TARGET, "")),
+                "target": self._pending.get(CONF_TARGET) or {},
             },
         )
 
@@ -1203,21 +1231,17 @@ class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
         current: dict[str, Any] = {}
 
         if user_input is not None:
-            area = str(user_input.get(CONF_AREA, "") or "")
-            floor = str(user_input.get(CONF_FLOOR, "") or "")
-            label = str(user_input.get(CONF_LABEL_TARGET, "") or "")
+            target = smart_mod.clean_target(user_input.get(CONF_TARGET))
             path, err = self._validate_path(
                 from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
             )
             if err:
                 errors[CONF_MENU_PATH] = err
-            elif not (area or floor or label):
-                errors[CONF_AREA] = "nothing_chosen"
+            elif not smart_mod.has_target(target):
+                errors[CONF_TARGET] = "nothing_chosen"
             else:
                 self._pending = {
-                    CONF_AREA: area,
-                    CONF_FLOOR: floor,
-                    CONF_LABEL_TARGET: label,
+                    CONF_TARGET: target,
                     CONF_MENU_PATH: path,
                     CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
                 }
@@ -1233,19 +1257,9 @@ class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
             data_schema=vol.Schema(
                 {
                     vol.Optional(
-                        CONF_AREA,
-                        description={"suggested_value": current.get(CONF_AREA, "")},
-                    ): AreaSelector(),
-                    vol.Optional(
-                        CONF_FLOOR,
-                        description={"suggested_value": current.get(CONF_FLOOR, "")},
-                    ): FloorSelector(),
-                    vol.Optional(
-                        CONF_LABEL_TARGET,
-                        description={
-                            "suggested_value": current.get(CONF_LABEL_TARGET, "")
-                        },
-                    ): LabelSelector(),
+                        CONF_TARGET,
+                        description={"suggested_value": _target_value(current)},
+                    ): _target_selector(),
                     vol.Required(
                         CONF_MENU_PATH, default=to_form(path)
                     ): self._path_selector(path, allow_none=False),
@@ -1333,19 +1347,15 @@ class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
     # ---- שלב שני: מה נכנס, לכל סוג בנפרד ----
 
     async def async_step_pick(self, user_input=None) -> SubentryFlowResult:
-        area = str(self._pending.get(CONF_AREA, ""))
-        floor = str(self._pending.get(CONF_FLOOR, ""))
-        label = str(self._pending.get(CONF_LABEL_TARGET, ""))
+        target = self._pending.get(CONF_TARGET) or {}
 
         if not self._found:
-            self._found = await smart_mod.async_domains_in(
-                self.hass, area, floor, label
-            )
+            self._found = await smart_mod.async_domains_in(self.hass, target)
             if not self._found:
                 return self.async_abort(reason="nothing_here")
             for domain, _ in self._found:
                 self._caps[domain] = await smart_mod.async_discover_group(
-                    self.hass, domain, area, floor, label
+                    self.hass, domain, target
                 )
 
         labels = {self._domain_label(d, n): d for d, n in self._found}
@@ -1409,9 +1419,7 @@ class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
         """תת-התפריט נוצר כרשומה הזו, והקבוצות מתווספות תחתיו."""
         entry = self._get_entry()
         base = str(self._pending.get(CONF_MENU_PATH, ""))
-        area = str(self._pending.get(CONF_AREA, ""))
-        floor = str(self._pending.get(CONF_FLOOR, ""))
-        label = str(self._pending.get(CONF_LABEL_TARGET, ""))
+        target = self._pending.get(CONF_TARGET) or {}
 
         for index, (domain, idents) in enumerate(chosen.items()):
             if index >= len(MENU_DIGITS):
@@ -1430,9 +1438,7 @@ class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
                     data=MappingProxyType(
                         {
                             CONF_DOMAIN: domain,
-                            CONF_AREA: area,
-                            CONF_FLOOR: floor,
-                            CONF_LABEL_TARGET: label,
+                            CONF_TARGET: target,
                             CONF_MENU_PATH: f"{base}/{MENU_DIGITS[index]}",
                             CONF_LABEL: "",
                             CONF_CONFIRM_RISKY: False,
@@ -1449,9 +1455,7 @@ class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
         return self.async_create_entry(
             title=f"{base} — {name}",
             data={
-                CONF_AREA: area,
-                CONF_FLOOR: floor,
-                CONF_LABEL_TARGET: label,
+                CONF_TARGET: target,
                 CONF_MENU_PATH: base,
                 CONF_LABEL: name,
             },
@@ -1461,13 +1465,8 @@ class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
         """שם המקום, לכשלא הוזן שם מוקרא."""
         from . import menu as menu_mod  # noqa: PLC0415
 
-        if area := str(self._pending.get(CONF_AREA, "")):
-            return menu_mod._area_name(self.hass, area)
-        if floor := str(self._pending.get(CONF_FLOOR, "")):
-            return menu_mod._floor_name(self.hass, floor)
-        if label := str(self._pending.get(CONF_LABEL_TARGET, "")):
-            return menu_mod._label_name(self.hass, label)
-        return "אזור"
+        target = self._pending.get(CONF_TARGET) or {}
+        return menu_mod.place_name(self.hass, target) or "אזור"
 
 
 class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):

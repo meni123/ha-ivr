@@ -64,10 +64,13 @@ CONF_PLAN: Final = "plan"
 # ולא "הכל במטבח", כדי שמנעול שישויך למרחב לא ייכנס לתפריט
 # הטלפוני בלי שאיש החליט על כך.
 CONF_DOMAIN: Final = "target_domain"
+# היעד כבחירת יעד של Home Assistant: מרחבים, קומות, תוויות, מכשירים
+# וישויות, עם החרגות. נפתר בזמן השיחה — ראו `smart.match_entities`.
+CONF_TARGET: Final = "target"
+# השדות שקדמו ל-`CONF_TARGET` (עד 1.8.0). נקראים בלבד — ראו
+# `smart.stored_target`.
 CONF_AREA: Final = "target_area"
 CONF_FLOOR: Final = "target_floor"
-# תווית כיעד. `async_match_targets` אינו מכיר תוויות, ולכן הסינון
-# לפיהן נעשה בנפרד — ראו `smart.match_entities`.
 CONF_LABEL_TARGET: Final = "target_label"
 CONF_CONFIRM_RISKY: Final = "confirm_risky"
 CONF_MENU_PATH: Final = "menu_path"

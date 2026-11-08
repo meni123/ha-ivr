@@ -198,10 +198,12 @@ def install() -> None:
     helpers = _module("homeassistant.helpers")
     helpers.__path__ = []
     _module("homeassistant.helpers.service", async_get_all_descriptions=_Any)
-    _module("homeassistant.helpers.intent", async_get=_Any,
-            async_match_targets=fake_match_targets,
-            MatchTargetsConstraints=FakeMatchConstraints)
+    _module("homeassistant.helpers.intent", async_get=_Any)
     _module("homeassistant.helpers.template", Template=_Any)
+    _module("homeassistant.helpers.target",
+            TargetSelection=FakeTargetSelection,
+            async_extract_referenced_entity_ids=fake_extract_referenced,
+            async_extract_excluded_entity_ids=fake_extract_excluded)
     _module("homeassistant.helpers.config_validation",
             string=str, entity_id=str, boolean=bool)
     # מצייני המצב הם קבועים ולא מחלקות. כשהם היו `_Any` כמו השאר,
@@ -212,6 +214,7 @@ def install() -> None:
     _module("homeassistant.helpers.selector", **{
         **{n: _Any for n in (
             "EntitySelector", "EntitySelectorConfig", "SelectOptionDict",
+            "TargetSelector", "TargetSelectorConfig", "EntityFilterSelectorConfig",
             "SelectSelector", "SelectSelectorConfig",
             "NumberSelector", "NumberSelectorConfig",
             "BooleanSelector", "BooleanSelectorConfig",
@@ -251,6 +254,9 @@ def install() -> None:
 
         def async_get_entity_id(self, domain, platform, unique_id):
             return self.entities.get((domain, platform, unique_id))
+
+        def async_get(self, entity_id):
+            return None
 
     _registry = _EntityRegistry()
     _module("homeassistant.helpers.entity_registry",
@@ -358,39 +364,39 @@ def install() -> None:
 # ----------------------------------------------------------------------
 
 
-class FakeMatchResult:
-    def __init__(self, states=None):
-        self.states = list(states or [])
-        self.is_match = bool(self.states)
-        self.areas = []
-        self.floors = []
+# מה שהבדיקה מזריקה: מיפוי (מפתח יעד, מזהה) לרשימת ישויות,
+# למשל ("area_id", "mtbh"). החרגה נפתרת באותו מיפוי.
+TARGETS: dict = {}
 
 
-class FakeMatchConstraints:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
+class FakeTargetSelection:
+    def __init__(self, config) -> None:
+        self.config = dict(config)
 
 
-# מה שהבדיקה מזריקה: מיפוי (domain, area, floor) לרשימת ישויות.
-MATCHES: dict = {}
+def _target_ids(config) -> set:
+    found = set()
+    for key in ("area_id", "floor_id", "label_id", "device_id"):
+        for ident in config.get(key) or ():
+            found |= set(TARGETS.get((key, ident), ()))
+    return found
 
 
-class _Matched:
-    """מצב עם מזהה, כפי ש-async_match_targets מחזיר."""
+def fake_extract_referenced(hass, selection, *a, **k):
+    config = selection.config
+    direct = set(config.get("entity_id") or ())
+    excluded = _target_ids(config.get("exclude") or {}) | set(
+        (config.get("exclude") or {}).get("entity_id") or ()
+    )
+    return types.SimpleNamespace(
+        referenced=direct - excluded,
+        indirectly_referenced=_target_ids(config) - direct - excluded,
+    )
 
-    def __init__(self, entity_id, state):
-        self.entity_id = entity_id
-        self.state = getattr(state, "state", None)
-        self.attributes = getattr(state, "attributes", {})
 
-
-def fake_match_targets(hass, constraints, *a, **k):
-    domain = (list(constraints.domains or [""]) or [""])[0]
-    key = (domain, constraints.area_name or "", constraints.floor_name or "")
-    return FakeMatchResult([
-        _Matched(e, hass.states.get(e))
-        for e in MATCHES.get(key, []) if hass.states.get(e)
-    ])
+def fake_extract_excluded(hass, selection, *a, **k):
+    exclude = selection.config.get("exclude") or {}
+    return _target_ids(exclude) | set(exclude.get("entity_id") or ())
 
 
 class FakeState:
@@ -405,6 +411,13 @@ class FakeStates:
 
     def get(self, entity_id):
         return self._states.get(entity_id)
+
+    def async_all(self, domain=None):
+        return [
+            types.SimpleNamespace(entity_id=e, state=s.state, attributes=s.attributes)
+            for e, s in self._states.items()
+            if domain is None or e.split(".", 1)[0] in ([domain] if isinstance(domain, str) else domain)
+        ]
 
 
 class FakeServices:

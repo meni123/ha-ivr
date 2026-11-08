@@ -2077,45 +2077,76 @@ _gh = fake_ha.FakeHass({
     "light.b": fake_ha.FakeState("off", friendly_name="ב"),
     "light.c": fake_ha.FakeState("on", friendly_name="ג"),
 })
-fake_ha.MATCHES.clear()
-fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c"]
+fake_ha.TARGETS.clear()
+fake_ha.TARGETS[("area_id", "mtbh")] = ["light.a", "light.b", "light.c"]
 _ge = fake_ha.FakeEntry()
 _ge.domain = "ha_ivr"
 _ge.data = {"token": "T", "provider": "pbx"}
 _ge.subentries = {"g": types.SimpleNamespace(
     subentry_type="smart_group", subentry_id="g", title="6",
     data={"menu_path": "6", "label": "אורות מטבח", "target_domain": "light",
-          "target_area": "mtbh", "target_floor": "", "confirm_risky": False,
+          "target": {"area_id": ["mtbh"]}, "confirm_risky": False,
           "plan": _gplan})}
 _gtree = menu.build_tree(_gh, _ge)
 _gnode = _gtree.items["6"]
 ok("צומת קבוצה נושא יעד ולא ישות", _gnode.is_group and not _gnode.entity)
 ok("היעד כולל סוג ומרחב",
-   (_gnode.target["domain"], _gnode.target["area"]) == ("light", "mtbh"))
+   (_gnode.target["domain"], _gnode.target["target"]) == ("light", {"area_id": ["mtbh"]}))
 ok("היעד מושתל גם בילדים", all(c.is_group for c in _gnode.items.values()))
 ok("ולילדים אין מזהה ישות שמור",
    all(not c.entity for c in _gnode.items.values()))
 
 # --- הישויות נפתרות בזמן השיחה ---
+_kitchen = {"area_id": ["mtbh"]}
 ok("היעד נפתר לישויות",
-   _smart.match_entities(_gh, "light", "mtbh") ==
+   _smart.match_entities(_gh, "light", _kitchen) ==
    ["light.a", "light.b", "light.c"])
-fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c", "light.d"]
+fake_ha.TARGETS[("area_id", "mtbh")] = ["light.a", "light.b", "light.c", "light.d"]
 _gh.states._states["light.d"] = fake_ha.FakeState("on", friendly_name="ד")
 ok("מכשיר שנוסף למרחב מצטרף מעצמו",
-   len(_smart.match_entities(_gh, "light", "mtbh")) == 4)
-fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c"]
-ok("יעד ריק אינו מחזיר דבר", _smart.match_entities(_gh, "light", "eyn") == [])
+   len(_smart.match_entities(_gh, "light", _kitchen)) == 4)
+fake_ha.TARGETS[("area_id", "mtbh")] = ["light.a", "light.b", "light.c"]
+ok("יעד שאין בו דבר אינו מחזיר דבר",
+   _smart.match_entities(_gh, "light", {"area_id": ["eyn"]}) == [])
+ok("רק ישויות מהסוג המבוקש",
+   _smart.match_entities(_gh, "switch", _kitchen) == [])
 
-# --- תווית כיעד ---
-_smart.entity_labels = lambda hass, eid: {"mzgnym"} if eid == "light.a" else set()
-_smart.resolve_label = lambda hass, label: label
-ok("תווית מסננת את מה שהתאים",
-   _smart.match_entities(_gh, "light", "mtbh", label="mzgnym") == ["light.a"])
-ok("תווית שאיש אינו נושא מחזירה ריק",
-   _smart.match_entities(_gh, "light", "mtbh", label="eyn") == [])
-ok("בלי תווית שום דבר לא מסונן",
-   len(_smart.match_entities(_gh, "light", "mtbh")) == 3)
+# --- החרגה וכמה מקומות ---
+ok("ישות מוחרגת נשארת בחוץ",
+   _smart.match_entities(
+       _gh, "light", {"area_id": ["mtbh"], "exclude": {"entity_id": ["light.b"]}}
+   ) == ["light.a", "light.c"])
+fake_ha.TARGETS[("area_id", "slvn")] = ["light.d"]
+ok("כמה מרחבים יחד",
+   _smart.match_entities(_gh, "light", {"area_id": ["mtbh", "slvn"]}) ==
+   ["light.a", "light.b", "light.c", "light.d"])
+ok("כל הבית פחות מרחב מוחרג",
+   _smart.match_entities(_gh, "light", {"exclude": {"area_id": ["slvn"]}}) ==
+   ["light.a", "light.b", "light.c"])
+ok("ריק — כל הבית", len(_smart.match_entities(_gh, "light", {})) == 4)
+
+# --- רשומות מלפני 1.9.0 ---
+ok("מרחב בשדה הישן מומר ליעד",
+   _smart.stored_target({"target_area": "mtbh", "target_floor": "", "target_label": ""})
+   == {"area_id": ["mtbh"]})
+fake_ha.TARGETS[("label_id", "mzgnym")] = ["light.a", "light.d"]
+_legacy = _smart.stored_target({"target_area": "mtbh", "target_label": "mzgnym"})
+ok("מרחב ותווית ישנים — רק מה שעונה על שניהם",
+   _smart.match_entities(_gh, "light", _legacy) == ["light.a"])
+ok("והבורר אינו רואה את הסימון הפנימי",
+   _smart.form_target(_legacy) == {"area_id": ["mtbh"], "label_id": ["mzgnym"]})
+ok("ישן בלי מקום — כל הבית", _smart.stored_target({"target_area": ""}) == {})
+ok("ניקוי יעד מהטופס",
+   _smart.clean_target({"area_id": "mtbh", "floor_id": [], "exclude": {"device_id": []}})
+   == {"area_id": ["mtbh"]})
+ok("החרגה לבדה אינה נחשבת בחירה",
+   not _smart.has_target({"exclude": {"area_id": ["slvn"]}}))
+_area_name_orig = menu._area_name
+menu._area_name = lambda hass, area_id: area_id
+ok("שם לכמה מרחבים",
+   menu.place_name(_gh, {"area_id": ["סלון", "מטבח", "חדר"]}) == "סלון, מטבח וחדר")
+ok("שם לשני מרחבים", menu.place_name(_gh, {"area_id": ["סלון", "מטבח"]}) == "סלון ומטבח")
+menu._area_name = _area_name_orig
 
 # --- סיכום מצב לקבוצה ---
 _gview = view.IvrView(_gh)
@@ -2173,10 +2204,10 @@ ok("ושם אמיתי אינו נפסל",
 ok("שם המכשיר מוקרא ולא מזהה גולמי",
    "light.a" not in _gstat.get("say", ""))
 
-fake_ha.MATCHES[("light", "mtbh", "")] = []
+fake_ha.TARGETS[("area_id", "mtbh")] = []
 _gempty = _gpress("6", "1")
 ok("קבוצה ריקה נאמרת ואינה מושתקת", "אין מכשירים" in _gempty.get("say", ""))
-fake_ha.MATCHES[("light", "mtbh", "")] = ["light.a", "light.b", "light.c"]
+fake_ha.TARGETS[("area_id", "mtbh")] = ["light.a", "light.b", "light.c"]
 
 # ======================================================================
 print("\n== רשימת מטלות ==")
@@ -2256,9 +2287,8 @@ _ah = fake_ha.FakeHass({
     "climate.a": fake_ha.FakeState("cool", friendly_name="מזגן",
                                    hvac_modes=["cool", "heat"]),
 })
-fake_ha.MATCHES.clear()
-fake_ha.MATCHES[("light", "slvn", "")] = ["light.a"]
-fake_ha.MATCHES[("climate", "slvn", "")] = ["climate.a"]
+fake_ha.TARGETS.clear()
+fake_ha.TARGETS[("area_id", "slvn")] = ["light.a", "climate.a"]
 
 _acaps = [_smart.Capability("turn_on", _smart.KIND_SIMPLE, "הדלקה",
                             action="turn_on")]
@@ -2267,16 +2297,16 @@ _ae = fake_ha.FakeEntry()
 _ae.subentries = {
     "area": types.SimpleNamespace(
         subentry_type="smart_area", subentry_id="area", title="1",
-        data={"menu_path": "1", "label": "סלון", "target_area": "slvn"}),
+        data={"menu_path": "1", "label": "סלון", "target": {"area_id": ["slvn"]}}),
     "g1": types.SimpleNamespace(
         subentry_type="smart_group", subentry_id="g1", title="1/1",
         data={"menu_path": "1/1", "label": "", "target_domain": "light",
-              "target_area": "slvn", "target_floor": "", "target_label": "",
+              "target": {"area_id": ["slvn"]},
               "confirm_risky": False, "plan": _aplan}),
     "g2": types.SimpleNamespace(
         subentry_type="smart_group", subentry_id="g2", title="1/2",
         data={"menu_path": "1/2", "label": "", "target_domain": "climate",
-              "target_area": "slvn", "target_floor": "", "target_label": "",
+              "target": {"area_id": ["slvn"]},
               "confirm_risky": False, "plan": _aplan}),
 }
 _atree = menu.build_tree(_ah, _ae)

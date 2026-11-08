@@ -321,12 +321,9 @@
       "step": {
         "user": {
           "title": "New smart group",
-          "description": "Everything of one kind, in an area, on a floor, or in the whole house. Only options every member supports are offered.",
+          "description": "Everything of one kind in the places you pick. Only options every member supports are offered.",
           "data": {
             "target_domain": "Kind of device",
-            "target_area": "Area",
-            "target_floor": "Floor",
-            "target_label": "Label",
             "menu_path": "Menu position",
             "label": "Spoken name",
             "confirm_risky": "Confirmation for sensitive actions"
@@ -334,15 +331,22 @@
         },
         "reconfigure": {
           "title": "Edit smart group",
-          "description": "Everything of one kind, in an area, on a floor, or in the whole house. Only options every member supports are offered.",
+          "description": "Everything of one kind in the places you pick. Only options every member supports are offered.",
           "data": {
             "target_domain": "Kind of device",
-            "target_area": "Area",
-            "target_floor": "Floor",
-            "target_label": "Label",
             "menu_path": "Menu position",
             "label": "Spoken name",
             "confirm_risky": "Confirmation for sensitive actions"
+          }
+        },
+        "where": {
+          "title": "Where",
+          "description": "Which {kind} to include. Leave empty for the whole house.",
+          "data": {
+            "target": "What to include"
+          },
+          "data_description": {
+            "target": "Areas, floors, labels or devices. Use \"Exclude\" for what should stay out."
           }
         },
         "capabilities": {
@@ -366,7 +370,8 @@
         "path_in_use": "That position is taken.",
         "parent_is_item": "One of the parent levels is an item, not a submenu.",
         "confirm_required": "This action is sensitive and needs confirmation.",
-        "nothing_chosen": "Pick at least one option."
+        "nothing_chosen": "Pick at least one option.",
+        "no_members": "Nothing of this kind is in what you picked."
       },
       "abort": {
         "no_capabilities": "Nothing is shared by every member. Try a narrower area, or add the devices one by one."
@@ -383,11 +388,12 @@
           "title": "New area menu",
           "description": "Pick a place. Every kind of device found there becomes one menu entry, acting on all of them together.",
           "data": {
-            "target_area": "Area",
-            "target_floor": "Floor",
-            "target_label": "Label",
+            "target": "What to include",
             "menu_path": "Menu position",
             "label": "Spoken name"
+          },
+          "data_description": {
+            "target": "Pick areas, floors, labels or devices, and exclude what should stay out."
           }
         },
         "reconfigure": {

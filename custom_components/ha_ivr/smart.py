@@ -439,117 +439,120 @@ async def async_domain_is_usable(hass: HomeAssistant, domain: str) -> bool:
     return any(c.kind != KIND_STATUS for c in found)
 
 
-def entity_labels(hass: HomeAssistant, entity_id: str) -> set[str]:
-    """כל התוויות שחלות על הישות — שלה, של המכשיר, ושל המרחב.
+# מפתחות בחירת היעד, כפי ש-`TargetSelector` שומר אותם.
+TARGET_KEYS = ("area_id", "floor_id", "label_id", "device_id", "entity_id")
+TARGET_EXCLUDE = "exclude"
+# יעד שהומר משדות נפרדים של גרסה קודמת: כל שדה מצמצם, ולא מרחיב.
+_MATCH_ALL = "_match_all"
 
-    תווית מוצמדת בפועל למכשיר ולא לישות ברוב המקרים, ולכן בדיקה
-    של הישות בלבד הייתה מחזירה ריק כמעט תמיד. זו גם ההתנהגות של
-    Home Assistant עצמו כשמפעילים שירות על תווית.
+
+def _ids(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value if v]
+
+
+def clean_target(value) -> dict:
+    """בחירת יעד מהטופס, בלי מפתחות ריקים. החרגה ריקה אינה נשמרת."""
+    if not isinstance(value, dict):
+        return {}
+    target = {key: ids for key in TARGET_KEYS if (ids := _ids(value.get(key)))}
+    exclude = value.get(TARGET_EXCLUDE)
+    if isinstance(exclude, dict):
+        excluded = {key: ids for key in TARGET_KEYS if (ids := _ids(exclude.get(key)))}
+        if excluded:
+            target[TARGET_EXCLUDE] = excluded
+    return target
+
+
+def stored_target(data) -> dict:
+    """היעד של קבוצה או של תפריט אזור, מהנתונים השמורים.
+
+    רשומה מלפני 1.9.0 שמרה מרחב, קומה ותווית בשדות נפרדים, וכשנבחר
+    יותר מאחד — ההתאמה הייתה לכולם יחד. ההמרה שומרת על המשמעות.
     """
-    try:
-        from homeassistant.helpers import area_registry as ar  # noqa: PLC0415
-        from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
-        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
-    except Exception:  # noqa: BLE001
-        return set()
+    from .const import CONF_AREA, CONF_FLOOR, CONF_LABEL_TARGET, CONF_TARGET  # noqa: PLC0415
 
-    entry = er.async_get(hass).async_get(entity_id)
-    if entry is None:
-        return set()
-
-    labels = set(entry.labels or ())
-    device = None
-    if entry.device_id:
-        device = dr.async_get(hass).async_get(entry.device_id)
-        if device is not None:
-            labels |= set(device.labels or ())
-
-    # מכשיר-בן בלי מרחב משלו יורש את המרחב של ההורה
-    area_id = entry.area_id or (
-        dr.async_get_effective_area_id(hass, device) if device is not None else None
-    )
-    if area_id:
-        area = ar.async_get(hass).async_get_area(area_id)
-        if area is not None:
-            labels |= set(area.labels or ())
-    return labels
+    if isinstance(data.get(CONF_TARGET), dict):
+        return clean_target(data[CONF_TARGET])
+    target: dict = {}
+    for key, conf in (
+        ("area_id", CONF_AREA), ("floor_id", CONF_FLOOR), ("label_id", CONF_LABEL_TARGET),
+    ):
+        value = str(data.get(conf, "") or "")
+        if value:
+            target[key] = [value]
+    if len(target) > 1:
+        target[_MATCH_ALL] = True
+    return target
 
 
-def resolve_label(hass: HomeAssistant, label: str) -> str:
-    """מזהה התווית, גם כשהתקבל שמה."""
-    try:
-        from homeassistant.helpers import label_registry as lr  # noqa: PLC0415
-
-        registry = lr.async_get(hass)
-    except Exception:  # noqa: BLE001
-        return label
-    if registry.async_get_label(label) is not None:
-        return label
-    found = registry.async_get_label_by_name(label)
-    return found.label_id if found is not None else label
+def form_target(target: dict) -> dict:
+    """היעד כפי שהבורר מציג אותו — בלי סימונים פנימיים."""
+    return {k: v for k, v in target.items() if k != _MATCH_ALL}
 
 
-def match_entities(
-    hass: HomeAssistant,
-    domain: str,
-    area: str = "",
-    floor: str = "",
-    states: list[str] | None = None,
-    label: str = "",
-) -> list[str]:
-    """הישויות שהיעד מכסה, כרגע.
+def has_target(target: dict) -> bool:
+    """האם נבחר משהו לכלול. החרגה לבדה אינה נחשבת."""
+    return any(target.get(key) for key in TARGET_KEYS)
 
-    נשען על מנוע ההתאמה של Home Assistant עצמו — אותו אחד שהעוזר
-    מריץ ב"הדלק את האורות במטבח". הוא מטפל גם במה שקל לפספס:
-    ישות ששייכת למרחב דרך המכשיר שלה ולא ישירות, כינויים למרחב,
-    וקומה שמכילה כמה מרחבים.
 
-    `assistant=None` במכוון: כך היעד אינו כפוף להגדרות החשיפה של
-    Assist. מי שבנה תפריט טלפוני כבר החליט מה בתוכו.
+def _primary(hass: HomeAssistant, entity_ids) -> set[str]:
+    """בלי ישויות מוסתרות ובלי ישויות הגדרה ואבחון — כמו במרחב."""
+    from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+    registry = er.async_get(hass)
+    kept = set()
+    for entity_id in entity_ids:
+        entry = registry.async_get(entity_id)
+        if entry is not None and (entry.hidden_by or entry.entity_category):
+            continue
+        kept.add(entity_id)
+    return kept
+
+
+def _resolve(hass: HomeAssistant, target: dict) -> set[str]:
+    """כל הישויות שהיעד מכסה, מכל הסוגים, אחרי ההחרגות."""
+    from homeassistant.helpers import target as target_helper  # noqa: PLC0415
+
+    if target.get(_MATCH_ALL):
+        parts = [
+            _resolve(hass, {key: target[key]}) for key in TARGET_KEYS if target.get(key)
+        ]
+        return set.intersection(*parts) if parts else set()
+
+    selection = target_helper.TargetSelection(target)
+    if has_target(target):
+        selected = target_helper.async_extract_referenced_entity_ids(hass, selection)
+        return selected.referenced | selected.indirectly_referenced
+    # בלי יעד — כל הבית, פחות ההחרגות
+    everything = _primary(hass, (s.entity_id for s in hass.states.async_all()))
+    return everything - target_helper.async_extract_excluded_entity_ids(hass, selection)
+
+
+def match_entities(hass: HomeAssistant, domain: str, target: dict) -> list[str]:
+    """הישויות מהסוג הזה שהיעד מכסה, כרגע.
+
+    נפתר במנוע היעדים של Home Assistant — אותו אחד שמשמש שירות
+    שמופעל על מרחב באוטומציה, כולל ההחרגות. מכשיר שנוסף למרחב
+    מצטרף מעצמו, ומה שהוחרג נשאר בחוץ גם כשיתווספו אחרים.
     """
     if not domain:
         return []
     try:
-        from homeassistant.helpers import intent as intent_helper  # noqa: PLC0415
-
-        result = intent_helper.async_match_targets(
-            hass,
-            intent_helper.MatchTargetsConstraints(
-                domains=[domain],
-                area_name=area or None,
-                floor_name=floor or None,
-                states=states or None,
-                assistant=None,
-            ),
-        )
+        found = _resolve(hass, target)
     except Exception:  # noqa: BLE001 — יעד שאינו נפתר אינו מפיל תפריט
-        _LOGGER.debug("Could not match %s in %s/%s", domain, area, floor, exc_info=True)
+        _LOGGER.debug("Could not resolve %s in %s", domain, target, exc_info=True)
         return []
-    if not result.is_match:
-        # הסיבה ולא רק "ריק": יעד שאינו מתאים נשמע בטלפון כ"אין
-        # מכשירים", וזה נראה זהה בין מרחב שהתרוקן, מרחב שנמחק,
-        # ודומיין שאין בו כלום. היומן צריך להבחין ביניהם.
-        _LOGGER.debug(
-            "No match for %s in area=%r floor=%r: %s",
-            domain, area, floor, getattr(result, "no_match_reason", None),
-        )
-        return []
-    found = sorted(state.entity_id for state in result.states)
-    if not label:
-        return found
-
-    # התוויות אינן חלק מ-`MatchTargetsConstraints`, ולכן מסננים
-    # אותן כאן, אחרי שהמנוע של Home Assistant עשה את שלו.
-    wanted = resolve_label(hass, label)
-    kept = [e for e in found if wanted in entity_labels(hass, e)]
-    if not kept:
-        _LOGGER.debug("No %s carries label %r in area=%r", domain, label, area)
-    return kept
+    prefix = f"{domain}."
+    return sorted(
+        e for e in found if e.startswith(prefix) and hass.states.get(e) is not None
+    )
 
 
-async def async_domains_in(
-    hass: HomeAssistant, area: str = "", floor: str = "", label: str = ""
-) -> list[tuple[str, int]]:
+async def async_domains_in(hass: HomeAssistant, target: dict) -> list[tuple[str, int]]:
     """סוגי הישויות שנמצאים ביעד, וכמה מכל סוג.
 
     זו הדרך ההפוכה לבחירת סוג מראש: קודם המקום, ומתוכו מה שיש בו.
@@ -558,27 +561,33 @@ async def async_domains_in(
     """
     from .policy import domain_is_blocked, domain_is_groupable  # noqa: PLC0415
 
-    found: dict[str, int] = {}
-    for state in hass.states.async_all():
-        domain = state.entity_id.split(".", 1)[0]
-        if domain in found:
+    try:
+        resolved = _resolve(hass, target)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Could not resolve %s", target, exc_info=True)
+        return []
+
+    counts: dict[str, int] = {}
+    for entity_id in resolved:
+        if hass.states.get(entity_id) is None:
             continue
+        domain = entity_id.split(".", 1)[0]
+        counts[domain] = counts.get(domain, 0) + 1
+
+    found: dict[str, int] = {}
+    for domain, count in counts.items():
         if domain_is_blocked(domain) or not domain_is_groupable(domain):
             continue
         if not available_actions(hass, domain):
             continue
-        members = match_entities(hass, domain, area, floor, label=label)
-        if not members:
-            continue
         if not await async_domain_is_usable(hass, domain):
             continue
-        found[domain] = len(members)
+        found[domain] = count
     return sorted(found.items())
 
 
 async def async_discover_group(
-    hass: HomeAssistant, domain: str, area: str = "", floor: str = "",
-    label: str = "",
+    hass: HomeAssistant, domain: str, target: dict
 ) -> list[Capability]:
     """היכולות המשותפות לכל חברי הקבוצה.
 
@@ -586,7 +595,7 @@ async def async_discover_group(
     נשמעת בתפריט ונכשלת בשקט אצל השאר. מזגן אחד עם מצב סיבוב
     ואחד בלי — המתקשר אינו יודע מי מהם ענה לו.
     """
-    entity_ids = match_entities(hass, domain, area, floor, label=label)
+    entity_ids = match_entities(hass, domain, target)
     if not entity_ids:
         return []
 

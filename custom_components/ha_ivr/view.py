@@ -520,8 +520,7 @@ class IvrView(HomeAssistantView):
 
         target = node.target
         entity_ids = smart_mod.match_entities(
-            self.hass, target.get("domain", ""), target.get("area", ""),
-            target.get("floor", ""), label=target.get("label", ""),
+            self.hass, target.get("domain", ""), target.get("target") or {}
         )
         name = target.get("name") or node.say or "הקבוצה"
         if not entity_ids:
