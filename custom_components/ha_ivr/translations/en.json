@@ -225,208 +225,161 @@
   },
   "config_subentries": {
     "menu_item": {
-      "title": "Menu item",
+      "title": "Device",
       "step": {
         "user": {
-          "title": "New item",
+          "title": "New device",
+          "description": "One device in the menu: its own menu with everything it can do, or one action that happens on the key press.",
           "data": {
             "entity_id": "Device",
+            "on_press": "On key press",
             "menu_path": "Menu position",
-            "label": "Spoken name"
+            "label": "Spoken name",
+            "confirm_risky": "Confirm sensitive actions"
+          },
+          "data_description": {
+            "label": "Empty uses the name from Home Assistant."
           }
         },
         "reconfigure": {
-          "title": "Edit item",
+          "title": "Edit device",
+          "description": "One device in the menu: its own menu with everything it can do, or one action that happens on the key press.",
           "data": {
             "entity_id": "Device",
+            "on_press": "On key press",
             "menu_path": "Menu position",
-            "label": "Spoken name"
+            "label": "Spoken name",
+            "confirm_risky": "Confirm sensitive actions"
+          },
+          "data_description": {
+            "label": "Empty uses the name from Home Assistant."
           }
         },
         "action": {
           "title": "Action",
-          "description": "What happens when {entity} is selected",
+          "description": "What happens when {entity} is pressed.",
           "data": {
             "action": "Action",
-            "confirm_risky": "Confirmation for sensitive actions"
+            "confirm_risky": "Confirm sensitive action"
           }
         },
         "params": {
           "title": "Action values",
           "description": "{action}"
-        }
-      },
-      "error": {
-        "invalid_path": "Invalid position.",
-        "path_in_use": "That position is taken.",
-        "parent_is_item": "One of the parent levels is an item, not a submenu.",
-        "confirm_required": "This action is sensitive and needs confirmation."
-      },
-      "initiate_flow": {
-        "user": "Add item"
-      },
-      "entry_type": "Item"
-    },
-    "smart_entity": {
-      "title": "Smart entity",
-      "step": {
-        "user": {
-          "title": "New smart entity",
-          "description": "Pick a device. Its options are discovered automatically.",
-          "data": {
-            "entity_id": "Device",
-            "menu_path": "Menu position",
-            "label": "Spoken name",
-            "confirm_risky": "Confirmation for sensitive actions"
-          }
-        },
-        "reconfigure": {
-          "title": "Edit smart entity",
-          "description": "Pick a device. Its options are discovered automatically.",
-          "data": {
-            "entity_id": "Device",
-            "menu_path": "Menu position",
-            "label": "Spoken name",
-            "confirm_risky": "Confirmation for sensitive actions"
-          }
         },
         "capabilities": {
-          "title": "What to offer",
-          "description": "These are the things {entity} reports it can do. Clear anything you do not want read out. Numbers are locked once saved, so the menu stays put.",
+          "title": "What the menu offers",
+          "description": "These are the things {entity} can do. Uncheck what is not needed.",
           "data": {
-            "capabilities": "Options in the menu"
+            "capabilities": "Options"
           }
         },
         "order": {
-          "title": "Order in the menu",
-          "description": "The number each option gets. 1 is read out first. These numbers are locked once saved."
+          "title": "Menu order",
+          "description": "The digit each option gets. The numbers are kept, so the menu does not shift for callers who know it."
         },
         "options": {
           "title": "Which values",
-          "description": "Clear any value you do not want offered."
+          "description": "Uncheck any value that need not be offered."
         }
       },
       "error": {
         "invalid_path": "Invalid position.",
         "path_in_use": "That position is taken.",
         "parent_is_item": "One of the parent levels is an item, not a submenu.",
-        "confirm_required": "This action is sensitive and needs confirmation.",
-        "nothing_chosen": "Pick at least one option."
+        "confirm_required": "A sensitive action. Confirm it explicitly.",
+        "nothing_chosen": "Choose at least one."
       },
       "abort": {
-        "no_capabilities": "Nothing was discovered for this device. Add it as a regular item instead."
+        "no_capabilities": "Nothing was discovered for this device. Choose \"One action\" instead."
       },
       "initiate_flow": {
-        "user": "Add smart entity"
+        "user": "Add device"
       },
-      "entry_type": "Smart entity"
+      "entry_type": "Device"
     },
     "smart_group": {
-      "title": "Smart group",
+      "title": "Device group",
       "step": {
         "user": {
-          "title": "New smart group",
-          "description": "Everything of one kind in the places you pick. Only options every member supports are offered.",
+          "title": "New device group",
+          "description": "Acts on several devices together, such as every light in the living room. First where, then which kinds.",
           "data": {
-            "target_domain": "Kind of device",
+            "target": "Where",
             "menu_path": "Menu position",
-            "label": "Spoken name",
-            "confirm_risky": "Confirmation for sensitive actions"
+            "label": "Spoken name"
+          },
+          "data_description": {
+            "target": "Areas, floors, labels or devices. Put what is not needed under \"Exclude\". Empty means the whole house.",
+            "label": "Empty uses the name from Home Assistant."
           }
         },
-        "reconfigure": {
-          "title": "Edit smart group",
-          "description": "Everything of one kind in the places you pick. Only options every member supports are offered.",
+        "kinds": {
+          "title": "Which kinds",
+          "description": "These kinds were found in {place}. One kind is one menu item. Several kinds make a submenu with an item per kind.",
           "data": {
-            "target_domain": "Kind of device",
+            "kinds": "Kinds",
+            "confirm_risky": "Confirm sensitive actions"
+          }
+        },
+        "pick": {
+          "title": "What each kind offers",
+          "description": "A row per kind. Uncheck what is not needed."
+        },
+        "reconfigure": {
+          "title": "Edit device group",
+          "description": "Every device of one kind in the chosen place.",
+          "data": {
+            "target_domain": "Kind",
             "menu_path": "Menu position",
             "label": "Spoken name",
-            "confirm_risky": "Confirmation for sensitive actions"
+            "confirm_risky": "Confirm sensitive actions"
           }
         },
         "where": {
           "title": "Where",
-          "description": "Which {kind} to include. Leave empty for the whole house.",
+          "description": "Which {kind} to include. Empty means the whole house.",
           "data": {
-            "target": "What to include"
+            "target": "Included"
           },
           "data_description": {
-            "target": "Areas, floors, labels or devices. Use \"Exclude\" for what should stay out."
+            "target": "Areas, floors, labels or devices. Put what is not needed under \"Exclude\". Empty means the whole house."
           }
         },
         "capabilities": {
-          "title": "What to offer",
-          "description": "These are the things every member of {entity} supports. Clear anything you do not want read out.",
+          "title": "What the menu offers",
+          "description": "These are the things every member of {entity} can do. Uncheck what is not needed.",
           "data": {
-            "capabilities": "Options in the menu"
+            "capabilities": "Options"
           }
         },
         "order": {
-          "title": "Order in the menu",
-          "description": "The number each option gets. 1 is read out first. These numbers are locked once saved."
+          "title": "Menu order",
+          "description": "The digit each option gets. The numbers are kept, so the menu does not shift for callers who know it."
         },
         "options": {
           "title": "Which values",
-          "description": "Clear any value you do not want offered."
+          "description": "Uncheck any value that need not be offered."
         }
       },
       "error": {
         "invalid_path": "Invalid position.",
         "path_in_use": "That position is taken.",
         "parent_is_item": "One of the parent levels is an item, not a submenu.",
-        "confirm_required": "This action is sensitive and needs confirmation.",
-        "nothing_chosen": "Pick at least one option.",
-        "no_members": "Nothing of this kind is in what you picked."
+        "confirm_required": "A sensitive action. Confirm it explicitly.",
+        "nothing_chosen": "Choose at least one.",
+        "no_members": "Nothing of this kind in the selection.",
+        "nothing_here": "No device there can be operated by phone.",
+        "too_deep": "No room for a submenu at this level. Choose a higher position."
       },
       "abort": {
-        "no_capabilities": "Nothing is shared by every member. Try a narrower area, or add the devices one by one."
+        "no_capabilities": "Nothing is shared by every member. Narrow the place, or add the devices one by one.",
+        "menu_created": "Created submenu \"{name}\" at {path} with {count} groups. Each group can be edited on its own."
       },
       "initiate_flow": {
-        "user": "Add smart group"
+        "user": "Add device group"
       },
-      "entry_type": "Smart group"
-    },
-    "smart_area": {
-      "title": "Area menu",
-      "step": {
-        "user": {
-          "title": "New area menu",
-          "description": "Pick a place. Every kind of device found there becomes one menu entry, acting on all of them together.",
-          "data": {
-            "target": "What to include",
-            "menu_path": "Menu position",
-            "label": "Spoken name"
-          },
-          "data_description": {
-            "target": "Pick areas, floors, labels or devices, and exclude what should stay out."
-          }
-        },
-        "reconfigure": {
-          "title": "Edit area menu",
-          "description": "Name and position only. To change the place itself, add a new area menu; to change one kind of device, edit its group.",
-          "data": {
-            "menu_path": "Menu position",
-            "label": "Spoken name"
-          }
-        },
-        "pick": {
-          "title": "What to include",
-          "description": "One line per kind of device found. Clear anything you do not want."
-        }
-      },
-      "error": {
-        "invalid_path": "Invalid position.",
-        "path_in_use": "That position is taken.",
-        "parent_is_item": "One of the parent levels is an item, not a submenu.",
-        "nothing_chosen": "Pick at least one."
-      },
-      "abort": {
-        "nothing_here": "Nothing was found there that a menu can be built from."
-      },
-      "initiate_flow": {
-        "user": "Add area menu"
-      },
-      "entry_type": "Area menu"
+      "entry_type": "Device group"
     },
     "submenu": {
       "title": "Submenu",
@@ -437,7 +390,8 @@
             "menu_path": "Menu position",
             "label": "Spoken name",
             "intro": "Intro message"
-          }
+          },
+          "description": "Another menu level. What is placed under it is heard after choosing it."
         },
         "reconfigure": {
           "title": "Edit submenu",
@@ -445,7 +399,8 @@
             "menu_path": "Menu position",
             "label": "Spoken name",
             "intro": "Intro message"
-          }
+          },
+          "description": "Moving it moves everything under it."
         }
       },
       "error": {
@@ -537,10 +492,10 @@
         "unknown_trunk": "The PBX does not know this trunk."
       },
       "initiate_flow": {
-        "user": "Add recipient",
+        "user": "Add alert recipient",
         "reconfigure": "Edit recipient"
       },
-      "entry_type": "Recipient"
+      "entry_type": "Alert recipient"
     },
     "alerts": {
       "title": "Recent alerts",
@@ -637,6 +592,12 @@
         "voice": "Voice call",
         "sms": "SMS",
         "tzintuk": "Tzintuk (ring)"
+      }
+    },
+    "on_press": {
+      "options": {
+        "menu": "Its own menu — everything the device can do",
+        "action": "One action — happens right away"
       }
     }
   },

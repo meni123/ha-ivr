@@ -33,13 +33,14 @@ from .const import (
     CONF_DOMAIN,
     CONF_GOTO_TARGET,
     CONF_PLAN,
-    SUBENTRY_TYPE_AREA,
     SUBENTRY_TYPE_GROUP,
     SUBENTRY_TYPE_ITEM,
     SUBENTRY_TYPE_SMART,
     SUBENTRY_TYPE_SUBMENU,
     SUBENTRY_TYPE_GOTO,
     SUBENTRY_TYPE_ALERTS,
+    SUBENTRY_TYPE_AREA,
+    subentry_kind,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -102,9 +103,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
     # נתלים תחתיהם. תפריט אזור הוא תת-תפריט לכל דבר — הקבוצות
     # שנוצרו איתו תלויות תחתיו כמו כל פריט אחר.
     for subentry in entry.subentries.values():
-        if subentry.subentry_type not in (
-            SUBENTRY_TYPE_SUBMENU, SUBENTRY_TYPE_AREA,
-        ):
+        if subentry_kind(subentry) != SUBENTRY_TYPE_SUBMENU:
             continue
         path = normalize_path(subentry.data.get(CONF_MENU_PATH))
         if not path:
@@ -115,7 +114,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
             node["intro"] = intro
 
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_ITEM:
+        if subentry_kind(subentry) != SUBENTRY_TYPE_ITEM:
             continue
         data = subentry.data
         path = normalize_path(data.get(CONF_MENU_PATH))
@@ -140,7 +139,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
         node["confirmed"] = bool(data.get(CONF_CONFIRM_RISKY, False))
 
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_SMART:
+        if subentry_kind(subentry) != SUBENTRY_TYPE_SMART:
             continue
         data = subentry.data
         path = normalize_path(data.get(CONF_MENU_PATH))
@@ -159,7 +158,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
         _expand_smart(hass, _dig(root, path.split("/")), data)
 
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_GROUP:
+        if subentry_kind(subentry) != SUBENTRY_TYPE_GROUP:
             continue
         data = subentry.data
         path = normalize_path(data.get(CONF_MENU_PATH))
@@ -175,7 +174,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
         _expand_group(hass, _dig(root, path.split("/")), data)
 
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_GOTO:
+        if subentry_kind(subentry) != SUBENTRY_TYPE_GOTO:
             continue
         data = subentry.data
         path = normalize_path(data.get(CONF_MENU_PATH))
@@ -187,7 +186,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
         node["goto"] = str(data.get(CONF_GOTO_TARGET, ""))
 
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_ALERTS:
+        if subentry_kind(subentry) != SUBENTRY_TYPE_ALERTS:
             continue
         data = subentry.data
         path = normalize_path(data.get(CONF_MENU_PATH))
@@ -560,11 +559,10 @@ def used_paths(entry: ConfigEntry, exclude: str = "") -> set[str]:
         # כל סוג שתופס מקום בעץ חייב להופיע כאן. סוג שנשכח נראה
         # בטופס כמיקום פנוי, והמשתמש מציב עליו פריט שני — שנבלע
         # בשקט, כי בבנייה רק הראשון נלקח.
-        if subentry.subentry_type not in (
+        if subentry_kind(subentry) not in (
             SUBENTRY_TYPE_ITEM,
             SUBENTRY_TYPE_SMART,
-            SUBENTRY_TYPE_AREA,
-    SUBENTRY_TYPE_GROUP,
+            SUBENTRY_TYPE_GROUP,
             SUBENTRY_TYPE_SUBMENU,
             SUBENTRY_TYPE_GOTO,
             SUBENTRY_TYPE_ALERTS,
@@ -581,9 +579,7 @@ def submenu_paths(entry: ConfigEntry, exclude: str = "") -> dict[str, str]:
     """תתי-התפריטים שהוגדרו, כמיפוי נתיב לשם."""
     found: dict[str, str] = {}
     for subentry in entry.subentries.values():
-        if subentry.subentry_type not in (
-            SUBENTRY_TYPE_SUBMENU, SUBENTRY_TYPE_AREA,
-        ):
+        if subentry_kind(subentry) != SUBENTRY_TYPE_SUBMENU:
             continue
         if subentry.subentry_id == exclude:
             continue
@@ -600,3 +596,21 @@ def next_free_path(entry: ConfigEntry, parent: str = "", exclude: str = "") -> s
         if f"{prefix}{digit}" not in taken:
             return f"{prefix}{digit}"
     return ""
+
+
+def merged_type(subentry) -> tuple[str, dict] | None:
+    """הסוג והנתונים החדשים לתת-רשומה מסוג שאוחד, או None.
+
+    ישות חכמה הופכת למכשיר (התוכנית נשארת, והיא שמסמנת "תפריט").
+    תפריט אזור הופך לתת-תפריט; הקבוצות שתחתיו כבר עצמאיות.
+    """
+    data = dict(subentry.data)
+    if subentry.subentry_type == SUBENTRY_TYPE_SMART:
+        return SUBENTRY_TYPE_ITEM, data
+    if subentry.subentry_type == SUBENTRY_TYPE_AREA:
+        return SUBENTRY_TYPE_SUBMENU, {
+            CONF_MENU_PATH: str(data.get(CONF_MENU_PATH, "") or ""),
+            CONF_LABEL: str(data.get(CONF_LABEL, "") or ""),
+            CONF_INTRO: "",
+        }
+    return None

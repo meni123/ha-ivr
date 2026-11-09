@@ -2431,14 +2431,48 @@ ok("מיקום תפריט האזור נחשב תפוס", "1" in menu.used_paths(
 # נוצר פריט שאי אפשר לשנות בו שם או מיקום.
 from custom_components.ha_ivr import config_shared as _cs  # noqa: E402
 
-_handlers = ("MenuItemFlowHandler", "SmartEntityFlowHandler",
-             "SmartGroupFlowHandler", "SmartAreaFlowHandler",
+_handlers = ("DeviceFlowHandler", "SmartGroupFlowHandler",
              "SubMenuFlowHandler", "GoToFlowHandler", "AlertsFlowHandler",
              "ContactFlowHandler")
 _no_edit = [h for h in _handlers
             if not hasattr(getattr(_cs, h), "async_step_reconfigure")]
 ok("כל סוגי תת-הרשומות ניתנים לעריכה", not _no_edit)
 ok("והוא מוצע כתת-תפריט לתלייה", "1" in menu.submenu_paths(_ae))
+
+
+# ======================================================================
+print("\n== איחוד סוגי הפריטים ==")
+# ======================================================================
+# מכשיר עם תוכנית הוא "תפריט" — אותו עץ כמו ישות חכמה ישנה.
+_es.subentries = {"sm": types.SimpleNamespace(
+    subentry_type="menu_item", subentry_id="sm", title="1",
+    data={"menu_path": "1", "label": "", "entity_id": "climate.s",
+          "confirm_risky": False, "plan": _plan})}
+_dnode = menu.build_tree(_hs, _es).items["1"]
+ok("מכשיר עם תוכנית נבנה כתפריט", sorted(_dnode.items) == ["1", "2", "3", "4"])
+from custom_components.ha_ivr.const import subentry_kind  # noqa: E402
+ok("ומסווג כישות חכמה", subentry_kind(_es.subentries["sm"]) == "smart_entity")
+_plain = types.SimpleNamespace(subentry_type="menu_item", data={"action": "turn_on"})
+ok("מכשיר בלי תוכנית הוא פעולה אחת", subentry_kind(_plain) == "menu_item")
+
+_m1 = menu.merged_type(types.SimpleNamespace(
+    subentry_type="smart_entity", data={"menu_path": "1", "plan": _plan}))
+ok("ישות חכמה מומרת למכשיר ושומרת את התוכנית",
+   _m1 and _m1[0] == "menu_item" and _m1[1]["plan"] == _plan)
+_m2 = menu.merged_type(_ae.subentries["area"])
+ok("תפריט אזור מומר לתת-תפריט",
+   _m2 == ("submenu", {"menu_path": "1", "label": "סלון", "intro": ""}))
+ok("סוג שלא אוחד אינו מומר",
+   menu.merged_type(_ae.subentries["g1"]) is None)
+_mig = (ROOT / "custom_components" / "ha_ivr" / "__init__.py").read_text("utf-8")
+ok("ההמרה שומרת את מזהה תת-הרשומה", "subentry_id=subentry.subentry_id" in _mig)
+_cf = (ROOT / "custom_components" / "ha_ivr" / "config_flow.py").read_text("utf-8")
+from custom_components.ha_ivr.policy import domain_is_groupable  # noqa: E402
+ok("משימת בינה ומצלמה אינן מוצעות כקבוצה",
+   not domain_is_groupable("ai_task") and not domain_is_groupable("camera"))
+ok("אורות כן", domain_is_groupable("light"))
+ok("אין עוד כפתור לישות חכמה ולתפריט אזור",
+   "SUBENTRY_TYPE_SMART:" not in _cf and "SUBENTRY_TYPE_AREA:" not in _cf)
 
 print(f"\n{'FAIL' if FAIL else 'PASS'} — {PASS} עברו, {FAIL} נכשלו")
 sys.exit(1 if FAIL else 0)

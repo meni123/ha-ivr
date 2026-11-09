@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import contextlib
+from types import MappingProxyType
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -133,6 +134,38 @@ if _HA:
         )
         return True
 
+
+    async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+        """1.2: ישות חכמה ותפריט אזור אוחדו לתוך מכשיר ותת-תפריט.
+
+        המזהה של כל תת-רשומה נשמר, ולסוגים האלה אין ישויות או התקנים,
+        כך שההמרה אינה נוגעת בשום דבר מחוץ לרשומה.
+        """
+        if entry.version > 1:
+            return False
+        if entry.minor_version < 2:
+            from homeassistant.config_entries import ConfigSubentry  # noqa: PLC0415
+
+            from .menu import merged_type  # noqa: PLC0415
+
+            for subentry in list(entry.subentries.values()):
+                merged = merged_type(subentry)
+                if merged is None:
+                    continue
+                kind, data = merged
+                hass.config_entries.async_remove_subentry(entry, subentry.subentry_id)
+                hass.config_entries.async_add_subentry(
+                    entry,
+                    ConfigSubentry(
+                        data=MappingProxyType(data),
+                        subentry_type=kind,
+                        title=subentry.title,
+                        unique_id=subentry.unique_id,
+                        subentry_id=subentry.subentry_id,
+                    ),
+                )
+            hass.config_entries.async_update_entry(entry, minor_version=2)
+        return True
 
     def _platforms(driver) -> list:
         """הפלטפורמות שהספק הזה מצדיק.

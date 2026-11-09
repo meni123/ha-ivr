@@ -20,17 +20,18 @@ PENDING_ANNOUNCE: Final = "ha_ivr_pending_announce"
 # בזיכרון בלבד — התראות הן זמניות, ואיבודן בהפעלה מחדש סביר.
 ALERT_LOG: Final = "ha_ivr_alert_log"
 
+# מכשיר אחד: פעולה אחת בהקשה, או — כשיש לו תוכנית (`CONF_PLAN`) —
+# תפריט שנבנה מהיכולות שהוא מדווח עליהן. ראו `smart.py`.
 SUBENTRY_TYPE_ITEM: Final = "menu_item"
 SUBENTRY_TYPE_SUBMENU: Final = "submenu"
 SUBENTRY_TYPE_GOTO: Final = "goto"
-# ישות שהתפריט שלה נבנה מהיכולות שהמכשיר מדווח עליהן, במקום
-# פריט ידני לכל פעולה. ראו `smart.py`.
-SUBENTRY_TYPE_SMART: Final = "smart_entity"
-# קבוצה: כל הישויות מסוג מסוים במרחב, בקומה או בכל הבית. אותו
-# מנגנון גילוי, אלא שהיכולות הן החיתוך של כל החברים. ראו `smart.py`.
+# קבוצת מכשירים: כל הישויות מסוג אחד ביעד. אותו מנגנון גילוי, אלא
+# שהיכולות הן החיתוך של כל החברים.
 SUBENTRY_TYPE_GROUP: Final = "smart_group"
-# תפריט אזור: בוחרים מרחב, והאינטגרציה יוצרת תחתיו קבוצה לכל סוג
-# ישות שנמצא בו. הרשומה עצמה משמשת כתת-תפריט בלבד.
+# סוגים שאוחדו ב-1.9.0: ישות חכמה היא מכשיר עם תוכנית, ותפריט אזור
+# הוא תת-תפריט. נשארים כאן בשביל ההמרה ב-`async_migrate_entry` ולסיווג
+# הלוגי — לא נוצרים עוד.
+SUBENTRY_TYPE_SMART: Final = "smart_entity"
 SUBENTRY_TYPE_AREA: Final = "smart_area"
 # שלוחה שמקריאה את ההתראות האחרונות שנשלחו. ראו `announce.log_alert`.
 SUBENTRY_TYPE_ALERTS: Final = "alerts"
@@ -189,3 +190,16 @@ DOMAIN_NAMES: Final = {
     "tts": "ההקראה",
     "vacuum": "שואב האבק",
 }
+
+
+def subentry_kind(subentry) -> str:
+    """הסוג הלוגי של תת-רשומה, לבניית העץ.
+
+    מכשיר עם תוכנית מתנהג כישות חכמה; כל השאר לפי הסוג השמור.
+    """
+    kind = subentry.subentry_type
+    if kind == SUBENTRY_TYPE_ITEM and subentry.data.get(CONF_PLAN) is not None:
+        return SUBENTRY_TYPE_SMART
+    if kind == SUBENTRY_TYPE_AREA:
+        return SUBENTRY_TYPE_SUBMENU
+    return kind

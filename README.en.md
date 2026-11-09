@@ -188,14 +188,23 @@ Answer URL, or every status event will be treated as a new call.
 
 ### Step 5 · Build the menu
 
-On the integration card, the `+` button offers four types:
+On the integration card, the `+` button offers:
 
 | Type | What it does |
 |---|---|
-| **Menu item** | A key that acts on an entity, or just reads its state |
-| **Submenu** | A key that opens another level. Nests up to four levels |
-| **Go to extension** | Hands the call to another extension at the provider — the voice assistant, for example |
-| **Alert recipient** | A phone number that becomes a `notify` entity |
+| **Device** | One device: its own menu with everything it can do, or one action on the key press |
+| **Device group** | Several devices in a place you choose, with exclusions: one item for one kind, a submenu for several kinds |
+| **Submenu** | A key that opens another level. Nests up to four levels; moving it moves what is under it |
+| **Go to** | Hands the call to another extension at the provider — the voice assistant, for example |
+| **Alerts extension** | Reads the caller the alerts that were sent to them |
+| **Alert recipient** | A phone number that becomes a `notify` entity. Not part of the menu |
+
+**Its own menu** is built from what the device reports: on, off,
+state, a submenu per supported mode, and number entry for values such
+as temperature. **One action** is for a key that does one thing, or
+for a value of your own ("add milk to the shopping list"). A device
+group offers only what every member supports, and membership is
+resolved on each call.
 
 The path is the key sequence: `1` is key 1 at the root, `1/2` is key
 2 inside key 1's submenu. `*` goes one level back.

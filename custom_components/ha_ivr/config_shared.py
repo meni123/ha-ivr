@@ -49,6 +49,7 @@ from .action_fields import (
 from . import smart as smart_mod
 from .const import (
     SUBENTRY_TYPE_GROUP,
+    SUBENTRY_TYPE_SUBMENU,
     CONF_CHANNEL,
     CONF_DOMAIN,
     CONF_PLAN,
@@ -325,6 +326,12 @@ def stream_schema(
         )
     return vol.Schema(schema)
 
+def _friendly(hass, entity_id: str) -> str:
+    """שם המכשיר כפי שמוצג ב-HA, או המזהה כשאין."""
+    state = hass.states.get(entity_id)
+    return str((state.attributes.get("friendly_name") if state else None) or entity_id)
+
+
 class _EditMixin:
     """הבחנה בין הוספה לעריכה, לכל זרימת תת-רשומה.
 
@@ -430,6 +437,26 @@ class _PathMixin(_EditMixin):
             return path, "parent_is_item"
         return path, ""
 
+    def _move_children(self, old: str, new: str) -> None:
+        """כל מה שתלוי תחת `old` עובר אל `new`, באותו מקום יחסי.
+
+        בלי זה, תת-תפריט שהוזז משאיר את הפריטים שלו יתומים במקום הישן.
+        """
+        if not old or old == new:
+            return
+        entry = self._get_entry()
+        prefix = f"{old}/"
+        for subentry in list(entry.subentries.values()):
+            path = str(subentry.data.get(CONF_MENU_PATH, "") or "")
+            if not path.startswith(prefix):
+                continue
+            moved = f"{new}/{path[len(prefix):]}"
+            self.hass.config_entries.async_update_subentry(
+                entry, subentry,
+                data={**subentry.data, CONF_MENU_PATH: moved},
+                title=f"{moved} — {subentry.title.split('— ', 1)[-1]}",
+            )
+
     async def _simple_step(
         self,
         step_id: str,
@@ -468,6 +495,11 @@ class _PathMixin(_EditMixin):
                 }
                 title = f"{path} — {data[CONF_LABEL] or title_default}"
                 if self._editing_subentry_id():
+                    self._move_children(
+                        str(self._get_reconfigure_subentry().data.get(
+                            CONF_MENU_PATH, "") or ""),
+                        path,
+                    )
                     return self.async_update_and_abort(
                         self._get_entry(),
                         self._get_reconfigure_subentry(),
@@ -594,7 +626,7 @@ class MenuItemFlowHandler(_PathMixin, ConfigSubentryFlow):
                 self._pending[CONF_CONFIRM_RISKY] = confirmed
                 if await self._needs_params(entity_id, action):
                     return await self.async_step_params()
-                return self._finish({})
+                return self._finish_action({})
 
         schema: dict[Any, Any] = {
             vol.Required(CONF_ACTION, default=NONE_VALUE): await self._action_selector(
@@ -608,7 +640,7 @@ class MenuItemFlowHandler(_PathMixin, ConfigSubentryFlow):
             step_id="action",
             data_schema=vol.Schema(schema),
             errors=errors,
-            description_placeholders={"entity": entity_id},
+            description_placeholders={"entity": _friendly(self.hass, entity_id)},
         )
 
     async def _action_selector(self, entity_id: str):
@@ -640,7 +672,7 @@ class MenuItemFlowHandler(_PathMixin, ConfigSubentryFlow):
         if user_input is not None:
             fields = await async_action_fields(self.hass, domain, action, entity_id)
             labels = build_label_map(fields)
-            return self._finish(
+            return self._finish_action(
                 {
                     labels.get(k, k): v
                     for k, v in user_input.items()
@@ -651,7 +683,7 @@ class MenuItemFlowHandler(_PathMixin, ConfigSubentryFlow):
         fields = await async_action_fields(self.hass, domain, action, entity_id)
         schema = build_fields_schema(fields)
         if schema is None:
-            return self._finish({})
+            return self._finish_action({})
         return self.async_show_form(
             step_id="params",
             data_schema=schema,
@@ -665,7 +697,7 @@ class MenuItemFlowHandler(_PathMixin, ConfigSubentryFlow):
         fields = await async_action_fields(self.hass, domain, action, entity_id)
         return build_fields_schema(fields) is not None
 
-    def _finish(self, action_data: dict) -> SubentryFlowResult:
+    def _finish_action(self, action_data: dict) -> SubentryFlowResult:
         p = self._pending
         entity_id = str(p.get(CONF_TARGET_ENTITY, ""))
         data = {
@@ -801,8 +833,8 @@ class SmartEntityFlowHandler(_PathMixin, ConfigSubentryFlow):
         )
 
     def _subject(self) -> str:
-        """מה שמוצג בכותרת מסך היכולות."""
-        return str(self._pending.get(CONF_TARGET_ENTITY, ""))
+        """מה שמוצג בכותרת מסך היכולות: שם המכשיר, לא המזהה."""
+        return self._default_title()
 
     def _stored_data(self, plan: list) -> dict:
         """מה שנשמר בתת-הרשומה, מלבד המסלול והתוכנית."""
@@ -1019,6 +1051,111 @@ class SmartEntityFlowHandler(_PathMixin, ConfigSubentryFlow):
 
 
 # ----------------------------------------------------------------------
+# מכשיר — פעולה אחת, או תפריט מכל מה שהוא יודע
+# ----------------------------------------------------------------------
+
+# מה קורה בהקשה על מכשיר. לא נשמר: מכשיר עם תוכנית הוא "תפריט".
+CONF_ON_PRESS = "on_press"
+ON_PRESS_MENU = "menu"
+ON_PRESS_ACTION = "action"
+
+
+class DeviceFlowHandler(SmartEntityFlowHandler, MenuItemFlowHandler):
+    """מכשיר אחד בתפריט: בחירה אחת בין שני אופנים.
+
+    "תפריט" — המסכים של הישות החכמה (יכולות, סדר, ערכים).
+    "פעולה אחת" — המסכים של הפריט (פעולה, ערכים). שני הסוגים היו
+    פעם שני כפתורי הוספה נפרדים, והמשתמשים לא ידעו במה לבחור.
+    """
+
+    async def _target_step(
+        self, step_id: str, user_input, current: dict | None = None
+    ) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        current = current or {}
+
+        if user_input is not None:
+            entity_id = str(user_input[CONF_TARGET_ENTITY])
+            domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+            mode = str(user_input.get(CONF_ON_PRESS) or ON_PRESS_MENU)
+            confirmed = bool(user_input.get(CONF_CONFIRM_RISKY, False))
+            path, err = self._validate_path(
+                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
+            )
+            if err:
+                errors[CONF_MENU_PATH] = err
+            elif (
+                mode == ON_PRESS_MENU
+                and domain_needs_confirmation(domain)
+                and not confirmed
+            ):
+                errors[CONF_CONFIRM_RISKY] = "confirm_required"
+            else:
+                self._pending = {
+                    CONF_TARGET_ENTITY: entity_id,
+                    CONF_MENU_PATH: path,
+                    CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
+                    CONF_CONFIRM_RISKY: confirmed,
+                }
+                if mode == ON_PRESS_ACTION:
+                    return await self.async_step_action()
+                return await self.async_step_capabilities()
+            current = {**current, **user_input}
+
+        path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
+            self._get_entry(), exclude=self._editing_subentry_id()
+        )
+        entity_id = str(current.get(CONF_TARGET_ENTITY, "") or "")
+        domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+        mode = str(current.get(CONF_ON_PRESS) or "") or (
+            ON_PRESS_ACTION
+            if self._editing_subentry_id() and current.get(CONF_PLAN) is None
+            else ON_PRESS_MENU
+        )
+
+        schema: dict[Any, Any] = {
+            vol.Required(
+                CONF_TARGET_ENTITY,
+                description={"suggested_value": entity_id},
+            ): EntitySelector(EntitySelectorConfig(multiple=False)),
+            vol.Required(CONF_ON_PRESS, default=mode): SelectSelector(
+                SelectSelectorConfig(
+                    options=[ON_PRESS_MENU, ON_PRESS_ACTION],
+                    mode=SelectSelectorMode.LIST,
+                    translation_key=CONF_ON_PRESS,
+                    sort=False,
+                )
+            ),
+            vol.Required(
+                CONF_MENU_PATH, default=to_form(path)
+            ): self._path_selector(path),
+            vol.Optional(
+                CONF_LABEL,
+                description={
+                    "suggested_value": str(current.get(CONF_LABEL, "") or "")
+                },
+            ): str,
+        }
+        if domain and domain_needs_confirmation(domain):
+            schema[
+                vol.Optional(
+                    CONF_CONFIRM_RISKY,
+                    default=bool(current.get(CONF_CONFIRM_RISKY, False)),
+                )
+            ] = bool
+
+        return self.async_show_form(
+            step_id=step_id, errors=errors, data_schema=vol.Schema(schema)
+        )
+
+    async def async_step_capabilities(self, user_input=None) -> SubentryFlowResult:
+        """מכשיר שלא מדווח על שום יכולת עובר לבחירת פעולה אחת."""
+        if user_input is None and not await self._discover():
+            return await self.async_step_action()
+        return await super().async_step_capabilities(user_input)
+
+
+# ----------------------------------------------------------------------
 # קבוצה
 # ----------------------------------------------------------------------
 
@@ -1043,12 +1180,240 @@ def _target_selector(domain: str = "") -> TargetSelector:
 
 
 class SmartGroupFlowHandler(SmartEntityFlowHandler):
-    """כל הישויות מסוג מסוים במרחב, בקומה או בכל הבית.
+    """קבוצת מכשירים: איפה, ואז אילו סוגים.
 
-    יורש את שלושת המסכים של הישות החכמה — יכולות, סדר, ערכים —
-    ומחליף רק את הנושא: במקום ישות אחת, יעד. היכולות הן החיתוך
-    של כל החברים, והחברות נקבעת בזמן השיחה ולא בהגדרה.
+    בהוספה קודם המקום — כך אנשים חושבים ("הסלון חוץ מ...") — ואז
+    הסוגים שנמצאו שם, עם מספר החברים. סוג אחד הוא פריט אחד בתפריט;
+    כמה סוגים הם תת-תפריט עם קבוצה לכל סוג. זה מה שהיה פעם "תפריט
+    אזור", כפתור נפרד שאיש לא הבין במה הוא שונה.
+
+    כל קבוצה יורשת את שלושת המסכים של הישות החכמה — יכולות, סדר,
+    ערכים — כשהיכולות הן החיתוך של כל החברים, והחברות נקבעת בזמן
+    השיחה ולא בהגדרה. בעריכה הסוג כבר ידוע, ולכן הסדר הפוך.
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._found: list[tuple[str, int]] = []
+        self._group_caps: dict[str, list] = {}
+
+    # ---- הוספה, שלב ראשון: איפה ----
+
+    async def async_step_user(self, user_input=None) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        current: dict[str, Any] = {}
+
+        if user_input is not None:
+            target = smart_mod.clean_target(user_input.get(CONF_TARGET))
+            path, err = self._validate_path(
+                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
+            )
+            found = await smart_mod.async_domains_in(self.hass, target)
+            if err:
+                errors[CONF_MENU_PATH] = err
+            elif not found:
+                errors[CONF_TARGET] = "nothing_here"
+            else:
+                self._found = found
+                self._pending = {
+                    CONF_TARGET: target,
+                    CONF_MENU_PATH: path,
+                    CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
+                }
+                return await self.async_step_kinds()
+            current = dict(user_input)
+
+        path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
+            self._get_entry()
+        )
+        return self.async_show_form(
+            step_id="user",
+            errors=errors,
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_TARGET,
+                        description={"suggested_value": _target_value(current)},
+                    ): _target_selector(),
+                    vol.Required(
+                        CONF_MENU_PATH, default=to_form(path)
+                    ): self._path_selector(path, allow_none=False),
+                    vol.Optional(
+                        CONF_LABEL,
+                        description={
+                            "suggested_value": str(current.get(CONF_LABEL, "") or "")
+                        },
+                    ): str,
+                }
+            ),
+        )
+
+    # ---- הוספה, שלב שני: אילו סוגים ----
+
+    async def async_step_kinds(self, user_input=None) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        domains = [d for d, _ in self._found]
+        risky = any(domain_needs_confirmation(d) for d in domains)
+        chosen = domains if len(domains) == 1 else []
+
+        if user_input is not None:
+            chosen = [d for d in (user_input.get("kinds") or []) if d in domains]
+            confirmed = bool(user_input.get(CONF_CONFIRM_RISKY, False))
+            base = str(self._pending.get(CONF_MENU_PATH, ""))
+            if not chosen:
+                errors["kinds"] = "nothing_chosen"
+            elif any(domain_needs_confirmation(d) for d in chosen) and not confirmed:
+                errors[CONF_CONFIRM_RISKY] = "confirm_required"
+            elif len(chosen) > 1 and base.count("/") + 2 > MENU_MAX_DEPTH:
+                errors[CONF_MENU_PATH] = "too_deep"
+            else:
+                self._pending[CONF_CONFIRM_RISKY] = confirmed
+                if len(chosen) == 1:
+                    self._pending[CONF_DOMAIN] = chosen[0]
+                    return await self.async_step_capabilities()
+                target = self._pending.get(CONF_TARGET) or {}
+                self._found = [(d, n) for d, n in self._found if d in chosen]
+                for domain in chosen:
+                    self._group_caps[domain] = await smart_mod.async_discover_group(
+                        self.hass, domain, target
+                    )
+                return await self.async_step_pick()
+
+        schema: dict[Any, Any] = {
+            vol.Required("kinds", default=chosen): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=d, label=self._domain_label(d, n))
+                        for d, n in self._found
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                    sort=False,
+                )
+            )
+        }
+        if risky:
+            schema[vol.Optional(CONF_CONFIRM_RISKY, default=False)] = bool
+        return self.async_show_form(
+            step_id="kinds",
+            errors=errors,
+            data_schema=vol.Schema(schema),
+            description_placeholders={"place": self._place_name()},
+        )
+
+    # ---- כמה סוגים: מה נכנס, לכל סוג בנפרד ----
+
+    async def async_step_pick(self, user_input=None) -> SubentryFlowResult:
+        labels = {self._domain_label(d, n): d for d, n in self._found}
+
+        if user_input is not None:
+            chosen = {
+                labels[key]: list(values or [])
+                for key, values in user_input.items()
+                if key in labels and values
+            }
+            if chosen:
+                return self._finish_menu(chosen)
+            return self.async_show_form(
+                step_id="pick",
+                data_schema=self._pick_schema(labels),
+                errors={"base": "nothing_chosen"},
+            )
+
+        return self.async_show_form(
+            step_id="pick", data_schema=self._pick_schema(labels)
+        )
+
+    def _domain_label(self, domain: str, count: int) -> str:
+        """שם הסוג עם מספר החברים, כדי שיהיה ברור על כמה זה פועל."""
+        name = DOMAIN_NAMES.get(domain, domain)
+        return name if count <= 1 else f"{name} ({count})"
+
+    def _pick_schema(self, labels: dict[str, str]) -> vol.Schema:
+        """שדה נפרד לכל סוג.
+
+        רשימה אחת מעורבת הייתה מציגה "הדלקה" פעמיים בלי לומר של
+        מי. שדה לכל סוג נותן את ההפרדה בלי מנגנון נוסף.
+        """
+        schema: dict[Any, Any] = {}
+        for text, domain in labels.items():
+            caps = self._group_caps.get(domain, [])
+            found = [c for c in caps if c.kind != smart_mod.KIND_STATUS] + [
+                c for c in caps if c.kind == smart_mod.KIND_STATUS
+            ]
+            options = [
+                SelectOptionDict(value=c.ident, label=c.label) for c in found
+            ]
+            schema[vol.Optional(text, default=[c.ident for c in found])] = (
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                        sort=False,
+                    )
+                )
+            )
+        return vol.Schema(schema)
+
+    def _finish_menu(self, chosen: dict[str, list[str]]) -> SubentryFlowResult:
+        """תת-תפריט במקום שנבחר, וקבוצה לכל סוג תחתיו.
+
+        כל אחת נשמרת כתת-רשומה רגילה, ונערכת אחר כך בנפרד.
+        """
+        entry = self._get_entry()
+        base = str(self._pending.get(CONF_MENU_PATH, ""))
+        target = self._pending.get(CONF_TARGET) or {}
+        confirmed = bool(self._pending.get(CONF_CONFIRM_RISKY, False))
+        name = str(self._pending.get(CONF_LABEL, "")) or self._place_name()
+
+        def add(kind: str, title: str, data: dict) -> None:
+            self.hass.config_entries.async_add_subentry(
+                entry,
+                ConfigSubentry(
+                    data=MappingProxyType(data), subentry_type=kind,
+                    title=title, unique_id=None,
+                ),
+            )
+
+        add(SUBENTRY_TYPE_SUBMENU, f"{base} — {name}",
+            {CONF_MENU_PATH: base, CONF_LABEL: name, CONF_INTRO: ""})
+        made = 0
+        for domain, idents in chosen.items():
+            if made >= len(MENU_DIGITS):
+                _LOGGER.warning(
+                    "Only %s kinds fit under one menu level. The rest were dropped",
+                    len(MENU_DIGITS),
+                )
+                break
+            plan = smart_mod.build_plan(self._group_caps.get(domain, []), idents, {})
+            if not plan:
+                continue
+            path = f"{base}/{MENU_DIGITS[made]}"
+            made += 1
+            add(SUBENTRY_TYPE_GROUP,
+                f"{path} — {DOMAIN_NAMES.get(domain, domain)}",
+                {
+                    CONF_DOMAIN: domain,
+                    CONF_TARGET: target,
+                    CONF_MENU_PATH: path,
+                    CONF_LABEL: "",
+                    CONF_CONFIRM_RISKY: confirmed
+                    and domain_needs_confirmation(domain),
+                    CONF_PLAN: plan,
+                })
+        return self.async_abort(
+            reason="menu_created",
+            description_placeholders={"name": name, "path": base, "count": str(made)},
+        )
+
+    def _place_name(self) -> str:
+        from . import menu as menu_mod  # noqa: PLC0415
+
+        target = self._pending.get(CONF_TARGET) or {}
+        return menu_mod.place_name(self.hass, target) or "כל הבית"
+
+    # ---- עריכה: הסוג ידוע, ואז איפה ----
 
     async def _target_step(
         self, step_id: str, user_input, current: dict | None = None
@@ -1202,271 +1567,6 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
                 "target": self._pending.get(CONF_TARGET) or {},
             },
         )
-
-
-# ----------------------------------------------------------------------
-# תפריט אזור
-# ----------------------------------------------------------------------
-
-
-class SmartAreaFlowHandler(_PathMixin, ConfigSubentryFlow):
-    """בוחרים מקום, ומקבלים תפריט של מה שיש בו.
-
-    ההיפוך של הקבוצה: שם בוחרים סוג ישות ואז מקום, וכאן קודם
-    המקום — כי לא תמיד יודעים מה יש באזור לפני שמסתכלים.
-
-    התוצאה אינה סוג צומת חדש אלא מחולל: הרשומה עצמה משמשת
-    כתת-תפריט, ותחתיה נוצרת קבוצה חכמה לכל סוג שנבחר. כל קבוצה
-    נשארת רשומה עצמאית, וניתן לערוך אותה אחר כך במסכים הקיימים
-    בלי לגעת בשאר האזור.
-    """
-
-    def __init__(self) -> None:
-        self._pending: dict[str, Any] = {}
-        self._found: list[tuple[str, int]] = []
-        self._caps: dict[str, list] = {}
-
-    async def async_step_user(self, user_input=None) -> SubentryFlowResult:
-        errors: dict[str, str] = {}
-        current: dict[str, Any] = {}
-
-        if user_input is not None:
-            target = smart_mod.clean_target(user_input.get(CONF_TARGET))
-            path, err = self._validate_path(
-                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
-            )
-            if err:
-                errors[CONF_MENU_PATH] = err
-            elif not smart_mod.has_target(target):
-                errors[CONF_TARGET] = "nothing_chosen"
-            else:
-                self._pending = {
-                    CONF_TARGET: target,
-                    CONF_MENU_PATH: path,
-                    CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
-                }
-                return await self.async_step_pick()
-            current = dict(user_input)
-
-        path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
-            self._get_entry()
-        )
-        return self.async_show_form(
-            step_id="user",
-            errors=errors,
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_TARGET,
-                        description={"suggested_value": _target_value(current)},
-                    ): _target_selector(),
-                    vol.Required(
-                        CONF_MENU_PATH, default=to_form(path)
-                    ): self._path_selector(path, allow_none=False),
-                    vol.Optional(
-                        CONF_LABEL,
-                        description={
-                            "suggested_value": str(current.get(CONF_LABEL, "") or "")
-                        },
-                    ): str,
-                }
-            ),
-        )
-
-    # ---- עריכה: שם ומיקום בלבד ----
-
-    async def async_step_reconfigure(self, user_input=None) -> SubentryFlowResult:
-        """שינוי שם ומיקום. היעד עצמו אינו נערך כאן.
-
-        שינוי המרחב היה מחייב ליצור מחדש את כל הקבוצות שתחתיו,
-        ולמחוק את מה שנערך בהן בינתיים. מי שרוצה מרחב אחר יוצר
-        תפריט אזור חדש; מי שרוצה לשנות סוג אחד עורך את הקבוצה
-        שלו ישירות.
-
-        מיקום שמשתנה גורר איתו את הקבוצות: הן תלויות תחתיו לפי
-        הנתיב, ובלי זה הן היו נשארות יתומות במקום הישן.
-        """
-        subentry = self._get_reconfigure_subentry()
-        data = dict(subentry.data)
-        old = str(data.get(CONF_MENU_PATH, ""))
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            path, err = self._validate_path(
-                from_form(user_input.get(CONF_MENU_PATH)).strip(), check_parent=True
-            )
-            if err:
-                errors[CONF_MENU_PATH] = err
-            else:
-                name = str(user_input.get(CONF_LABEL, "") or "").strip()
-                if path != old:
-                    self._move_children(old, path)
-                data[CONF_MENU_PATH] = path
-                data[CONF_LABEL] = name
-                return self.async_update_and_abort(
-                    self._get_entry(), subentry,
-                    title=f"{path} — {name or self._place_name()}", data=data,
-                )
-
-        return self.async_show_form(
-            step_id="reconfigure",
-            errors=errors,
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_MENU_PATH, default=to_form(old)
-                    ): self._path_selector(old, allow_none=False),
-                    vol.Optional(
-                        CONF_LABEL,
-                        description={
-                            "suggested_value": str(data.get(CONF_LABEL, "") or "")
-                        },
-                    ): str,
-                }
-            ),
-        )
-
-    def _move_children(self, old: str, new: str) -> None:
-        """העברת הקבוצות שתחת האזור למיקום החדש."""
-        entry = self._get_entry()
-        prefix = f"{old}/"
-        for subentry in list(entry.subentries.values()):
-            if subentry.subentry_type != SUBENTRY_TYPE_GROUP:
-                continue
-            path = str(subentry.data.get(CONF_MENU_PATH, ""))
-            if not path.startswith(prefix):
-                continue
-            moved = f"{new}/{path[len(prefix):]}"
-            data = dict(subentry.data)
-            data[CONF_MENU_PATH] = moved
-            self.hass.config_entries.async_update_subentry(
-                entry, subentry, data=data,
-                title=f"{moved} — {subentry.title.split('— ', 1)[-1]}",
-            )
-
-    # ---- שלב שני: מה נכנס, לכל סוג בנפרד ----
-
-    async def async_step_pick(self, user_input=None) -> SubentryFlowResult:
-        target = self._pending.get(CONF_TARGET) or {}
-
-        if not self._found:
-            self._found = await smart_mod.async_domains_in(self.hass, target)
-            if not self._found:
-                return self.async_abort(reason="nothing_here")
-            for domain, _ in self._found:
-                self._caps[domain] = await smart_mod.async_discover_group(
-                    self.hass, domain, target
-                )
-
-        labels = {self._domain_label(d, n): d for d, n in self._found}
-
-        if user_input is not None:
-            chosen = {
-                labels[key]: list(values or [])
-                for key, values in user_input.items()
-                if key in labels and values
-            }
-            if not chosen:
-                return self.async_show_form(
-                    step_id="pick",
-                    data_schema=self._pick_schema(labels),
-                    errors={"base": "nothing_chosen"},
-                )
-            return self._finish(chosen)
-
-        return self.async_show_form(
-            step_id="pick", data_schema=self._pick_schema(labels)
-        )
-
-    def _domain_label(self, domain: str, count: int) -> str:
-        """שם הסוג עם מספר החברים, כדי שיהיה ברור על כמה זה פועל."""
-        name = DOMAIN_NAMES.get(domain, domain)
-        return name if count == 1 else f"{name} ({count})"
-
-    def _pick_schema(self, labels: dict[str, str]) -> vol.Schema:
-        """שדה נפרד לכל סוג.
-
-        רשימה אחת מעורבת הייתה מציגה "הדלקה" פעמיים בלי לומר של
-        מי. שדה לכל סוג נותן את ההפרדה בלי מנגנון נוסף.
-        """
-        schema: dict[Any, Any] = {}
-        for text, domain in labels.items():
-            found = [
-                c for c in self._caps.get(domain, [])
-                if c.kind != smart_mod.KIND_STATUS
-            ] + [
-                c for c in self._caps.get(domain, [])
-                if c.kind == smart_mod.KIND_STATUS
-            ]
-            options = [
-                SelectOptionDict(value=c.ident, label=c.label) for c in found
-            ]
-            schema[vol.Optional(text, default=[c.ident for c in found])] = (
-                SelectSelector(
-                    SelectSelectorConfig(
-                        options=options,
-                        multiple=True,
-                        mode=SelectSelectorMode.LIST,
-                        sort=False,
-                    )
-                )
-            )
-        return vol.Schema(schema)
-
-    # ---- יצירה ----
-
-    def _finish(self, chosen: dict[str, list[str]]) -> SubentryFlowResult:
-        """תת-התפריט נוצר כרשומה הזו, והקבוצות מתווספות תחתיו."""
-        entry = self._get_entry()
-        base = str(self._pending.get(CONF_MENU_PATH, ""))
-        target = self._pending.get(CONF_TARGET) or {}
-
-        for index, (domain, idents) in enumerate(chosen.items()):
-            if index >= len(MENU_DIGITS):
-                _LOGGER.warning(
-                    "Only %s kinds fit under one menu level. The rest were dropped",
-                    len(MENU_DIGITS),
-                )
-                break
-            plan = smart_mod.build_plan(self._caps.get(domain, []), idents, {})
-            if not plan:
-                continue
-            title = self._domain_label(domain, 0).split(" (")[0]
-            self.hass.config_entries.async_add_subentry(
-                entry,
-                ConfigSubentry(
-                    data=MappingProxyType(
-                        {
-                            CONF_DOMAIN: domain,
-                            CONF_TARGET: target,
-                            CONF_MENU_PATH: f"{base}/{MENU_DIGITS[index]}",
-                            CONF_LABEL: "",
-                            CONF_CONFIRM_RISKY: False,
-                            CONF_PLAN: plan,
-                        }
-                    ),
-                    subentry_type=SUBENTRY_TYPE_GROUP,
-                    title=f"{base}/{MENU_DIGITS[index]} — {title}",
-                    unique_id=None,
-                ),
-            )
-
-        name = str(self._pending.get(CONF_LABEL, "")) or self._place_name()
-        return self.async_create_entry(
-            title=f"{base} — {name}",
-            data={
-                CONF_TARGET: target,
-                CONF_MENU_PATH: base,
-                CONF_LABEL: name,
-            },
-        )
-
-    def _place_name(self) -> str:
-        """שם המקום, לכשלא הוזן שם מוקרא."""
-        from . import menu as menu_mod  # noqa: PLC0415
-
-        target = self._pending.get(CONF_TARGET) or {}
-        return menu_mod.place_name(self.hass, target) or "אזור"
 
 
 class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):

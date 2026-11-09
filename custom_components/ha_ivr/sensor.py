@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
-from .const import SUBENTRY_TYPE_ITEM, signal_call_received
+from .const import SUBENTRY_TYPE_ITEM, signal_call_received, subentry_kind
 from .entity import IvrItemEntity
 
 
@@ -29,7 +29,8 @@ async def async_setup_entry(
     """חיישן לכל פריט."""
 
     for subentry_id, subentry in entry.subentries.items():
-        if subentry.subentry_type != SUBENTRY_TYPE_ITEM:
+        # מכשיר עם פעולה אחת; למכשיר עם תפריט אין "פריט" אחד לספור.
+        if subentry_kind(subentry) != SUBENTRY_TYPE_ITEM:
             continue
         async_add_entities(
             [LastCallSensor(entry, subentry), CallCountSensor(entry, subentry)],
