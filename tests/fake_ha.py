@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 ISSUES: dict = {}
+PANELS: list = []
 
 
 def _module(name: str, **attrs) -> types.ModuleType:
@@ -195,7 +196,8 @@ def install() -> None:
 
     _module("homeassistant.config_entries", ConfigEntry=_Any, ConfigFlow=_FlowBase,
             ConfigFlowResult=dict, ConfigSubentryFlow=_FlowBase,
-            ConfigSubentry=_Any, OptionsFlow=_FlowBase, SubentryFlowResult=dict)
+            ConfigSubentry=FakeSubentry, OptionsFlow=_FlowBase,
+            SubentryFlowResult=dict)
 
     # חבילה ולא מודול, אחרת ייבוא של תת-מודול נכשל.
     helpers = _module("homeassistant.helpers")
@@ -277,7 +279,21 @@ def install() -> None:
 
     comps = _module("homeassistant.components")
     comps.__path__ = []
-    _module("homeassistant.components.http", HomeAssistantView=object)
+    _module("homeassistant.components.http", HomeAssistantView=object,
+            StaticPathConfig=lambda *a, **k: (a, k))
+    # לוח המקשים: הרישום נשמר כדי שבדיקה תראה מה נרשם, והמעטרים של
+    # פקודת ה-WebSocket שקופים — הפקודה נבדקת דרך `panel.async_run`.
+    PANELS.clear()
+
+    async def _register_panel(hass, **kwargs):
+        PANELS.append(kwargs)
+
+    _module("homeassistant.components.panel_custom",
+            async_register_panel=_register_panel)
+    _module("homeassistant.components.websocket_api",
+            websocket_command=lambda schema: (lambda func: func),
+            require_admin=_passthrough, async_response=_passthrough,
+            async_register_command=lambda hass, command: None)
     # קבועי פורמט ההקראה. הלוויין מבקש דרכם WAV בקצב של הספק —
     # בלעדיהם הצינור מחזיר mp3, וזה בדיוק מה שהתגלה בשיחה.
     _module(
@@ -468,12 +484,60 @@ class FakeEntry:
         self.subentries = {}
 
 
+class FakeSubentry:
+    """תת-רשומה, עם אותם שדות שהליבה קוראת מהאמיתית."""
+
+    _count = 0
+
+    def __init__(self, *, data, subentry_type, title, unique_id=None,
+                 subentry_id=None) -> None:
+        FakeSubentry._count += 1
+        self.data = data
+        self.subentry_type = subentry_type
+        self.title = title
+        self.unique_id = unique_id
+        self.subentry_id = subentry_id or f"sub{FakeSubentry._count}"
+
+
 class FakeConfigEntries:
+    """הרשומות, וכתיבת תת-רשומות כמו ב-HA: עדכון מחליף את העצם."""
+
     def __init__(self, entries) -> None:
         self._entries = entries
+        self.writes = 0
 
     def async_entries(self, domain):
         return list(self._entries)
+
+    def async_add_subentry(self, entry, subentry):
+        self.writes += 1
+        entry.subentries[subentry.subentry_id] = subentry
+        return True
+
+    def async_update_subentry(self, entry, subentry, *, data=None, title=None,
+                              unique_id=None):
+        self.writes += 1
+        entry.subentries[subentry.subentry_id] = FakeSubentry(
+            data=subentry.data if data is None else data,
+            subentry_type=subentry.subentry_type,
+            title=subentry.title if title is None else title,
+            unique_id=subentry.unique_id,
+            subentry_id=subentry.subentry_id,
+        )
+        return True
+
+    def async_remove_subentry(self, entry, subentry_id):
+        self.writes += 1
+        del entry.subentries[subentry_id]
+        return True
+
+    def async_update_entry(self, entry, *, data=None, options=None, **_kw):
+        self.writes += 1
+        if data is not None:
+            entry.data = dict(data)
+        if options is not None:
+            entry.options = dict(options)
+        return True
 
 
 class FakeHass:

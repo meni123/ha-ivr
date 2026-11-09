@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from types import MappingProxyType
 import logging
@@ -128,6 +129,14 @@ if _HA:
 
         hass.http.register_view(IvrView(hass))
         hass.http.register_view(StreamView(hass))
+
+        # הלוח הוא נוחות. כשל ברישום שלו אינו מפיל את הקווים.
+        try:
+            from . import panel  # noqa: PLC0415
+
+            await panel.async_register(hass, stamp)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("ha_ivr: the keypad panel could not be registered")
         _LOGGER.info(
             "ha_ivr %s is running: /api/ha_ivr/<provider>/<token> and streaming at /api/ha_ivr/stream/<token>",
             stamp,
@@ -266,6 +275,18 @@ if _HA:
             hass.services.async_remove(DOMAIN, SERVICE_SEND_CALL)
 
     async def _reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """טעינה מחדש אחת לכל רצף של עדכונים.
+
+        לוח המקשים כותב כמה תת-רשומות בפעולה אחת — הזזת תפריט על
+        כל מה שבתוכו — וכל כתיבה מעירה את המאזין. בלי האיחוד הרשומה
+        הייתה נטענת מחדש פעם לכל כתיבה.
+        """
+        pending = hass.data[DOMAIN].setdefault("reloading", set())
+        if entry.entry_id in pending:
+            return
+        pending.add(entry.entry_id)
+        await asyncio.sleep(0)
+        pending.discard(entry.entry_id)
         await hass.config_entries.async_reload(entry.entry_id)
 
     def _send_call_schema():

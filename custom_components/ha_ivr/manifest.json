@@ -12,7 +12,9 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "http"
+    "http",
+    "panel_custom",
+    "websocket_api"
   ],
   "documentation": "https://github.com/meni123/ha-ivr",
   "iot_class": "cloud_push",

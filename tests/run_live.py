@@ -61,6 +61,7 @@ for module in (
     f"{CORE}.config_shared", CORE,
     f"{CORE}.config_flow", f"{CORE}.notify", f"{CORE}.satellite",
     f"{CORE}.announce", f"{CORE}.audio", f"{CORE}.net", f"{CORE}.select",
+    f"{CORE}.editor", f"{CORE}.panel",
     f"{CORE}.providers.yemot", f"{CORE}.providers.technoline",
     f"{CORE}.providers.vonage", f"{CORE}.providers",
 ):
@@ -2473,6 +2474,408 @@ ok("משימת בינה ומצלמה אינן מוצעות כקבוצה",
 ok("אורות כן", domain_is_groupable("light"))
 ok("אין עוד כפתור לישות חכמה ולתפריט אזור",
    "SUBENTRY_TYPE_SMART:" not in _cf and "SUBENTRY_TYPE_AREA:" not in _cf)
+
+
+# ======================================================================
+print("\n== לוח המקשים ==")
+# ======================================================================
+import custom_components.ha_ivr as _core  # noqa: E402
+from custom_components.ha_ivr import editor, panel  # noqa: E402
+from custom_components.ha_ivr import smart as _ksmart  # noqa: E402
+from custom_components.ha_ivr.smart import Capability as _Cap  # noqa: E402
+
+_ON = _Cap("turn_on", "simple", "הדלקה", "turn_on")
+_OFF = _Cap("turn_off", "simple", "כיבוי", "turn_off")
+_STATUS = _Cap(_ksmart.STATUS_ID, "status", "הקראת מצב")
+_KCAPS = {
+    "light": [_ON, _OFF, _STATUS],
+    "switch": [_ON, _OFF, _STATUS],
+    "button": [_Cap("press", "simple", "לחיצה", "press"), _STATUS],
+    "sensor": [_STATUS],
+    "climate": [
+        _ON, _OFF, _STATUS,
+        _Cap("set_fan_mode", "choice", "מצב מאוורר", "set_fan_mode", "fan_mode",
+             ("low", "high", "auto")),
+        _Cap("set_temperature", "number", "טמפרטורה", "set_temperature",
+             "temperature", (), 16, 30, 2),
+    ],
+}
+
+
+async def _kdiscover(hass, entity_id):
+    return list(_KCAPS.get(entity_id.split(".", 1)[0], []))
+
+
+_real_discover = _ksmart.async_discover
+_ksmart.async_discover = _kdiscover
+
+_kh = fake_ha.FakeHass({
+    "climate.s": fake_ha.FakeState("cool", friendly_name="מזגן סלון",
+                                   fan_modes=["low", "high", "auto"]),
+    "button.b": fake_ha.FakeState("x", friendly_name="פעמון"),
+    "light.a": fake_ha.FakeState("on", friendly_name="מנורה"),
+    "light.k": fake_ha.FakeState("on", friendly_name="אור מטבח"),
+    "switch.k1": fake_ha.FakeState("on", friendly_name="קומקום"),
+    "switch.k2": fake_ha.FakeState("off", friendly_name="תנור"),
+    "sensor.t": fake_ha.FakeState("21", friendly_name="טמפרטורה"),
+})
+_kh.services.async_services = lambda: {
+    d: {"turn_on": 1, "turn_off": 1} for d in ("light", "switch", "climate")
+}
+_ke = fake_ha.FakeEntry()
+_ke.data = {"token": "T", "provider": "pbx"}
+_ke.title = "מרכזייה"
+_kh.config_entries = fake_ha.FakeConfigEntries([_ke])
+_krun = _kh.loop.run_until_complete
+fake_ha.TARGETS[("area_id", "kit")] = ["light.k", "switch.k1", "switch.k2"]
+_areas = sys.modules["homeassistant.helpers.area_registry"]
+_real_areas = _areas.async_get
+_kitchen = types.SimpleNamespace(id="kit", name="מטבח")
+_areas.async_get = lambda hass: types.SimpleNamespace(
+    async_list_areas=lambda: [_kitchen],
+    async_get_area=lambda area_id: _kitchen if area_id == "kit" else None,
+)
+
+
+def _klevel(path="", entry=None):
+    return _krun(editor.async_level(_kh, entry or _ke, path))
+
+
+def _kadd(path, what, entry=None, **args):
+    return _krun(editor.async_add(_kh, entry or _ke, path, what, **args))
+
+
+def _kerr(fn):
+    """קוד השגיאה של פעולה שנדחתה, או ריק אם עברה."""
+    try:
+        result = fn()
+        if asyncio.iscoroutine(result):
+            _krun(result)
+    except editor.EditorError as err:
+        return err.code
+    return ""
+
+
+def _ksub(path, entry=None):
+    for sub in (entry or _ke).subentries.values():
+        if sub.data.get("menu_path") == path:
+            return sub
+    return None
+
+
+_l = _klevel()
+ok("תפריט ריק: תשעה מקשים פנויים",
+   _l["kind"] == "menu" and list(_l["keys"]) == list("123456789")
+   and not any(_l["keys"].values()))
+ok("ואין מה לשמוע", _l["heard"] == [] and _l["self"] is None)
+
+# --- מכשיר ---
+_c = _krun(editor.async_capabilities(_kh, "climate.s"))
+ok("מכשיר עשיר: הכול מסומן", all(c["checked"] for c in _c["capabilities"]))
+ok("בחירה ומספר מתוארים בשם",
+   any("3 אפשרויות" in c["label"] for c in _c["capabilities"])
+   and any("16 עד 30" in c["label"] for c in _c["capabilities"]))
+_b = _krun(editor.async_capabilities(_kh, "button.b"))
+ok("מכשיר של פעולה אחת: רק היא מסומנת",
+   [c["ident"] for c in _b["capabilities"] if c["checked"]] == ["press"])
+
+_kadd("1", "device", entity_id="climate.s")
+_s = _ksub("1")
+ok("מכשיר נשמר עם תוכנית",
+   _s.subentry_type == "menu_item" and len(_s.data["plan"]) == 5
+   and _s.title == "1 — מזגן סלון")
+_kadd("2", "device", entity_id="button.b", idents=["press"])
+_s = _ksub("2")
+ok("פעולה אחת נשמרת בלי תוכנית",
+   _s.data.get("action") == "press" and "plan" not in _s.data)
+ok("מקש תפוס נדחה",
+   _kerr(lambda: editor.async_add(_kh, _ke, "1", "device", entity_id="light.a"))
+   == "taken")
+ok("מכשיר שאינו קיים נדחה",
+   _kerr(lambda: editor.async_add(_kh, _ke, "3", "device", entity_id="light.nope"))
+   == "no_entity")
+ok("ובלי פעולות לא נשמר דבר",
+   _kerr(lambda: editor.async_add(_kh, _ke, "3", "device", entity_id="light.a",
+                                  idents=[])) == "nothing_chosen"
+   and _ksub("3") is None)
+
+_l = _klevel()
+_k1, _k2 = _l["keys"]["1"], _l["keys"]["2"]
+ok("מכשיר עם תוכנית נפתח בלחיצה",
+   _k1["kind"] == "device" and _k1["enter"] and _k1["detail"] == "5 פעולות")
+ok("פעולה אחת אינה נפתחת", _k2["kind"] == "action" and not _k2["enter"])
+ok("המתקשר שומע את מה שבעץ",
+   _l["heard"] == ["לתפריט מזגן סלון הקש 1", "ללחיצה של פעמון הקש 2"])
+
+# --- בתוך מכשיר ---
+_l = _klevel("1")
+ok("בתוך מכשיר המקשים הם הפעולות",
+   _l["kind"] == "plan" and [k["ident"] for k in _l["keys"].values() if k]
+   == ["turn_on", "turn_off", _ksmart.STATUS_ID, "set_fan_mode", "set_temperature"])
+ok("בחירה נפתחת, מספר לא",
+   _l["keys"]["4"]["enter"] and not _l["keys"]["5"]["enter"]
+   and _l["keys"]["5"]["detail"] == "הקשת מספר, 16 עד 30")
+ok("ונשמעת החזרה", _l["heard"][0] == "להדלקה הקש 1" and "לחזרה הקש 0" in _l["heard"])
+ok("אין מה להוסיף כשהכול בפנים", _l["addable"] == [])
+ok("פירורי הלחם בשם המכשיר",
+   [c["name"] for c in _l["crumbs"]] == ["ראשי", "מזגן סלון"])
+
+editor.remove(_kh, _ke, "1/2")
+ok("הסרת פעולה אינה מזיזה את האחרות",
+   [e["digit"] for e in _ksub("1").data["plan"]] == ["1", "3", "4", "5"])
+ok("והיא חוזרת להצעות",
+   [a["ident"] for a in _klevel("1")["addable"]] == ["turn_off"])
+_kadd("1/2", "capability", ident="turn_off")
+ok("ונוספת בחזרה על המקש שנבחר",
+   [(e["digit"], e["ident"]) for e in _ksub("1").data["plan"]][:2]
+   == [("1", "turn_on"), ("2", "turn_off")])
+ok("פעולה שכבר בתפריט אינה נוספת שוב",
+   _kerr(lambda: editor.async_add(_kh, _ke, "1/9", "capability", ident="turn_on"))
+   == "taken")
+editor.move(_kh, _ke, "1/3", "1/1")
+ok("פעולות מתחלפות במקש",
+   {e["ident"]: e["digit"] for e in _ksub("1").data["plan"]}["turn_on"] == "3"
+   and {e["ident"]: e["digit"] for e in _ksub("1").data["plan"]}[_ksmart.STATUS_ID]
+   == "1")
+editor.move(_kh, _ke, "1/1", "1/3")
+editor.rename(_kh, _ke, "1/1", "הפעלה")
+ok("שם של פעולה נשמע בטלפון", _klevel("1")["heard"][0] == "להפעלה הקש 1")
+ok("פעולה אינה עוברת לתפריט אחר",
+   _kerr(lambda: editor.move(_kh, _ke, "5", "1/1")) == "other_level")
+
+# --- בתוך בחירה ---
+_l = _klevel("1/4")
+ok("בתוך בחירה המקשים הם האפשרויות",
+   _l["kind"] == "options"
+   and [k["value"] for k in _l["keys"].values() if k] == ["low", "high", "auto"])
+editor.remove(_kh, _ke, "1/4/2")
+_fan = next(e for e in _ksub("1").data["plan"] if e["ident"] == "set_fan_mode")
+ok("אפשרות שהוסרה נרשמת כמוחרגת",
+   _fan["options"] == ["low", "auto"] and _fan["excluded"] == ["high"])
+ok("ואינה חוזרת מעצמה",
+   [k["value"] for k in _klevel("1/4")["keys"].values() if k] == ["low", "auto"])
+ok("אבל מוצעת להוספה",
+   [a["value"] for a in _klevel("1/4")["addable"]] == ["high"])
+_kadd("1/4/3", "option", value="high")
+editor.move(_kh, _ke, "1/4/3", "1/4/1")
+_fan = next(e for e in _ksub("1").data["plan"] if e["ident"] == "set_fan_mode")
+ok("אפשרות חוזרת, ומחליפה מקום",
+   _fan["options"] == ["high", "auto", "low"] and _fan["excluded"] == [])
+
+# --- שם, תפריט, הזזה ---
+editor.rename(_kh, _ke, "1", "מיזוג")
+ok("שם חדש נשמר בכותרת ונשמע",
+   _ksub("1").title == "1 — מיזוג" and _klevel()["heard"][0] == "לתפריט מיזוג הקש 1")
+editor.rename(_kh, _ke, "1", "")
+ok("שם ריק מחזיר את שם המכשיר", _ksub("1").title == "1 — מזגן סלון")
+
+ok("תפריט בלי שם נדחה",
+   _kerr(lambda: editor.async_add(_kh, _ke, "3", "submenu")) == "name_required")
+_kadd("3", "submenu", name="דלת")
+_l = _klevel()
+ok("תפריט ריק מסומן כלא מוקרא",
+   _l["keys"]["3"]["silent"] and _l["keys"]["3"]["detail"] == "ריק"
+   and "דלת" not in " ".join(_l["heard"]))
+ok("וגם מבפנים", _klevel("3")["silent"])
+_kadd("3/1", "device", entity_id="light.a")
+_l = _klevel("3")
+ok("תפריט עם מקש מוקרא",
+   not _l["silent"] and _l["self"]["kind"] == "submenu"
+   and _klevel()["keys"]["3"]["detail"] == "מקש אחד")
+editor.update(_kh, _ke, "3", intro="שלום")
+ok("משפט פתיחה של תפריט", _klevel("3")["heard"][0] == "שלום")
+editor.update(_kh, _ke, "", intro="ברוכים הבאים")
+ok("ושל הראשי",
+   _ke.options.get("intro") == "ברוכים הבאים"
+   and _klevel()["heard"][0] == "ברוכים הבאים")
+editor.update(_kh, _ke, "", intro="")
+
+editor.move(_kh, _ke, "5", "3")
+ok("תפריט זז עם מה שבתוכו",
+   _ksub("5").title == "5 — דלת" and _ksub("5/1").title == "5/1 — מנורה"
+   and _ksub("3") is None)
+editor.move(_kh, _ke, "2", "1")
+ok("מקש על מקש תפוס — מתחלפים",
+   _ksub("2").data.get("entity_id") == "climate.s"
+   and _ksub("1").data.get("entity_id") == "button.b"
+   and _ksub("2").title == "2 — מזגן סלון")
+editor.move(_kh, _ke, "1", "2")
+ok("תפריט אינו נכנס לתוך עצמו",
+   _kerr(lambda: editor.move(_kh, _ke, "5/2", "5")) == "into_itself")
+ok("ואין מעבר למקש תפוס ברמה אחרת",
+   _kerr(lambda: editor.move(_kh, _ke, "5/1", "2")) == "taken")
+editor.move(_kh, _ke, "5/3", "2")
+ok("מקש נכנס לתפריט אחר",
+   _ksub("5/3").data.get("entity_id") == "button.b" and _ksub("2") is None)
+editor.move(_kh, _ke, "2", "5/3")
+_kadd("5/2", "submenu", name="א")
+_kadd("5/2/1", "submenu", name="ב")
+ok("אין תפריט מתחת לעומק המרבי",
+   _kerr(lambda: editor.async_add(_kh, _ke, "5/2/1/1", "submenu", name="ג"))
+   == "too_deep" and not _klevel("5/2/1")["can_nest"])
+_kadd("5/2/1/1", "device", entity_id="light.a", idents=["turn_on"])
+_kadd("4", "submenu", name="ג")
+ok("תפריט עמוק אינו זז למקום שאין בו עומק",
+   _kerr(lambda: editor.move(_kh, _ke, "4/1", "5")) == "too_deep"
+   and _ksub("5/2/1/1") is not None)
+editor.remove(_kh, _ke, "4")
+editor.remove(_kh, _ke, "5")
+ok("הסרת תפריט מסירה את כל מה שבתוכו",
+   not any(str(s.data.get("menu_path", "")).startswith("5")
+           for s in _ke.subentries.values()))
+
+# --- מעבר, עוזר קולי, התראות ---
+_kflags = next(e for e in editor.entries(_kh) if e["entry_id"] == "entry1")
+ok("הספק מצהיר מה הוא יודע",
+   _kflags["assistant"] and _kflags["assistant_target"] == "ha-assist"
+   and _kflags["extensions"] and _kflags["alerts"] and _kflags["title"] == "מרכזייה")
+_kadd("6", "assistant")
+ok("עוזר קולי נשמר עם היעד של הספק",
+   _ksub("6").data == {"menu_path": "6", "label": "עוזר קולי",
+                       "goto_target": "ha-assist"})
+ok("ומוצג כעוזר ולא כשלוחה", _klevel()["keys"]["6"]["kind"] == "assistant")
+ok("מעבר בלי יעד נדחה",
+   _kerr(lambda: editor.async_add(_kh, _ke, "7", "goto")) == "target_required")
+_kadd("7", "goto", target="200", name="משרד")
+ok("מעבר לשלוחה מציג את היעד",
+   _klevel()["keys"]["7"]["kind"] == "goto"
+   and _klevel()["keys"]["7"]["detail"] == "200")
+editor.update(_kh, _ke, "7", target="300")
+ok("היעד מתעדכן", _ksub("7").data["goto_target"] == "300")
+ok("ויעד ריק נדחה",
+   _kerr(lambda: editor.update(_kh, _ke, "7", target=" ")) == "target_required")
+_kadd("8", "alerts")
+ok("התראות אחרונות",
+   _klevel()["keys"]["8"]["kind"] == "alerts"
+   and _ksub("8").title == "8 — התראות אחרונות")
+
+_kv = fake_ha.FakeEntry()
+_kv.entry_id, _kv.data = "v", {"token": "T", "provider": "vonage"}
+_ky = fake_ha.FakeEntry()
+_ky.entry_id, _ky.data = "y", {"token": "T", "provider": "yemot"}
+_kh.config_entries._entries = [_ke, _kv, _ky]
+_kf = {e["entry_id"]: e for e in editor.entries(_kh)}
+ok("ספק בלי שלוחות מציע רק את העוזר",
+   _kf["v"]["assistant"] and not _kf["v"]["extensions"])
+ok("ושם מעבר לשלוחה נדחה",
+   _kerr(lambda: editor.async_add(_kh, _kv, "1", "goto", target="5"))
+   == "unsupported")
+_kadd("1", "assistant", entry=_kv)
+ok("אצלו כל מעבר הוא העוזר",
+   _klevel("", _kv)["keys"]["1"]["kind"] == "assistant"
+   and _ksub("1", _kv).data["goto_target"])
+ok("ספק בלי הזרמה אינו מציע עוזר",
+   not _kf["y"]["assistant"] and _kf["y"]["extensions"]
+   and _kerr(lambda: editor.async_add(_kh, _ky, "1", "assistant")) == "unsupported")
+
+# --- חדרים ---
+_rooms = _krun(editor.async_rooms(_kh))
+ok("חדרים, ו\"כל הבית\" בסוף",
+   [r["name"] for r in _rooms] == ["מטבח", "כל הבית"])
+ok("בכל חדר מה שאפשר להפעיל בו",
+   [(k["domain"], k["count"]) for k in _rooms[0]["kinds"]]
+   == [("light", 1), ("switch", 2)])
+_kadd("9", "room", area_id="kit")
+ok("חדר עם כמה סוגים נעשה תפריט",
+   _ksub("9").subentry_type == "submenu" and _ksub("9").data["label"] == "מטבח"
+   and _ksub("9/1").data["target_domain"] == "light"
+   and _ksub("9/2").data["target"] == {"area_id": ["kit"]})
+ok("והוא מוקרא",
+   "לתפריט מטבח הקש 9" in _klevel()["heard"] and _klevel("9/2")["kind"] == "plan")
+ok("קבוצה מציגה כמה מכשירים בה",
+   _klevel("9")["keys"]["2"]["kind"] == "group"
+   and _klevel("9")["keys"]["2"]["detail"] == "2 מכשירים")
+_kadd("3", "room", area_id="kit", domains=["switch"])
+ok("סוג אחד יושב ישר על המקש",
+   _ksub("3").subentry_type == "smart_group" and "3/1" not in
+   {s.data.get("menu_path") for s in _ke.subentries.values()})
+ok("חדר בלי מכשירים נדחה",
+   _kerr(lambda: editor.async_add(_kh, _ke, "4", "room", area_id="none"))
+   == "empty_room")
+
+_kb = fake_ha.FakeEntry()
+_kb.entry_id, _kb.data = "b", {"token": "T", "provider": "pbx"}
+_kb.subentries = {"x": fake_ha.FakeSubentry(
+    data={"menu_path": "1", "label": "", "goto_target": "200"},
+    subentry_type="goto", title="1 — מעבר לשלוחה", subentry_id="x")}
+ok("בנייה מהחדרים ממלאת את המקשים הפנויים",
+   _krun(editor.async_build(_kh, _kb, "", ["kit", ""])) == 2
+   and _ksub("2", _kb).data["label"] == "מטבח"
+   and _ksub("3", _kb).data["label"] == "כל הבית"
+   and _ksub("1", _kb).subentry_type == "goto")
+ok("וכל הבית מוקרא", "לתפריט כל הבית הקש 3" in _klevel("", _kb)["heard"])
+
+# --- פריטים בלי מקש ---
+_ke.subentries["dup"] = fake_ha.FakeSubentry(
+    data={"menu_path": "1", "label": "כפול", "goto_target": "9"},
+    subentry_type="goto", title="1 — כפול", subentry_id="dup")
+_l = _klevel()
+ok("פריט על מקש תפוס מוצג בנפרד",
+   _l["loose"] == [{"id": "dup", "title": "כפול"}]
+   and _l["keys"]["1"]["kind"] == "device")
+editor.move(_kh, _ke, "4", subentry_id="dup")
+ok("ואפשר לשבץ אותו במקש פנוי",
+   _ksub("4").title == "4 — כפול" and _klevel()["loose"] == [])
+_ke.subentries["dup2"] = fake_ha.FakeSubentry(
+    data={"menu_path": "", "label": "אבוד", "goto_target": "9"},
+    subentry_type="goto", title=" — אבוד", subentry_id="dup2")
+editor.remove(_kh, _ke, subentry_id="dup2")
+ok("או להסיר", "dup2" not in _ke.subentries)
+ok("תת-רשומה שאינה מהתפריט אינה מוצגת",
+   not any(k and k["kind"] == "contact" for k in _klevel()["keys"].values()))
+
+# --- הפקודה של הלוח ---
+_r = _krun(panel.async_run(_kh, {"op": "entries"}))
+ok("רשימת הקווים, והסוגים החסומים",
+   len(_r["entries"]) == 3 and "shell_command" in _r["blocked"])
+_r = _krun(panel.async_run(_kh, {
+    "op": "add", "entry_id": "entry1", "path": "5", "view": "",
+    "args": {"what": "submenu", "name": "גינה"}}))
+ok("פעולה מחזירה את הרמה המעודכנת",
+   _r["path"] == "" and _r["keys"]["5"]["name"] == "גינה")
+_r = _krun(panel.async_run(_kh, {
+    "op": "remove", "entry_id": "entry1", "path": "5", "view": "5"}))
+ok("רמה שנמחקה מחזירה לזו שמעליה", _r["path"] == "" and _r["keys"]["5"] is None)
+ok("קו שאינו קיים נדחה",
+   _kerr(lambda: panel.async_run(_kh, {"op": "level", "entry_id": "zz"}))
+   == "no_entry")
+ok("ופעולה שאינה מוכרת",
+   _kerr(lambda: panel.async_run(_kh, {"op": "zz", "entry_id": "entry1"}))
+   == "unknown")
+
+
+async def _kstatic(paths):
+    return None
+
+_kh.http = types.SimpleNamespace(async_register_static_paths=_kstatic)
+_krun(panel.async_register(_kh, "1.0+abc"))
+_kp = fake_ha.PANELS[-1]
+ok("הלוח נרשם למנהלים בלבד, עם חותמת הבנייה",
+   _kp["require_admin"] and _kp["webcomponent_name"] == "ha-ivr-panel"
+   and _kp["module_url"].endswith("panel.js?v=1.0%2Babc"))
+ok("והעמוד קיים",
+   (ROOT / "custom_components" / "ha_ivr" / "frontend" / "panel.js").is_file())
+
+# --- טעינה מחדש אחת לרצף של כתיבות ---
+_kh.data = {"ha_ivr": {}}
+_kreloads = []
+
+
+async def _kreload(entry_id):
+    _kreloads.append(entry_id)
+
+_kh.config_entries.async_reload = _kreload
+
+
+async def _kburst():
+    await asyncio.gather(*(_core._reload(_kh, _ke) for _ in range(4)))
+    await _core._reload(_kh, _ke)
+
+_krun(_kburst())
+ok("ארבע כתיבות ברצף — טעינה אחת, והבאה שוב טוענת", _kreloads == ["entry1"] * 2)
+
+_ksmart.async_discover = _real_discover
+_areas.async_get = _real_areas
 
 print(f"\n{'FAIL' if FAIL else 'PASS'} — {PASS} עברו, {FAIL} נכשלו")
 sys.exit(1 if FAIL else 0)

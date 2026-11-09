@@ -49,6 +49,9 @@ NAME = "מרכזייה עצמית"
 # מעבר במרכזייה = `Goto` להקשר dialplan או שלוחת SIP.
 SUPPORTS_GOTO = True
 GOTO_TARGET_HINT = "יעד מעבר במרכזייה — הקשר dialplan או שלוחת SIP, למשל ha-assist"
+# היעד שמחבר את השיחה לעוזר הקולי. לוח המקשים מציע אותו בשמו,
+# בלי שהמשתמש יצטרך להכיר את הדיאלפלן.
+ASSIST_GOTO = "ha-assist"
 
 # העוזר הקולי רץ דרך מנוע הלוויין של ha_ivr, כמו אצל הספקים המתארחים,
 # אבל התחבורה היא AudioSocket על TCP במקום WebSocket: Asterisk מזרים

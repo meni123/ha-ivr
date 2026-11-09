@@ -552,7 +552,9 @@ def match_entities(hass: HomeAssistant, domain: str, target: dict) -> list[str]:
     )
 
 
-async def async_domains_in(hass: HomeAssistant, target: dict) -> list[tuple[str, int]]:
+async def async_domains_in(
+    hass: HomeAssistant, target: dict, usable: dict[str, bool] | None = None
+) -> list[tuple[str, int]]:
     """סוגי הישויות שנמצאים ביעד, וכמה מכל סוג.
 
     זו הדרך ההפוכה לבחירת סוג מראש: קודם המקום, ומתוכו מה שיש בו.
@@ -574,13 +576,17 @@ async def async_domains_in(hass: HomeAssistant, target: dict) -> list[tuple[str,
         domain = entity_id.split(".", 1)[0]
         counts[domain] = counts.get(domain, 0) + 1
 
+    # גילוי אחד לכל סוג, גם כששואלים על כמה מקומות ברצף.
+    usable = {} if usable is None else usable
     found: dict[str, int] = {}
     for domain, count in counts.items():
         if domain_is_blocked(domain) or not domain_is_groupable(domain):
             continue
         if not available_actions(hass, domain):
             continue
-        if not await async_domain_is_usable(hass, domain):
+        if domain not in usable:
+            usable[domain] = await async_domain_is_usable(hass, domain)
+        if not usable[domain]:
             continue
         found[domain] = count
     return sorted(found.items())

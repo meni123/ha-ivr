@@ -16,10 +16,8 @@ from typing import Any
 
 import voluptuous as vol
 
-from types import MappingProxyType
 
 from homeassistant.config_entries import (
-    ConfigSubentry,
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
@@ -48,8 +46,6 @@ from .action_fields import (
 )
 from . import smart as smart_mod
 from .const import (
-    SUBENTRY_TYPE_GROUP,
-    SUBENTRY_TYPE_SUBMENU,
     CONF_CHANNEL,
     CONF_DOMAIN,
     CONF_PLAN,
@@ -1367,41 +1363,15 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
         confirmed = bool(self._pending.get(CONF_CONFIRM_RISKY, False))
         name = str(self._pending.get(CONF_LABEL, "")) or self._place_name()
 
-        def add(kind: str, title: str, data: dict) -> None:
-            self.hass.config_entries.async_add_subentry(
-                entry,
-                ConfigSubentry(
-                    data=MappingProxyType(data), subentry_type=kind,
-                    title=title, unique_id=None,
-                ),
-            )
+        from . import editor  # noqa: PLC0415
 
-        add(SUBENTRY_TYPE_SUBMENU, f"{base} — {name}",
-            {CONF_MENU_PATH: base, CONF_LABEL: name, CONF_INTRO: ""})
-        made = 0
-        for domain, idents in chosen.items():
-            if made >= len(MENU_DIGITS):
-                _LOGGER.warning(
-                    "Only %s kinds fit under one menu level. The rest were dropped",
-                    len(MENU_DIGITS),
-                )
-                break
-            plan = smart_mod.build_plan(self._group_caps.get(domain, []), idents, {})
-            if not plan:
-                continue
-            path = f"{base}/{MENU_DIGITS[made]}"
-            made += 1
-            add(SUBENTRY_TYPE_GROUP,
-                f"{path} — {DOMAIN_NAMES.get(domain, domain)}",
-                {
-                    CONF_DOMAIN: domain,
-                    CONF_TARGET: target,
-                    CONF_MENU_PATH: path,
-                    CONF_LABEL: "",
-                    CONF_CONFIRM_RISKY: confirmed
-                    and domain_needs_confirmation(domain),
-                    CONF_PLAN: plan,
-                })
+        plans = {
+            domain: smart_mod.build_plan(self._group_caps.get(domain, []), idents, {})
+            for domain, idents in chosen.items()
+        }
+        made = editor.add_place_menu(
+            self.hass, entry, base, name, target, plans, confirmed=confirmed
+        )
         return self.async_abort(
             reason="menu_created",
             description_placeholders={"name": name, "path": base, "count": str(made)},
