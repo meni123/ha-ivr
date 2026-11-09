@@ -285,7 +285,7 @@ def _cap_name(raw: dict) -> str:
 
 def _cap_detail(kind: str, count: int, low: float, high: float) -> str:
     if kind == smart_mod.KIND_CHOICE:
-        return f"{count} אפשרויות"
+        return _count(count, "אפשרות", "אפשרויות", feminine=True) if count else "אין אפשרויות"
     if kind == smart_mod.KIND_NUMBER:
         return f"הקשת מספר, {int(low)} עד {int(high)}"
     return ""

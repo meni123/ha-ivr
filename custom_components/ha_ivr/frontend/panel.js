@@ -69,7 +69,8 @@ const iconOf = (key) => {
 const STYLE = `
 :host {
   display: block;
-  height: 100%;
+  height: 100vh;
+  height: 100dvh;
   color: var(--primary-text-color);
   background: var(--primary-background-color);
   font-family: var(--ha-font-family-body, Roboto, "Noto Sans Hebrew", sans-serif);
@@ -755,7 +756,7 @@ class HaIvrPanel extends HTMLElement {
       const room = mode.room;
       const kinds = room.kinds.map((k) => `
         <label class="check"><input type="checkbox" name="kind" value="${esc(k.domain)}" checked>
-          <span>${esc(k.name)}<small>${k.count}</small></span></label>`).join("");
+          <span>${esc(k.name)}<small>(${Number(k.count)})</small></span></label>`).join("");
       return `${back}
         <h2>${badge}${esc(room.name)}</h2>
         <form data-form="room">
