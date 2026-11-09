@@ -84,14 +84,21 @@ def _provider_selector() -> SelectSelector:
     )
 
 
-def _menu_schema(driver, current: dict[str, Any]) -> vol.Schema:
-    """שדות התפריט: המשותפים, ואז מה שהספק מוסיף."""
+async def _menu_schema(hass, driver, current: dict[str, Any]) -> vol.Schema:
+    """שדות התפריט: המשותפים, ואז מה שהספק מוסיף.
+
+    ספק שצריך לשאול משהו כדי לבנות את השדות (למשל רשימת בחירה מהצד
+    השני) מגדיר `async_menu_fields`; אחרת `menu_fields` הסינכרוני.
+    """
     fields: dict[Any, Any] = {
         vol.Optional(
             CONF_INTRO, description={"suggested_value": current.get(CONF_INTRO, "")}
         ): str,
     }
-    fields.update(driver.menu_fields(current))
+    build = getattr(driver, "async_menu_fields", None)
+    fields.update(
+        await build(hass, current) if build else driver.menu_fields(current)
+    )
     fields.update(
         {
             vol.Optional(
@@ -110,6 +117,15 @@ def _menu_schema(driver, current: dict[str, Any]) -> vol.Schema:
         }
     )
     return vol.Schema(fields)
+
+
+async def _menu_errors(hass, driver, user_input: dict[str, Any]) -> dict[str, str]:
+    """שגיאות הטופס: טווחי IP, ומה שהספק בודק בעצמו."""
+    errors = ip_errors(user_input)
+    check = getattr(driver, "async_menu_errors", None)
+    if check is not None and not errors:
+        errors.update(await check(hass, user_input))
+    return errors
 
 
 def _menu_save(driver, user_input: dict[str, Any]) -> dict[str, Any]:
@@ -151,7 +167,7 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors = ip_errors(user_input)
+            errors = await _menu_errors(self.hass, driver, user_input)
             if not errors:
                 return self.async_create_entry(
                     title=getattr(driver, "NAME", self._provider),
@@ -164,7 +180,7 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="settings",
-            data_schema=_menu_schema(driver, user_input or {}),
+            data_schema=await _menu_schema(self.hass, driver, user_input or {}),
             errors=errors,
         )
 
@@ -250,7 +266,7 @@ class IvrOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors = ip_errors(user_input)
+            errors = await _menu_errors(self.hass, driver, user_input)
             if not errors:
                 return self.async_create_entry(
                     data={**current, **_menu_save(driver, user_input)}
@@ -258,7 +274,9 @@ class IvrOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="menu_settings",
-            data_schema=_menu_schema(driver, current),
+            data_schema=await _menu_schema(
+                self.hass, driver, {**current, **(user_input or {})}
+            ),
             errors=errors,
         )
 

@@ -28,6 +28,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # ----------------------------------------------------------------------
 
 
+ISSUES: dict = {}
+
+
 def _module(name: str, **attrs) -> types.ModuleType:
     mod = types.ModuleType(name)
     for key, value in attrs.items():
@@ -246,6 +249,14 @@ def install() -> None:
             NoURLAvailableError=type("NoURLAvailableError", (Exception,), {}))
     _module("homeassistant.helpers.aiohttp_client",
             async_get_clientsession=lambda *a, **k: _Any())
+    # תיקונים (repairs): נרשמים במילון, כדי שבדיקה תראה מה נפתח ונסגר.
+    ISSUES.clear()
+    _module("homeassistant.helpers.issue_registry",
+            IssueSeverity=types.SimpleNamespace(ERROR="error", WARNING="warning"),
+            async_create_issue=lambda hass, domain, issue_id, **kw:
+                ISSUES.__setitem__(issue_id, kw),
+            async_delete_issue=lambda hass, domain, issue_id:
+                ISSUES.pop(issue_id, None))
     class _EntityRegistry:
         """מרשם מינימלי: רק החיפוש שהלוויין עושה בו."""
 

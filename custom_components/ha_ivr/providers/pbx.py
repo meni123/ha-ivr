@@ -27,7 +27,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
+from urllib.parse import urljoin
 
 import voluptuous as vol
 
@@ -234,6 +236,7 @@ async def async_notify(
     session = async_get_clientsession(hass)
     headers = {"X-Alert-Secret": secret} if secret else {}
     failed: list[str] = []
+    unknown_trunk = ""
     for raw in phones:
         digits = "".join(c for c in str(raw) if c.isdigit())
         if not digits:
@@ -264,10 +267,19 @@ async def async_notify(
                 )
                 if resp.status != 200:
                     failed.append(digits)
+                    if resp.status == 400 and body.startswith("unknown trunk"):
+                        unknown_trunk = body
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("PBX alert to %s failed: %s", digits[-4:], err)
             failed.append(digits)
 
+    if unknown_trunk:
+        # טראנק שנמחק במרכזייה — מתקנים בהגדרות, לא מנסים שוב.
+        hass.async_create_task(async_check(hass, entry))
+        raise OutboundError(
+            unknown_trunk, key="pbx_unknown_trunk",
+            placeholders={"trunk": trunk},
+        )
     # כשל חלקי הוא אזהרה — מי שקיבל, קיבל. כשל מלא הוא חריגה.
     if failed and len(failed) == len(phones):
         raise OutboundError(
@@ -277,6 +289,95 @@ async def async_notify(
         )
     if failed:
         _LOGGER.warning("PBX: some recipients failed: %s", failed)
+
+
+async def async_trunks(hass, options: dict) -> list[str] | None:
+    """הטראנקים שהמרכזייה מכירה עכשיו, או None כשאין דרך לדעת.
+
+    נשאל מהגשר ולא מהגדרות: רק הוא יודע מה האסטריק טען בפועל.
+    None — אין כתובת, הגשר לא עונה, או גשר ישן בלי `/trunks` — אומר
+    לטופס לחזור לשדה טקסט ולבדיקה לא לפסוק דבר.
+    """
+    url = str(options.get("pbx_alert_url", "") or "").strip()
+    if not url:
+        return None
+    secret = str(options.get("pbx_alert_secret", "") or "")
+    from homeassistant.helpers.aiohttp_client import (  # noqa: PLC0415
+        async_get_clientsession,
+    )
+
+    try:
+        async with async_get_clientsession(hass).get(
+            urljoin(url, "/trunks"),
+            headers={"X-Alert-Secret": secret} if secret else {},
+            timeout=5,
+        ) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+        return [str(t["name"]) for t in data["trunks"]]
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("PBX: cannot list trunks: %s", err)
+        return None
+
+
+def _used_trunks(entry) -> dict[str, list[str]]:
+    """טראנק → מי שמחייג דרכו: ברירת המחדל של הרשומה, ונמענים."""
+    used: dict[str, list[str]] = {}
+    default = str(entry.options.get("pbx_trunk", "") or "").strip()
+    if default:
+        used.setdefault(default, [])
+    for sub in entry.subentries.values():
+        trunk = str(sub.data.get("trunk", "") or "").strip()
+        if trunk:
+            used.setdefault(trunk, []).append(sub.title)
+    return used
+
+
+CHECK_INTERVAL = timedelta(hours=1)
+
+
+async def async_check(hass, entry) -> None:
+    """תיקון (repair) כשטראנק שמוגדר כאן אינו קיים במרכזייה.
+
+    בלי זה טראנק שנמחק נכשל בשקט: הגשר מקבל את ההתראה, והחיוג
+    נופל אחר כך במרכזייה, הרחק מהאוטומציה ששלחה אותה.
+    """
+    from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
+
+    from ..const import DOMAIN  # noqa: PLC0415
+
+    known = await async_trunks(hass, dict(entry.options))
+    if known is None:
+        return
+    issue_id = f"missing_trunk_{entry.entry_id}"
+    missing = {t: who for t, who in _used_trunks(entry).items() if t not in known}
+    if not missing:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    where = "; ".join(
+        f"{t} ({', '.join(who)})" if who else t for t, who in sorted(missing.items())
+    )
+    ir.async_create_issue(
+        hass, DOMAIN, issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="missing_trunk",
+        translation_placeholders={
+            "missing": where, "available": ", ".join(known) or "—",
+        },
+    )
+
+
+def trunk_selector(trunks: list[str]):
+    """בורר מתוך הטראנקים שהמרכזייה מכירה."""
+    from homeassistant.helpers.selector import (  # noqa: PLC0415
+        SelectSelector, SelectSelectorConfig, SelectSelectorMode,
+    )
+
+    return SelectSelector(
+        SelectSelectorConfig(options=trunks, mode=SelectSelectorMode.DROPDOWN)
+    )
 
 
 def default_ips() -> str:
@@ -296,11 +397,11 @@ _FIELD_DEFAULTS = {
 _MENU_KEYS = _ALERT_KEYS + tuple(_FIELD_DEFAULTS)
 
 
-def menu_fields(current: dict) -> dict:
+def menu_fields(current: dict, trunks: list[str] | None = None) -> dict:
     """שדות הרשומה: התראות (webhook, טראנק, סוד) והאזנת ה-AudioSocket.
 
     התפריט עצמו אינו זקוק לדבר; אלה משמשים את `async_notify` ואת
-    מאזין העוזר הקולי.
+    מאזין העוזר הקולי. כשהגשר מסר את הטראנקים, הטראנק נבחר מתוכם.
     """
     def opt(key: str):
         default = _FIELD_DEFAULTS.get(key, "")
@@ -309,13 +410,31 @@ def menu_fields(current: dict) -> dict:
             description={"suggested_value": str(current.get(key, "") or default)},
         )
 
-    return {opt(key): str for key in _MENU_KEYS}
+    return {
+        opt(key): trunk_selector(trunks) if key == "pbx_trunk" and trunks else str
+        for key in _MENU_KEYS
+    }
+
+
+async def async_menu_fields(hass, current: dict) -> dict:
+    return menu_fields(current, await async_trunks(hass, current))
+
+
+async def async_menu_errors(hass, user_input: dict) -> dict[str, str]:
+    """טראנק שהמרכזייה לא מכירה נעצר בטופס, לא בהתראה הראשונה."""
+    trunk = str(user_input.get("pbx_trunk", "") or "").strip()
+    if not trunk:
+        return {}
+    known = await async_trunks(hass, user_input)
+    if known is not None and trunk not in known:
+        return {"pbx_trunk": "unknown_trunk"}
+    return {}
 
 
 def menu_save(user_input: dict) -> dict:
     saved: dict[str, str] = {}
     for key in _MENU_KEYS:
-        value = str(user_input.get(key, "") or "")
+        value = str(user_input.get(key, "") or "").strip()
         # שדה כתובת שנשאר ריק חוזר לברירת המחדל, כדי שהמאזין תמיד יעלה.
         saved[key] = value or _FIELD_DEFAULTS.get(key, "")
     return saved

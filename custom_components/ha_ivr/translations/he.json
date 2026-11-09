@@ -80,6 +80,9 @@
     },
     "outbound_rejected": {
       "message": "השליחה נדחתה על ידי הספק: {detail}"
+    },
+    "pbx_unknown_trunk": {
+      "message": "המרכזייה לא מכירה את הטראנק {trunk}. יש לבחור טראנק קיים בהגדרות."
     }
   },
   "config": {
@@ -145,7 +148,8 @@
       "already_configured": "הספק הזה כבר מוגדר."
     },
     "error": {
-      "invalid_network": "טווח IP אינו תקין. יש להזין טווחים מופרדים בפסיקים."
+      "invalid_network": "טווח IP אינו תקין. יש להזין טווחים מופרדים בפסיקים.",
+      "unknown_trunk": "המרכזייה לא מכירה את הטראנק הזה."
     }
   },
   "options": {
@@ -215,7 +219,8 @@
       }
     },
     "error": {
-      "invalid_network": "טווח IP אינו תקין."
+      "invalid_network": "טווח IP אינו תקין.",
+      "unknown_trunk": "המרכזייה לא מכירה את הטראנק הזה."
     }
   },
   "config_subentries": {
@@ -528,7 +533,8 @@
       },
       "error": {
         "name_required": "חובה להזין שם.",
-        "invalid_phone": "המספר אינו תקין."
+        "invalid_phone": "המספר אינו תקין.",
+        "unknown_trunk": "המרכזייה לא מכירה את הטראנק הזה."
       },
       "initiate_flow": {
         "user": "הוספת נמען",
@@ -632,6 +638,12 @@
         "sms": "SMS",
         "tzintuk": "צינתוק"
       }
+    }
+  },
+  "issues": {
+    "missing_trunk": {
+      "title": "טראנק שאינו קיים במרכזייה",
+      "description": "התראות דרך {missing} ייכשלו: המרכזייה לא מכירה את הטראנק. הטראנקים הקיימים: {available}.\n\nיש לבחור טראנק קיים בהגדרות האינטגרציה (טראנק יוצא להתראות) או בנמען."
     }
   }
 }

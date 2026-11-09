@@ -653,10 +653,12 @@ for _f in sorted((ROOT / "custom_components").rglob("*.py")):
                 and getattr(_n.func, "id", "") == "_error" and _n.args
                 and isinstance(_n.args[0], _ast.Constant)):
             _used.add(_n.args[0].value)
-# `translation_key` יכול להצביע גם לבורר (`selector`), לא רק
-# לשגיאה. שני המאגרים לגיטימיים.
-_sel_keys = _js2.loads((_core / "strings.json").read_text("utf-8")).get("selector", {})
-_valid_keys = set(_exc_en) | set(_sel_keys)
+# `translation_key` יכול להצביע גם לבורר (`selector`) ולתיקון
+# (`issues`), לא רק לשגיאה. שלושת המאגרים לגיטימיים.
+_strings = _js2.loads((_core / "strings.json").read_text("utf-8"))
+_valid_keys = (
+    set(_exc_en) | set(_strings.get("selector", {})) | set(_strings.get("issues", {}))
+)
 _missing = sorted(_used - _valid_keys)
 ok("כל מפתח שבקוד קיים במחרוזות", not _missing)
 for _m in _missing:
@@ -1670,6 +1672,110 @@ check("ניסיונות חוזרים מפורשים נכנסים לגוף",
 check("ערך שלילי נחסם ל-0",
       lambda: asyncio.get_event_loop().run_until_complete(
           _pbx_retries(-3)) == 0)
+
+# --- טראנק שאינו קיים במרכזייה: נבחר מרשימה, נעצר בטופס, נפתח תיקון ---
+class _TrunkResp:
+    def __init__(self, status, body):
+        self.status, self._body = status, body
+    async def text(self): return self._body
+    async def json(self, content_type=None):
+        import json as _j
+        return _j.loads(self._body)
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+
+
+class _TrunkSess:
+    """הגשר: GET /trunks מחזיר את הרשימה, POST /ha דוחה טראנק לא מוכר."""
+    def __init__(self, trunks=("main", "backup"), get_status=200):
+        self.trunks, self.get_status, self.urls = list(trunks), get_status, []
+    def get(self, url, headers, timeout):
+        self.urls.append(url)
+        import json as _j
+        return _TrunkResp(self.get_status, _j.dumps(
+            {"trunks": [{"name": t, "registered": True} for t in self.trunks]}))
+    def post(self, url, json, headers, timeout):
+        if json["trunk"] not in self.trunks:
+            return _TrunkResp(400, f"unknown trunk {json['trunk']!r}; available: x")
+        return _TrunkResp(200, "ok")
+
+
+def _with_sess(sess, coro_fn):
+    from homeassistant.helpers import aiohttp_client as _ac
+    _orig = _ac.async_get_clientsession
+    _ac.async_get_clientsession = lambda hass: sess
+    try:
+        return asyncio.get_event_loop().run_until_complete(coro_fn())
+    finally:
+        _ac.async_get_clientsession = _orig
+
+
+_opts = {"pbx_alert_url": "http://pbx:5000/ha", "pbx_trunk": "main",
+         "pbx_alert_secret": "s"}
+_s1 = _TrunkSess()
+ok("הטראנקים נקראים מהגשר",
+   _with_sess(_s1, lambda: pbx.async_trunks(None, _opts)) == ["main", "backup"])
+ok("הרשימה נשאלת בנתיב /trunks של אותו שרת",
+   _s1.urls == ["http://pbx:5000/trunks"])
+ok("גשר ישן בלי /trunks — אין רשימה",
+   _with_sess(_TrunkSess(get_status=404),
+              lambda: pbx.async_trunks(None, _opts)) is None)
+ok("בלי כתובת — אין רשימה",
+   _with_sess(_TrunkSess(), lambda: pbx.async_trunks(None, {})) is None)
+ok("טראנק לא מוכר נעצר בטופס",
+   _with_sess(_TrunkSess(), lambda: pbx.async_menu_errors(
+       None, {**_opts, "pbx_trunk": "gone"})) == {"pbx_trunk": "unknown_trunk"})
+ok("טראנק מוכר עובר",
+   _with_sess(_TrunkSess(), lambda: pbx.async_menu_errors(None, _opts)) == {})
+ok("בלי רשימה מהגשר הטופס אינו פוסל",
+   _with_sess(_TrunkSess(get_status=404), lambda: pbx.async_menu_errors(
+       None, {**_opts, "pbx_trunk": "gone"})) == {})
+_mf = {str(k): v for k, v in pbx.menu_fields(_opts, ["main"]).items()}
+ok("עם רשימה — הטראנק נבחר מבורר", _mf["pbx_trunk"] is not str)
+_mf = {str(k): v for k, v in pbx.menu_fields(_opts).items()}
+ok("בלי רשימה — שדה טקסט", _mf["pbx_trunk"] is str)
+ok("רווחים נחתכים בשמירה",
+   pbx.menu_save({**_opts, "pbx_trunk": " main"})["pbx_trunk"] == "main")
+
+
+def _trunk_entry(default, contacts=()):
+    import types as _t
+    return _t.SimpleNamespace(
+        entry_id="E", options={**_opts, "pbx_trunk": default},
+        subentries={str(i): _t.SimpleNamespace(title=n, data={"trunk": t})
+                    for i, (n, t) in enumerate(contacts)})
+
+
+fake_ha.ISSUES.clear()
+_with_sess(_TrunkSess(), lambda: pbx.async_check(
+    None, _trunk_entry("gone", [("סבתא", "old"), ("שכן", "main")])))
+_iss = fake_ha.ISSUES.get("missing_trunk_E")
+ok("טראנק חסר פותח תיקון", _iss is not None)
+ok("התיקון מפרט מה חסר ואצל מי",
+   _iss and _iss["translation_placeholders"]["missing"] == "gone; old (סבתא)")
+ok("התיקון מציע את הקיימים",
+   _iss and _iss["translation_placeholders"]["available"] == "main, backup")
+_with_sess(_TrunkSess(), lambda: pbx.async_check(None, _trunk_entry("main")))
+ok("כשהכל קיים התיקון נסגר", "missing_trunk_E" not in fake_ha.ISSUES)
+fake_ha.ISSUES["missing_trunk_E"] = {}
+_with_sess(_TrunkSess(get_status=503),
+           lambda: pbx.async_check(None, _trunk_entry("gone")))
+ok("גשר שלא עונה אינו משנה את התיקון", "missing_trunk_E" in fake_ha.ISSUES)
+
+
+async def _notify_unknown():
+    import types as _t
+    hass = _t.SimpleNamespace(async_create_task=lambda c: c.close())
+    try:
+        await pbx.async_notify(hass, _trunk_entry("gone"), "hi", ["0501234567"])
+    except OutboundError as err:
+        return err.key, err.placeholders
+    return None
+
+
+ok("התראה דרך טראנק שנמחק נכשלת בשגיאה ברורה",
+   _with_sess(_TrunkSess(), _notify_unknown)
+   == ("pbx_unknown_trunk", {"trunk": "gone"}))
 
 # --- תור ההתראות הממתינות ---
 _hass3 = fake_ha.FakeHass()

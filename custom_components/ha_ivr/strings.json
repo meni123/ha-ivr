@@ -80,6 +80,9 @@
     },
     "outbound_rejected": {
       "message": "The provider rejected the request: {detail}"
+    },
+    "pbx_unknown_trunk": {
+      "message": "The PBX does not know the trunk {trunk}. Choose an existing trunk in the settings."
     }
   },
   "config": {
@@ -145,7 +148,8 @@
       "already_configured": "This provider is already configured."
     },
     "error": {
-      "invalid_network": "Invalid IP range. Enter comma separated ranges."
+      "invalid_network": "Invalid IP range. Enter comma separated ranges.",
+      "unknown_trunk": "The PBX does not know this trunk."
     }
   },
   "options": {
@@ -215,7 +219,8 @@
       }
     },
     "error": {
-      "invalid_network": "Invalid IP range."
+      "invalid_network": "Invalid IP range.",
+      "unknown_trunk": "The PBX does not know this trunk."
     }
   },
   "config_subentries": {
@@ -528,7 +533,8 @@
       },
       "error": {
         "name_required": "A name is required.",
-        "invalid_phone": "That is not a valid phone number."
+        "invalid_phone": "That is not a valid phone number.",
+        "unknown_trunk": "The PBX does not know this trunk."
       },
       "initiate_flow": {
         "user": "Add recipient",
@@ -632,6 +638,12 @@
         "sms": "SMS",
         "tzintuk": "Tzintuk (ring)"
       }
+    }
+  },
+  "issues": {
+    "missing_trunk": {
+      "title": "A trunk missing from the PBX",
+      "description": "Alerts through {missing} will fail: the PBX does not know this trunk. Existing trunks: {available}.\n\nChoose an existing trunk in the integration settings (outbound trunk for alerts) or in the recipient."
     }
   }
 }

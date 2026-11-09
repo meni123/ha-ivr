@@ -178,6 +178,25 @@ if _HA:
         # של מרכזייה עצמית. הליבה אינה יודעת מהי; היא רק מרימה מה
         # שהדרייבר נותן, וסוגרת אותו ב-unload. ספק בלי תחבורה כזו לא
         # מושפע.
+        # בדיקת תקינות של הספק, אם יש לו — למשל שמה שמוגדר כאן עוד
+        # קיים בצד השני. רצה ברקע, ושוב כל `CHECK_INTERVAL`: מה שנמחק
+        # שם נמחק בלי להודיע לנו.
+        check = getattr(driver, "async_check", None)
+        if check is not None:
+            from homeassistant.helpers.event import (  # noqa: PLC0415
+                async_track_time_interval,
+            )
+
+            async def _check(_now=None, check=check) -> None:
+                await check(hass, entry)
+
+            entry.async_create_background_task(
+                hass, _check(), f"{DOMAIN} check {entry.entry_id}"
+            )
+            entry.async_on_unload(
+                async_track_time_interval(hass, _check, driver.CHECK_INTERVAL)
+            )
+
         start = getattr(driver, "async_start_transport", None)
         if start is not None:
             try:

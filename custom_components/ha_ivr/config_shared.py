@@ -1486,9 +1486,11 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
 
     async def _step(self, step_id, user_input, current) -> SubentryFlowResult:
         errors: dict[str, str] = {}
+        trunks = await self._trunks() if self._supports_trunk() else None
 
         if user_input is not None:
             name = str(user_input.get(CONF_LABEL, "") or "").strip()
+            trunk = str(user_input.get(CONF_TRUNK, "") or "").strip()
             phone = clean_phones(str(user_input.get(CONF_PHONE, "") or ""))
             if not name:
                 errors[CONF_LABEL] = "name_required"
@@ -1496,11 +1498,12 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                 # מספר שאינו תקין נעצר כאן ולא בשיגור: נמען בלי
                 # מספר שמיש הוא ישות שנראית תקינה ונכשלת בשיחה.
                 errors[CONF_PHONE] = "invalid_phone"
+            elif trunk and trunks is not None and trunk not in trunks:
+                errors[CONF_TRUNK] = "unknown_trunk"
             else:
                 data = {CONF_LABEL: name, CONF_PHONE: phone}
                 if CONF_CHANNEL in user_input:
                     data[CONF_CHANNEL] = str(user_input[CONF_CHANNEL])
-                trunk = str(user_input.get(CONF_TRUNK, "") or "").strip()
                 if trunk:
                     data[CONF_TRUNK] = trunk
                 caller_id = str(user_input.get(CONF_CALLER_ID, "") or "").strip()
@@ -1551,7 +1554,8 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                 )
             )
         # שדה טראנק אופציונלי, רק לספק שמחייג דרך טראנק (המרכזייה):
-        # נמען שיוצא בזיהוי אחר. ריק חוזר לטראנק ברירת המחדל.
+        # נמען שיוצא בזיהוי אחר. ריק חוזר לטראנק ברירת המחדל. כשהצד
+        # השני מסר אילו טראנקים קיימים, בוחרים מתוכם.
         if self._supports_trunk():
             fields[
                 vol.Optional(
@@ -1560,7 +1564,15 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
                         "suggested_value": str(current.get(CONF_TRUNK, "") or "")
                     },
                 )
-            ] = str
+            ] = (
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=trunks, mode=SelectSelectorMode.DROPDOWN
+                    )
+                )
+                if trunks
+                else str
+            )
         # שדה מספר מציג, רק לספק שמצהיר עליו. חייב להיות זיהוי
         # שהספק מאשר — ההסבר בתיאור השדה בתרגומים.
         if self._supports_caller_id():
@@ -1600,6 +1612,16 @@ class ContactFlowHandler(_EditMixin, ConfigSubentryFlow):
         except Exception:  # noqa: BLE001 — הטופס חשוב יותר מהשדה
             return False
         return bool(getattr(driver, flag, False))
+
+    async def _trunks(self) -> list[str] | None:
+        """הטראנקים הקיימים לפי הדרייבר, או None כשאין דרך לדעת."""
+        from . import registry  # noqa: PLC0415
+
+        entry = self._get_entry()
+        fetch = getattr(registry.for_entry(entry), "async_trunks", None)
+        if fetch is None:
+            return None
+        return await fetch(self.hass, dict(entry.options))
 
     def _supports_trunk(self) -> bool:
         """האם הדרייבר מציע בחירת טראנק יוצא לנמען."""
