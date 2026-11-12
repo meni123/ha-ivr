@@ -1260,6 +1260,31 @@ ok("הרגישות ממופה לשניות",
    endpoint.SILENCE_BY_SENSITIVITY == {"aggressive": 0.5, "default": 0.8, "relaxed": 1.2})
 ok("בלי מנוע VAD הזיהוי כבוי ואינו חותך", not endpoint.Endpointer(0.8, None).feed(b"\x00" * 6400))
 
+
+def _ep_levels(probs, levels, silence=0.8):
+    ep = endpoint.Endpointer(silence)
+    for i, (p, lv) in enumerate(zip(probs, levels)):
+        if ep.step(p, lv):
+            return i, ep
+    return None, ep
+
+
+# "כן" בקו: המנוע לא מתעורר (0.05), אבל הקול בולט מעל רצפת הרעש
+_quiet_line = [40.0] * 100
+_word = [3000.0] * 30
+_end, _e = _ep_levels([0.05] * 260, _quiet_line + _word + [40.0] * 130)
+ok("מילה קצרה שהמנוע לא שמע נגמרת אחרי שקט רצוף, לא בתקרת הזמן",
+   _end == 100 + 30 + 79 and _e.by_energy)
+_end, _ = _ep_levels([0.05] * 300, _quiet_line + [3000.0] * 10 + [40.0] * 190)
+ok("קול קצר מ-0.15 ש׳ (נקישה) אינו פותח פקודה", _end is None)
+_end, _ = _ep_levels([0.05] * 400, [200.0] * 400)
+ok("רעש קבוע בקו אינו נחשב דיבור", _end is None)
+_end, _ = _ep_levels([0.05] * 300, [0.0] * 100 + [250.0] * 30 + [0.0] * 170)
+ok("מתחת לסף המוחלט — לא דיבור, גם בקו שקט לגמרי", _end is None)
+# כשהמנוע פותח את הפקודה, עוצמה גבוהה בשקט שאחריה (רעש רקע) לא מאריכה אותה
+_end, _e = _ep_levels([0.9] * 100 + [0.1] * 100, _quiet_line + [3000.0] * 100)
+ok("פקודה שהמנוע פתח נגמרת לפי המנוע בלבד", _end == 100 + 79 and not _e.by_energy)
+
 print("\n== שכבת הסטרימינג ==")
 from custom_components.ha_ivr import stream  # noqa: E402
 
