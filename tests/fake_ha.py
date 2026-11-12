@@ -16,6 +16,7 @@ python3 tests/fake_ha.py
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import sys
 import types
 from pathlib import Path
@@ -30,6 +31,18 @@ ROOT = Path(__file__).resolve().parent.parent
 
 ISSUES: dict = {}
 PANELS: list = []
+
+
+@dataclasses.dataclass(frozen=True)
+class AudioSettings:
+    """כמו במקור: ה-VAD של הצינור דולק אלא אם ביקשו אחרת."""
+
+    is_vad_enabled: bool = True
+    silence_seconds: float = 0.7
+
+
+# ההגדרות שכל הרצת צינור של הלוויין המזויף קיבלה, לפי הסדר.
+ACCEPTED: list = []
 
 
 def _module(name: str, **attrs) -> types.ModuleType:
@@ -369,8 +382,18 @@ def install() -> None:
         def tts_response_finished(self):
             self.state = "idle"
 
-        async def async_accept_pipeline_from_satellite(self, audio_stream, **kw):
-            return None
+        def _resolve_vad_sensitivity(self):
+            return 0.7
+
+        async def async_accept_pipeline_from_satellite(
+            self, audio_stream, start_stage="stt", *, context=None
+        ):
+            # כמו במקור: ההגדרות נבנות כאן, ואין דרך להעביר אותן מבחוץ.
+            ACCEPTED.append(
+                AudioSettings(silence_seconds=self._resolve_vad_sensitivity())
+            )
+            async for _ in audio_stream:
+                pass
 
     _module(
         "homeassistant.components.assist_satellite",

@@ -28,8 +28,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import time
+import types
 from array import array
 
 from homeassistant.components import tts
@@ -61,8 +63,8 @@ from .outbound import OutboundError
 
 _LOGGER = logging.getLogger(__name__)
 
-# שקט שמועבר ל-VAD של הצינור כשהזיהוי שלנו פעיל: מספיק גדול כדי שלא
-# יחתוך לעולם, והצינור נשאר רק עם תקרת הזמן שלו (15 שניות).
+# שקט שמועבר ל-VAD של הצינור אם לא ניתן לכבות אותו (`_without_pipeline_vad`):
+# מספיק גדול כדי שלא יחתוך לעולם, והצינור נשאר רק עם תקרת הזמן שלו.
 PIPELINE_VAD_OFF_SEC = 10.0
 
 # הקראה בזרימה: כמה אודיו נשלח לקו בכל פעם, וכמה מותר שיחכה אצל הספק
@@ -83,9 +85,11 @@ def _error(key: str, **placeholders) -> HomeAssistantError:
         translation_placeholders={k: str(v) for k, v in placeholders.items()},
     )
 
-# כמה סבבי שתיקה רצופים לפני שמפסיקים להאזין. בלי תקרה, שיחה
-# נטושה מחזיקה את הצינור עד שהמרכזייה תסגור.
-MAX_SILENT_RUNS = 5
+# כמה שניות של האזנה בלי שזוהה טקסט לפני שמפסיקים להאזין. בלי תקרה,
+# שיחה נטושה מחזיקה את הצינור עד שהמרכזייה תסגור. נמדד בזמן האזנה ולא
+# במספר תורות: רעש שפתח תור קצר וריק אינו שתיקה ממושכת. תור שותק נמשך
+# 15 שניות, ולכן קו שותק נסגר אחרי שלושה.
+SILENT_LIMIT_SEC = 40.0
 
 # כמה שניות בלי מסגרת אודיו נחשבות לניתוק. הזרם עובר TCP ולעיתים
 # דרך proxy, ולכן ערך נמוך מדי יפרש ג׳יטר כניתוק.
@@ -93,6 +97,54 @@ HANGUP_SILENCE = 2.0
 
 # כל כמה מסגרות למדוד את עוצמת הקלט.
 LEVEL_EVERY = 5
+
+
+def _without_pipeline_vad(accept):
+    """עותק של `async_accept_pipeline_from_satellite` שמריץ את הצינור בלי VAD.
+
+    ה-VAD של הצינור קוטע כל פקודה אחרי 15 שניות, ואין לזה פרמטר: המתודה
+    של HA בונה את `AudioSettings` בעצמה. העותק מריץ את אותו קוד בדיוק,
+    ורק השם `AudioSettings` מצביע אצלו על גרסה שמכבה את ה-VAD. המודול של
+    HA עצמו אינו משתנה.
+
+    None אם המתודה כבר אינה בנויה כך. אז נשארים עם התקרה של HA.
+    """
+    code = getattr(accept, "__code__", None)
+    scope = getattr(accept, "__globals__", {})
+    settings = scope.get("AudioSettings")
+    if (
+        code is None
+        or "AudioSettings" not in code.co_names
+        or "is_vad_enabled" not in getattr(settings, "__dataclass_fields__", ())
+    ):
+        return None
+
+    def no_vad(*args, **kwargs):
+        return settings(*args, **{**kwargs, "is_vad_enabled": False})
+
+    copy = types.FunctionType(
+        code,
+        {**scope, "AudioSettings": no_vad},
+        accept.__name__,
+        accept.__defaults__,
+        accept.__closure__,
+    )
+    copy.__kwdefaults__ = accept.__kwdefaults__
+    return copy
+
+
+@functools.cache
+def _accept_without_vad():
+    """העותק, פעם אחת לכל ריצה. אזהרה אחת אם אי אפשר לבנות אותו."""
+    accept = _without_pipeline_vad(
+        AssistSatelliteEntity.async_accept_pipeline_from_satellite
+    )
+    if accept is None:
+        _LOGGER.warning(
+            "Stream: this Home Assistant version does not let the pipeline run "
+            "without its own voice detection; commands stay limited to 15 seconds"
+        )
+    return accept
 
 
 class IvrSatellite(AssistSatelliteEntity):
@@ -123,7 +175,11 @@ class IvrSatellite(AssistSatelliteEntity):
         self._run_task: asyncio.Task | None = None
         self._hangup_task: asyncio.Task | None = None
         self._last_chunk: float | None = None
-        self._silent_runs = 0
+        # האזנה שלא הניבה טקסט, בשניות, ואורך התור הנוכחי.
+        self._silent_sec = 0.0
+        self._turn_sec = 0.0
+        # רצפת הרעש של הקו, מתור לתור באותה שיחה.
+        self._noise_floor: float | None = None
         self._heard_this_run = False
         self._tts_pending = False
         self._failed_this_run = False
@@ -233,7 +289,8 @@ class IvrSatellite(AssistSatelliteEntity):
 
         self._session = session
         self._audio = asyncio.Queue()
-        self._silent_runs = 0
+        self._silent_sec = 0.0
+        self._noise_floor = None
         self._muted = True
         self._leaving = False
         self._run_task = None
@@ -331,29 +388,40 @@ class IvrSatellite(AssistSatelliteEntity):
         self._level_peak = 0
         self._level_count = 0
 
-    async def _stt_stream(self):
+    async def _stt_stream(self, vad):
         """האודיו מהקו, מומר לקצב שהצינור מצפה לו.
 
-        סוף הדיבור נקבע כאן (`endpoint.py`) ולא ב-VAD של הצינור, שחותך
+        סוף התור נקבע כאן (`endpoint.py`) ולא ב-VAD של הצינור, שחותך
         מתקשרים באמצע משפט. כשהזיהוי שלנו מכריע, הזרם פשוט נגמר — ה-STT
         מסיים כרגיל — ואנחנו עושים מה שהצינור היה עושה ב-STT_VAD_END.
         """
-        vad = make_vad()
-        endpointer = Endpointer(self._endpoint_silence(), vad) if vad else None
+        endpointer = (
+            Endpointer(self._endpoint_silence(), vad, self._noise_floor) if vad else None
+        )
         # קו של 8k: הכפלה עם מסנן, לא לינארית — ראו `audio.Upsampler2x`
         up = Upsampler2x() if self._rate * 2 == PIPELINE_RATE else None
         if up is not None and not up.available:
             up = None
-        while True:
-            chunk = await self._audio.get()
-            if chunk is None:
-                return
-            audio = up.process(chunk) if up else resample(chunk, self._rate, PIPELINE_RATE)
-            yield audio
-            if endpointer is not None and endpointer.feed(audio):
-                _LOGGER.debug("Stream: end of speech (continuous silence)")
-                self._end_of_speech()
-                return
+        try:
+            while True:
+                chunk = await self._audio.get()
+                if chunk is None:
+                    return
+                audio = up.process(chunk) if up else resample(chunk, self._rate, PIPELINE_RATE)
+                self._turn_sec += len(audio) / (PIPELINE_RATE * 2)
+                yield audio
+                if endpointer is not None and endpointer.feed(audio):
+                    _LOGGER.debug(
+                        "Stream: end of turn after %.1fs (%s)",
+                        endpointer.elapsed,
+                        endpointer.reason,
+                    )
+                    # צליל "חושב" רק אם נשמע משהו. קו שותק נסגר בשקט.
+                    self._end_of_speech(tone=endpointer.started)
+                    return
+        finally:
+            if endpointer is not None:
+                self._noise_floor = endpointer.floor
 
     def _endpoint_silence(self) -> float:
         """שניות השקט הרצוף לפי בורר הרגישות של הרשומה."""
@@ -364,12 +432,12 @@ class IvrSatellite(AssistSatelliteEntity):
         )
 
     def _resolve_vad_sensitivity(self) -> float:
-        """ה-VAD של הצינור נשאר רק כתקרת זמן כשהזיהוי שלנו זמין."""
+        """אם ה-VAD של הצינור בכל זאת רץ, הוא נשאר רק כתקרת זמן."""
         if make_vad() is None:
             return super()._resolve_vad_sensitivity()
         return PIPELINE_VAD_OFF_SEC
 
-    def _end_of_speech(self) -> None:
+    def _end_of_speech(self, tone: bool = True) -> None:
         """המתקשר סיים לדבר: השתקה וצליל "חושב". פעם אחת לתור."""
         if self._speech_over:
             return
@@ -377,7 +445,8 @@ class IvrSatellite(AssistSatelliteEntity):
         self._muted = True
         # הצליל כאן ולא ב-STT_END: בין השניים יש עוד המרה,
         # ובלעדיו המתקשר שומע שנייה של שקט.
-        self.hass.async_create_task(self._send_tone(thinking_tone))
+        if tone:
+            self.hass.async_create_task(self._send_tone(thinking_tone))
 
     async def _check_hangup(self) -> None:
         """ניתוק לפי היעדר אודיו.
@@ -423,8 +492,14 @@ class IvrSatellite(AssistSatelliteEntity):
         """
         try:
             self._begin_turn()
+            # כשהזיהוי שלנו זמין, הצינור רץ בלי VAD משלו ובלי התקרה שלו.
+            vad = make_vad()
+            accept = _accept_without_vad() if vad else None
             try:
-                await self.async_accept_pipeline_from_satellite(self._stt_stream())
+                if accept is None:
+                    await self.async_accept_pipeline_from_satellite(self._stt_stream(vad))
+                else:
+                    await accept(self, self._stt_stream(vad))
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
@@ -445,6 +520,7 @@ class IvrSatellite(AssistSatelliteEntity):
     def _begin_turn(self) -> None:
         """איפוס דגלי התור."""
         self._report_level()
+        self._turn_sec = 0.0
         self._heard_this_run = False
         self._tts_pending = False
         self._failed_this_run = False
@@ -465,7 +541,7 @@ class IvrSatellite(AssistSatelliteEntity):
         # תור שנגמר בלי שזוהה טקסט הוא תור שקט — בין אם דרך
         # שגיאת stt ובין אם דרך run-end שקט.
         if not self._heard_this_run:
-            self._silent_runs += 1
+            self._silent_sec += self._turn_sec
 
         # בלי הקראה בדרך, איש אינו פותח את הקלט בהמשך — למשל
         # כשעיבוד הכוונה נכשל אחרי שהדיבור זוהה.
@@ -478,7 +554,7 @@ class IvrSatellite(AssistSatelliteEntity):
                 self._drain()
                 self._muted = False
 
-        if self._silent_runs >= MAX_SILENT_RUNS:
+        if self._silent_sec >= SILENT_LIMIT_SEC:
             # שתיקה ממושכת אינה ניתוק: הקו חי ומסגרות ממשיכות
             # להגיע, ולכן `_check_hangup` אינו מטפל בזה.
             await session.close("שתיקה ממושכת")
@@ -509,7 +585,7 @@ class IvrSatellite(AssistSatelliteEntity):
             code = (event.data or {}).get("code", "")
             if code == "stt-no-text-recognized":
                 # שתיקה בקו. מצב רגיל בהמתנה לדיבור, ולא שגיאה.
-                self._silent_runs += 1
+                # הספירה ב-`_end_turn`, לפי אורך התור.
                 return
             _LOGGER.warning("Stream: the pipeline returned an error: %s", event.data)
             self._failed_this_run = True
@@ -520,10 +596,10 @@ class IvrSatellite(AssistSatelliteEntity):
                 _LOGGER.warning("Stream: resetting the conversation after a failure")
                 self._conversation_id = None
         elif event.type is PipelineEventType.STT_VAD_END:
-            # מגיע רק כשהצינור הכריע לפנינו — בפועל בתקרת הזמן שלו.
+            # מגיע רק כשה-VAD של הצינור עדיין רץ, בתקרת הזמן שלו.
             self._end_of_speech()
         elif event.type is PipelineEventType.STT_END:
-            self._silent_runs = 0
+            self._silent_sec = 0.0
             self._heard_this_run = True
             text = ((event.data or {}).get("stt_output") or {}).get("text", "")
             if self._is_exit(str(text)):

@@ -1252,8 +1252,17 @@ ok("שקט רצוף של 1.2 ש׳ אחרי דיבור הוא סוף",
    _ep_run(_talk + [0.1] * 130) == 100 + 119)
 ok("אמצע (0.3-0.5) אינו מוסיף לשקט ואינו מאפס אותו",
    _ep_run(_talk + [0.1] * 60 + [0.4] * 50 + [0.1] * 60) == 100 + 60 + 50 + 59)
-ok("בלי דיבור אין סוף — הצינור מסיים בתקרת הזמן",
-   _ep_run([0.1] * 2000) is None)
+# ה-VAD של הצינור כבוי, ולכן התקרות כאן
+ok("קו שותק נסגר אחרי 15 שניות",
+   _ep_run([0.1] * 2000) == 1499)
+ok("הכתבה ארוכה אינה נקטעת ב-15 שניות",
+   _ep_run([0.9] * 1800 + [0.1] * 130) == 1800 + 119)
+ok("אורך פקודה מרבי: 25 שניות",
+   _ep_run([0.9] * 3000) == 2499)
+ok("לקראת התקרה די בהפסקה קצרה, כדי לחתוך בין מילים",
+   _ep_run([0.9] * 2100 + [0.1] * 40 + [0.9] * 900) == 2100 + 29)
+ok("אותה הפסקה מוקדם יותר אינה סוף",
+   _ep_run([0.9] * 1000 + [0.1] * 40 + [0.9] * 100 + [0.1] * 130) == 1140 + 119)
 ok("רעש קצר בתחילת התור אינו פותח פקודה",
    _ep_run([0.9] * 10 + [0.1] * 300) is None)
 ok("הרגישות ממופה לשניות",
@@ -1284,6 +1293,28 @@ ok("מתחת לסף המוחלט — לא דיבור, גם בקו שקט לגמ�
 # כשהמנוע פותח את הפקודה, עוצמה גבוהה בשקט שאחריה (רעש רקע) לא מאריכה אותה
 _end, _e = _ep_levels([0.9] * 100 + [0.1] * 100, _quiet_line + [3000.0] * 100)
 ok("פקודה שהמנוע פתח נגמרת לפי המנוע בלבד", _end == 100 + 79 and not _e.by_energy)
+
+# רעש חזק וקבוע (רכב, רחוב) אינו מילה: נלמד כרצפה, והתור נסגר כקו שותק
+_end, _e = _ep_levels([0.05] * 1600, [600.0] * 1600)
+ok("רעש חזק וקבוע נלמד כרצפה ואינו פותח פקודה",
+   _end == 1499 and _e.reason == "no speech" and not _e.started and _e.floor == 600.0)
+# הרצפה עוברת לתור הבא: שם הרעש כבר אינו בולט מהרגע הראשון
+_e2 = endpoint.Endpointer(0.8, floor=_e.floor)
+_opened = any(_e2.step(0.05, 600.0) or _e2.started for _ in range(300))
+ok("בתור הבא אותו רעש כבר אינו נחשב קול", not _opened)
+_e2 = endpoint.Endpointer(0.8, floor=_e.floor)
+_end = next((i for i, lv in enumerate([600.0] * 100 + [5000.0] * 30 + [600.0] * 130)
+             if _e2.step(0.05, lv)), None)
+ok("מילה קצרה מעל הרעש שנלמד עדיין נקלטת", _end == 100 + 30 + 79 and _e2.by_energy)
+# דיבור אינו רעש רקע: קול בולט אינו מרים את הרצפה
+_e2 = endpoint.Endpointer(0.8)
+for _lv in [40.0] * 50 + [3000.0] * 100:
+    _e2.step(0.9, _lv)
+ok("דיבור אינו מרים את רצפת הרעש", _e2.floor == 40.0)
+# רעש מקוטע שהמנוע לא מאשר אינו מחזיק את התור עד תקרת האורך
+_end, _e = _ep_levels([0.05] * 1600, ([8.0] * 30 + [3000.0] * 30) * 27)
+ok("קולות שהמנוע לא אישר נסגרים כמו קו שותק",
+   _end == 1499 and _e.reason == "no speech" and _e.started)
 
 print("\n== שכבת הסטרימינג ==")
 from custom_components.ha_ivr import stream  # noqa: E402
@@ -1457,6 +1488,116 @@ ok("callback הפריקה אינה מחזירה ערך",
    "entry.async_on_unload(_forget)" in _plat_src
    # ההסבר בתיעוד מזכיר lambda; מה שאסור הוא לרשום אחת.
    and "async_on_unload(lambda" not in _plat_src)
+
+# --- תור בלי ה-VAD של הצינור ---
+from custom_components.ha_ivr import satellite as _satmod  # noqa: E402
+from homeassistant.components.assist_satellite import (  # noqa: E402
+    AssistSatelliteEntity as _BaseSat,
+)
+
+_base_accept = _BaseSat.async_accept_pipeline_from_satellite
+_no_vad = _satmod._without_pipeline_vad(_base_accept)
+ok("נבנה עותק של הרצת הצינור", _no_vad is not None and _no_vad is not _base_accept)
+
+
+async def _empty_stream():
+    return
+    yield b""
+
+
+class _TurnSession:
+    """שיחה שרושמת למה נסגרה."""
+
+    exiting = False
+
+    def __init__(self) -> None:
+        self.closed = None
+
+    async def close(self, reason):
+        self.closed = reason
+
+    async def send_audio(self, pcm):
+        pass
+
+
+def _arun(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+fake_ha.ACCEPTED.clear()
+_arun(_no_vad(_sat, _empty_stream()))
+_arun(_base_accept(_sat, _empty_stream()))
+ok("העותק מריץ את הצינור בלי VAD, עם שאר ההגדרות כמו שהן",
+   fake_ha.ACCEPTED[0] == fake_ha.AudioSettings(is_vad_enabled=False, silence_seconds=0.7))
+ok("המתודה של HA עצמה לא השתנתה", fake_ha.ACCEPTED[1].is_vad_enabled)
+
+
+async def _other_shape(self, audio_stream):
+    return None
+
+
+ok("מתודה שאינה בונה AudioSettings — נשארים עם המקור",
+   _satmod._without_pipeline_vad(_other_shape) is None)
+_scope = {**_base_accept.__globals__, "AudioSettings": dict}
+_moved = types.FunctionType(_base_accept.__code__, _scope, "moved")
+ok("AudioSettings בלי השדה is_vad_enabled — נשארים עם המקור",
+   _satmod._without_pipeline_vad(_moved) is None)
+
+# תור שלם: קו שותק. בלי ה-VAD של הצינור התור חייב להיסגר מעצמו.
+_real_make_vad = _satmod.make_vad
+_satmod.make_vad = lambda: (lambda chunk: 0.0)
+_ts = _TurnSession()
+_sat.attach(_ts, 8000)
+_sat._muted = False
+for _ in range(800):                       # 16 שניות של 8kHz
+    _sat._audio.put_nowait(b"\x00" * 320)
+fake_ha.ACCEPTED.clear()
+_tones = len(hass.tasks)
+_arun(_sat._run_turn())
+ok("כשהזיהוי שלנו זמין הצינור רץ בלי VAD",
+   len(fake_ha.ACCEPTED) == 1 and not fake_ha.ACCEPTED[0].is_vad_enabled)
+ok("תור שותק נסגר מעצמו אחרי 15 שניות", abs(_sat._turn_sec - 15.0) < 0.05)
+ok("תור שותק נסגר בלי צליל \"חושב\"", len(hass.tasks) == _tones)
+ok("אחרי תור שותק הקלט פתוח", not _sat._muted and _sat._run_task is None)
+ok("תור שותק אחד אינו סוגר את השיחה", _ts.closed is None)
+
+# רעש שפתח תור קצר וריק אינו "שתיקה ממושכת"
+for _ in range(10):
+    _sat._begin_turn()
+    _sat._turn_sec = 1.5
+    _arun(_sat._end_turn())
+ok("עשרה תורות קצרים וריקים אינם סוגרים את השיחה", _ts.closed is None)
+for _ in range(2):
+    _sat._begin_turn()
+    _sat._turn_sec = 15.0
+    _arun(_sat._end_turn())
+ok("שתיקה ממושכת סוגרת את השיחה", _ts.closed == "שתיקה ממושכת")
+_sat.detach(_ts)
+
+# הרצפה נשמרת בין תורות ומתאפסת למתקשר הבא
+_sat.attach(_ts, 8000)
+ok("מתקשר חדש מתחיל בלי רצפת רעש ובלי שתיקה צבורה",
+   _sat._noise_floor is None and _sat._silent_sec == 0.0)
+_sat._muted = False
+_noise = (b"\x00\x02" * 160)               # RMS 512
+for _ in range(150):
+    _sat._audio.put_nowait(_noise)
+_sat._audio.put_nowait(None)
+_arun(_sat._run_turn())
+ok("רצפת הרעש של הקו נשמרת לתור הבא", (_sat._noise_floor or 0) > 400)
+_sat.detach(_ts)
+
+# בלי מנוע VAD הכול נשאר אצל הצינור, כולל התקרה שלו
+_satmod.make_vad = lambda: None
+_sat.attach(_ts, 8000)
+_sat._muted = False
+_sat._audio.put_nowait(b"\x00" * 320)
+_sat._audio.put_nowait(None)
+fake_ha.ACCEPTED.clear()
+_arun(_sat._run_turn())
+ok("בלי מנוע VAD הצינור רץ כרגיל", fake_ha.ACCEPTED[0].is_vad_enabled)
+_sat.detach(_ts)
+_satmod.make_vad = _real_make_vad
 
 # מדידת הרמה — אבחון בלבד, בלי שינוי התנהגות.
 _sat._level_sum = 0.0
