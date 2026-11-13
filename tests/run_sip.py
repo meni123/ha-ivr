@@ -643,6 +643,15 @@ async def test_line() -> None:
 
     # ------------------------------------------------------------------
     print("\n== שיחות שאינן מתקבלות ==")
+    refused: list[str] = []
+
+    class _Refusals(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "refused a call" in record.getMessage():
+                refused.append(record.getMessage())
+
+    _watch = _Refusals()
+    logging.getLogger("custom_components.ha_ivr.sipline").addHandler(_watch)
     release.clear()
     prov._count += 1
     prov.invite("0501111111", "nosdp", 0, offer="")
@@ -660,6 +669,12 @@ async def test_line() -> None:
        (await prov._reply_to("second", 486)).status == 486)
     await prov.bye(first)
     await small.stop()
+    logging.getLogger("custom_components.ha_ivr.sipline").removeHandler(_watch)
+    ok("כל דחייה נכתבת ביומן עם הסיבה",
+       len(refused) == 3 and "no audio" in refused[0]
+       and "payloads [18, 3" in refused[1] and "full" in refused[2])
+    ok("ומהמתקשר נכתבות רק ארבע ספרות",
+       all("from 1111:" in r for r in refused))
     release.set()
 
     stranger = await Provider().open()

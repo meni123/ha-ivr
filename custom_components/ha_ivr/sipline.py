@@ -862,10 +862,25 @@ class SipLine:
             return  # אותה שיחה שהגיעה בדרך נוספת
         offer = sip.parse_sdp(msg.body)
         payload = sip.pick_payload(offer) if offer else None
+        # שיחה שנדחתה נכתבת ביומן: בלי זה קו שאינו עונה נראה כמו קו
+        # שהספק לא שלח אליו כלום.
         if offer is None or payload is None or offer.secure or not offer.port:
+            if offer is None or not offer.port:
+                why = "no audio in the offer"
+            elif offer.secure:
+                why = "the provider asked for encrypted audio"
+            else:
+                why = f"no G.711 in the offer (payloads {list(offer.payloads)})"
+            _LOGGER.warning(
+                "SIP line: refused a call from %s: %s", caller_of(msg)[-4:], why
+            )
             self._reply(msg, addr, 488, "Not Acceptable Here")
             return
         if self._on_call is None or len(self._calls) >= self._max_calls:
+            _LOGGER.warning(
+                "SIP line: refused a call from %s: the line is full",
+                caller_of(msg)[-4:],
+            )
             self._reply(msg, addr, 486, "Busy Here")
             return
         call = Call(self, call_id=msg.call_id, caller=caller_of(msg),
