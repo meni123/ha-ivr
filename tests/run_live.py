@@ -576,10 +576,10 @@ registry._DRIVERS.clear()
 ok("המרשם ריק לפני הרישום", not registry.registered())
 _provs.ensure_registered()
 ok("ensure_registered ממלא את המרשם",
-   set(registry.registered()) == {"pbx", "technoline", "vonage", "yemot"})
+   set(registry.registered()) == {"pbx", "sip", "technoline", "vonage", "yemot"})
 _provs.ensure_registered()
 ok("קריאה חוזרת אינה מכפילה",
-   len(registry.registered()) == 4)
+   len(registry.registered()) == 5)
 
 _flow_src2 = (_core_dir / "config_flow.py").read_text("utf-8")
 _steps = [s for s in ("async_step_user", "async_step_settings",
@@ -993,15 +993,16 @@ for name, drv in DRIVERS:
 print("\n== מרשם הדרייברים ==")
 for _, drv in DRIVERS:
     registry.register(drv)
-ok("ארבעתם רשומים",
-   registry.registered() == ["pbx", "technoline", "vonage", "yemot"])
+ok("כולם רשומים",
+   registry.registered() == ["pbx", "sip", "technoline", "vonage", "yemot"])
 # המרשם עונה על מה שהיו רשימות קשיחות ב-const: מי קיים, למי יש
 # סטרימינג, ואיך קוראים לו.
 ok("שאילתת הסטרימינג על המרשם",
-   {d.DRIVER_ID for d in registry.with_stream()} == {"pbx", "technoline", "vonage"})
+   {d.DRIVER_ID for d in registry.with_stream()}
+   == {"pbx", "sip", "technoline", "vonage"})
 ok("שאילתה על כל הדרייברים",
    {d.DRIVER_ID for d in registry.all_drivers()}
-   == {"pbx", "technoline", "vonage", "yemot"})
+   == {"pbx", "sip", "technoline", "vonage", "yemot"})
 ok("שליפה לפי מזהה", registry.get("yemot") is yemot)
 ok("מזהה לא מוכר מחזיר None", registry.get("nope") is None)
 

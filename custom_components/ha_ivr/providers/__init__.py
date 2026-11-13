@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from . import pbx, technoline, vonage, yemot
+from . import pbx, sip, technoline, vonage, yemot
 
-PROVIDERS = (yemot, technoline, vonage, pbx)
+PROVIDERS = (yemot, technoline, vonage, pbx, sip)
 
 
 def ensure_registered() -> None:

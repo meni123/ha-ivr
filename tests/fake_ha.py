@@ -242,6 +242,8 @@ def install() -> None:
             "FloorSelector", "FloorSelectorConfig",
             "LabelSelector", "LabelSelectorConfig",
         )},
+        "TextSelectorType": types.SimpleNamespace(
+            TEXT="text", PASSWORD="password", EMAIL="email", URL="url", TEL="tel"),
         "SelectSelectorMode": _mode,
         "NumberSelectorMode": _mode,
     })

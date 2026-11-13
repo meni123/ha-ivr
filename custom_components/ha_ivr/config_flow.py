@@ -95,23 +95,25 @@ async def _menu_schema(hass, driver, current: dict[str, Any]) -> vol.Schema:
     fields.update(
         await build(hass, current) if build else driver.menu_fields(current)
     )
-    fields.update(
-        {
+    # טווחי IP מגינים על נקודת קצה; קו שהשיחה מגיעה בו עצמו אין לו כזו.
+    if getattr(driver, "HAS_ENDPOINT", True):
+        fields[
             vol.Optional(
                 "provider_ips",
                 description={
                     "suggested_value": ", ".join(current.get("allowed_ips") or [])
                     or driver.default_ips()
                 },
-            ): str,
-            vol.Optional(
-                "allowed_phones",
-                description={
-                    "suggested_value": ", ".join(current.get("allowed_phones") or [])
-                },
-            ): str,
-        }
-    )
+            )
+        ] = str
+    fields[
+        vol.Optional(
+            "allowed_phones",
+            description={
+                "suggested_value": ", ".join(current.get("allowed_phones") or [])
+            },
+        )
+    ] = str
     return vol.Schema(fields)
 
 
@@ -219,6 +221,9 @@ class IvrOptionsFlow(OptionsFlow):
         menu = ["menu_settings"]
         if getattr(driver, "SUPPORTS_STREAM", False):
             menu.append("stream_settings")
+        if not getattr(driver, "HAS_ENDPOINT", True):
+            # בלי נקודת קצה אין כתובת להציג ואין טוקן להחליף.
+            return self.async_show_menu(step_id="line", menu_options=menu)
         # החלפת הטוקן זמינה לכל ספק: הוא הסוד שמגן על נקודת הקצה,
         # וטוקן שדלף מחליפים.
         menu.append("regenerate_token")

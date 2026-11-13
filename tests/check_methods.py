@@ -25,6 +25,7 @@ INHERITED = {
     "_abort_if_unique_id_configured", "_async_handle_step",
     # AssistSatelliteEntity
     "_resolve_announcement_media_id", "_cancel_running_pipeline",
+    "_resolve_pipeline",
 }
 
 

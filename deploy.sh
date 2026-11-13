@@ -43,7 +43,7 @@ import ha_ivr; print(ha_ivr.build_stamp())"
 
 # ---------------------------------------------------------------- שער
 step "שער"
-for gate in run_live check_names check_flow check_gate; do
+for gate in run_live run_sip check_names check_flow check_gate; do
   python3 "tests/$gate.py" | tail -1 || die "tests/$gate.py נכשל. לא נפרס דבר"
 done
 

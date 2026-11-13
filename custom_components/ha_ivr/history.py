@@ -44,6 +44,8 @@ def _mask_phone(text: str) -> str:
 
 def redact(value: Any, key: str = "") -> Any:
     """ערך בטוח לשמירה."""
+    if "password" in key.lower():
+        return "***"  # סיסמה קצרה מכדי שזנב ממנה יהיה בטוח להצגה
     if any(hint in key.lower() for hint in _SECRET_HINTS):
         text = str(value or "")
         return f"***{text[-4:]}" if len(text) > 4 else "***"

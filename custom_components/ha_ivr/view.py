@@ -121,6 +121,9 @@ class IvrView(HomeAssistantView):
             driver_id, ", ".join(registry.registered()) or "(none)",
             )
             return web.Response(status=404, text="Unknown driver")
+        if not getattr(drv, "HAS_ENDPOINT", True):
+            # קו שמנהל את השיחה בעצמו אינו מקבל בקשות מבחוץ.
+            return web.Response(status=404, text="Unknown driver")
 
         # שתי תשובות לשני כשלים שונים: "אין רשומה" הוא 503 ואומר
         # למתקין שהאינטגרציה לא הוגדרה, ו"הטוקן אינו מתאים" הוא
@@ -163,6 +166,22 @@ class IvrView(HomeAssistantView):
         # מתעלם ממנו.
         ctx = drv.parse(params, body or {})
         cfg["caller"] = ctx.caller
+        return await self.async_step(
+            drv, entry, ctx, cfg,
+            remote=request.remote, method=request.method, filtering=bool(allowed),
+        )
+
+    async def async_step(
+        self, drv, entry, ctx, cfg: dict, *,
+        remote: str | None = None, method: str = "", filtering: bool = False,
+    ):
+        """הצעד הבא בתפריט, בלי תלות בדרך שבה הבקשה הגיעה.
+
+        בקשת HTTP מספק מגיעה לכאן מ-`_handle`. קו שמנהל את השיחה
+        בעצמו קורא לכאן ישירות, דרך `async_menu_step`.
+        """
+        driver_id = drv.DRIVER_ID
+        opts = entry.options
 
         if ctx.hangup:
             # מגיעה עם אותם פרמטרים כמו הבקשה שלפניה, ולכן נראית
@@ -172,10 +191,10 @@ class IvrView(HomeAssistantView):
 
         _LOGGER.debug(
             "%s <- [%s] path=%s key=%s step=%s caller=%s from=%s",
-            driver_id, request.method, ctx.path or "(שורש)", ctx.digit,
-            ctx.step, ctx.caller, request.remote,
+            driver_id, method, ctx.path or "(שורש)", ctx.digit,
+            ctx.step, ctx.caller, remote,
         )
-        _warn_if_proxied(driver_id, request.remote, bool(allowed))
+        _warn_if_proxied(driver_id, remote, filtering)
         history.record(
             "menu.request",
             driver=driver_id,
@@ -183,7 +202,7 @@ class IvrView(HomeAssistantView):
             digit=ctx.digit,
             step=ctx.step,
             caller=ctx.caller,
-            remote=request.remote,
+            remote=remote,
         )
 
         phones = opts.get("allowed_phones") or []
@@ -720,6 +739,21 @@ def _reply(drv, action, cfg: dict | None = None):
         # 500 באמצע שיחה — ניתוק בלי הסבר ובלי שורה ביומן.
         _LOGGER.exception("Path exceeds the provider limit, hanging up")
         return drv.respond(Terminal([Say("text", "אירעה שגיאה בתפריט")]), cfg or {})
+
+
+async def async_menu_step(hass: HomeAssistant, entry, ctx):
+    """הצעד הבא בתפריט, לקו שמנהל את השיחה בעצמו.
+
+    אותו מנוע בדיוק שעונה לספקים ב-HTTP: אותן הרשאות, אותו עץ ואותה
+    הפעלה. ההבדל היחיד הוא שהפעולה חוזרת כמו שהיא ולא כתשובת HTTP.
+    """
+    drv = registry.for_entry(entry)
+    cfg = {
+        "options": dict(entry.options),
+        "entry_id": entry.entry_id,
+        "caller": ctx.caller,
+    }
+    return await IvrView(hass).async_step(drv, entry, ctx, cfg)
 
 
 def _stream_url(request, token: str) -> str:

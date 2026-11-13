@@ -798,6 +798,43 @@ class IvrSatellite(AssistSatelliteEntity):
             await session.send_audio(pcm)
         return max(loop.time(), until) + len(pcm) / 2 / self._rate
 
+    async def async_synthesize(self, text: str, rate: int) -> bytes:
+        """טקסט ל-PCM בקול של העוזר, בלי להריץ צינור.
+
+        לקו שמנהל את השיחה בעצמו: התפריט מוקרא באותו מנוע ובאותו
+        קול שהעוזר עונה בהם. אינו תלוי בקשירה לשיחה, ולכן אפשר לקרוא
+        לו גם כשהקו פנוי. המטמון של HA הופך הקראה חוזרת למיידית.
+        """
+        from homeassistant.components.assist_pipeline import (  # noqa: PLC0415
+            async_get_pipeline,
+        )
+
+        pipeline = async_get_pipeline(self.hass, self._resolve_pipeline())
+        engine = tts.async_resolve_engine(self.hass, pipeline.tts_engine)
+        if engine is None:
+            raise HomeAssistantError("The assistant has no text-to-speech engine")
+        options = {
+            tts.ATTR_PREFERRED_FORMAT: "wav",
+            tts.ATTR_PREFERRED_SAMPLE_RATE: rate,
+            tts.ATTR_PREFERRED_SAMPLE_CHANNELS: 1,
+            tts.ATTR_PREFERRED_SAMPLE_BYTES: 2,
+        }
+        if pipeline.tts_voice is not None:
+            options[tts.ATTR_VOICE] = pipeline.tts_voice
+        stream = tts.async_create_stream(
+            self.hass, engine=engine, language=pipeline.tts_language, options=options
+        )
+        stream.async_set_message(text)
+        if stream.extension != "wav":
+            raise HomeAssistantError(
+                f"The speech came back as {stream.extension} instead of wav"
+            )
+        wav = b"".join([chunk async for chunk in stream.async_stream_result()])
+        pcm, source = strip_wav(wav)
+        if pcm and source != rate:
+            pcm = await self.hass.async_add_executor_job(resample, pcm, source, rate)
+        return pcm
+
     async def _fetch_tts(self, token: str) -> tuple[bytes, int]:
         """ה-PCM של ההקראה, לפי הטוקן שהצינור החזיר.
 

@@ -26,6 +26,9 @@ jobs:
       - name: run_live
         run: python3 tests/run_live.py
 
+      - name: run_sip
+        run: python3 tests/run_sip.py
+
       - name: check_names
         run: python3 tests/check_names.py
 

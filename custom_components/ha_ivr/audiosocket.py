@@ -352,6 +352,11 @@ class AudioSocketSession:
             await self._writer.drain()
             self._writer.close()
 
+    async def close(self, reason: str) -> None:
+        """העוזר ויתר — שתיקה ממושכת או כשל. הדיאלפלן ממשיך משם."""
+        history.record("audiosocket.closed", reason=reason)
+        await self.hung_up()
+
     async def leave(self) -> None:
         """יציאה לתפריט. במרכזייה עצמית אין 'תפריט' מעבר לשלוחה,
         ולכן ברירת המחדל היא לנתק בנקי — הדיאלפלן ממשיך מהיכן שקרא

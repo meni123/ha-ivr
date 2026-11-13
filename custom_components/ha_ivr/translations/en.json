@@ -83,6 +83,9 @@
     },
     "pbx_unknown_trunk": {
       "message": "The PBX does not know the trunk {trunk}. Choose an existing trunk in the settings."
+    },
+    "sip_not_registered": {
+      "message": "The SIP line is not registered, so no call can be placed."
     }
   },
   "config": {
@@ -105,7 +108,11 @@
           "pbx_trunk": "Outbound trunk for alerts",
           "pbx_alert_secret": "Alert service secret",
           "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
-          "pbx_audiosocket_port": "Voice assistant listen port"
+          "pbx_audiosocket_port": "Voice assistant listen port",
+          "sip_server": "SIP server",
+          "sip_username": "Username",
+          "sip_password": "Password",
+          "sip_port": "Port"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
@@ -113,7 +120,9 @@
           "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
           "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
           "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
-          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it."
+          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it.",
+          "sip_server": "The address the provider gave for the line, for example sip.example.com.",
+          "sip_port": "5060 unless the provider says otherwise. UDP only."
         }
       },
       "settings": {
@@ -132,7 +141,11 @@
           "pbx_trunk": "Outbound trunk for alerts",
           "pbx_alert_secret": "Alert service secret",
           "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
-          "pbx_audiosocket_port": "Voice assistant listen port"
+          "pbx_audiosocket_port": "Voice assistant listen port",
+          "sip_server": "SIP server",
+          "sip_username": "Username",
+          "sip_password": "Password",
+          "sip_port": "Port"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
@@ -140,7 +153,9 @@
           "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
           "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
           "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
-          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it."
+          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it.",
+          "sip_server": "The address the provider gave for the line, for example sip.example.com.",
+          "sip_port": "5060 unless the provider says otherwise. UDP only."
         }
       }
     },
@@ -149,7 +164,10 @@
     },
     "error": {
       "invalid_network": "Invalid IP range. Enter comma separated ranges.",
-      "unknown_trunk": "The PBX does not know this trunk."
+      "unknown_trunk": "The PBX does not know this trunk.",
+      "sip_missing": "This field is required.",
+      "sip_auth_failed": "The provider rejected the username or password.",
+      "sip_unreachable": "The SIP server did not answer. Check the address and port."
     }
   },
   "options": {
@@ -185,7 +203,11 @@
           "pbx_trunk": "Outbound trunk for alerts",
           "pbx_alert_secret": "Alert service secret",
           "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
-          "pbx_audiosocket_port": "Voice assistant listen port"
+          "pbx_audiosocket_port": "Voice assistant listen port",
+          "sip_server": "SIP server",
+          "sip_username": "Username",
+          "sip_password": "Password",
+          "sip_port": "Port"
         },
         "data_description": {
           "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
@@ -193,7 +215,9 @@
           "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
           "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
           "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
-          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it."
+          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it.",
+          "sip_server": "The address the provider gave for the line, for example sip.example.com.",
+          "sip_port": "5060 unless the provider says otherwise. UDP only."
         },
         "title": "Phone menu"
       },
@@ -216,11 +240,22 @@
           "stream_rate": "The streaming URL is not configured at Vonage — it is sent inside the NCCO during the call. Make sure the Event URL does not point at the Answer URL, or every status event is handled as a new call."
         },
         "title": "Voice assistant"
+      },
+      "line": {
+        "title": "IVR settings",
+        "description": "Home Assistant registers to the SIP line itself and answers its calls. There is no URL to paste at a provider.",
+        "menu_options": {
+          "menu_settings": "Phone menu",
+          "stream_settings": "Voice assistant"
+        }
       }
     },
     "error": {
       "invalid_network": "Invalid IP range.",
-      "unknown_trunk": "The PBX does not know this trunk."
+      "unknown_trunk": "The PBX does not know this trunk.",
+      "sip_missing": "This field is required.",
+      "sip_auth_failed": "The provider rejected the username or password.",
+      "sip_unreachable": "The SIP server did not answer. Check the address and port."
     }
   },
   "config_subentries": {
@@ -605,6 +640,14 @@
     "missing_trunk": {
       "title": "A trunk missing from the PBX",
       "description": "Alerts through {missing} will fail: the PBX does not know this trunk. Existing trunks: {available}.\n\nChoose an existing trunk in the integration settings (outbound trunk for alerts) or in the recipient."
+    },
+    "sip_auth_failed": {
+      "title": "The SIP line rejected the login",
+      "description": "The server {server} rejected the username or password, so calls are not answered and alerts are not sent.\n\nCorrect them in the integration settings (phone menu)."
+    },
+    "sip_unreachable": {
+      "title": "The SIP line is not connected",
+      "description": "The server {server} is not answering, so calls are not answered and alerts are not sent. Home Assistant keeps trying, and this message clears by itself once the line is back.\n\nIf it persists, check the server address and port in the integration settings (phone menu)."
     }
   }
 }
