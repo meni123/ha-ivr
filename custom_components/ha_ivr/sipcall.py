@@ -414,6 +414,8 @@ async def async_deliver(
             _LOGGER.info("SIP line: the call to %s failed: %s", number[-4:], err)
             history.record("sip.alert_failed", phone=number, why=err.kind)
             return (number, err.kind)
+        # בלי השורה הזאת התראה שנשמעה והתראה שנקטעה באמצע נראות אותו דבר.
+        history.record("sip.alert_done", phone=number)
         return None
 
     results = await asyncio.gather(*(one(n) for n in numbers if n))

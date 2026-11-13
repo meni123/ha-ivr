@@ -1140,6 +1140,9 @@ async def test_stack() -> None:
     ok("הנמען שומע אותה", await until(lambda: prov.media.voiced() >= before + 5, 4))
     await asyncio.wait_for(asyncio.gather(*entry.background), 5)
     ok("והשיחה נסגרת", prov.count("BYE") == 1 and transport.line.calls == 0)
+    ok("והיומן אומר שההודעה הושמעה",
+       [e["kind"] for e in history.snapshot() if e["kind"].startswith("sip.alert")][-2:]
+       == ["sip.alert", "sip.alert_done"])
 
     prov.seen.clear()
     prov.mode = "busy"
@@ -1148,6 +1151,9 @@ async def test_stack() -> None:
     ok("מי שלא קיבל חוזר עם הסיבה",
        sorted(failed) == sorted([("לא מספר", "invalid"), ("0501234567", "busy"),
                                  ("0523333333", "busy")]))
+    ok("ומי שלא קיבל אינו נרשם כמי ששמע",
+       [e["kind"] for e in history.snapshot()][-2:]
+       == ["sip.alert_failed", "sip.alert_failed"])
     prov.mode = "ok"
 
     async def key_of(awaitable) -> str:

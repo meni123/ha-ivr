@@ -78,7 +78,7 @@ def _tree_summary(node: dict, depth: int = 0) -> dict[str, Any]:
     return out
 
 
-async def _capabilities(driver) -> dict:
+def _capabilities(driver) -> dict:
     """הדגלים שהדרייבר מכריז עליהם.
 
     נקרא מהדרייבר ולא מרשימה בקוד: דגל חדש מופיע באבחון ביום

@@ -411,7 +411,7 @@ if _ci.exists():
     ok("HACS רץ", "hacs/action" in _ci_src)
 
 print("\n== מבחן הספק הרביעי ==")
-from custom_components.ha_ivr.diagnostics import _redact_keys  # noqa: E402
+from custom_components.ha_ivr.diagnostics import _capabilities, _redact_keys  # noqa: E402
 from custom_components.ha_ivr.providers import (  # noqa: E402
     pbx as _pbx, technoline as _tl, vonage as _vg, yemot as _ym,
 )
@@ -419,6 +419,8 @@ from custom_components.ha_ivr.providers import (  # noqa: E402
 # **הדגלים על הדרייבר, לא שם הספק בטופס.** שלוש השוואות מחרוזת
 # ב-`config_flow` היו הדלת השנייה שדרכה ספק רביעי חוזר לחייב
 # עריכה בליבה, בזמן שהמנוע עצמו כבר היה נקי.
+ok("האבחון מציג את דגלי הדרייבר",
+   isinstance(_capabilities(_pbx), dict) and bool(_capabilities(_pbx)))
 _flow4 = (_core_dir / "config_flow.py").read_text("utf-8")
 ok("הטופס שואל את הדרייבר",
    'getattr(driver, "NEEDS_CHANNEL_TOKEN"' in _flow4
