@@ -684,6 +684,56 @@ ok("אין שגיאת ממשק עם עברית בקוד", not _raw)
 for _x in _raw:
     print("      ", _x)
 
+print("\n== כל מסך בטופס הוא צעד שקיים ==")
+# Home Assistant מסרב להציג טופס או תפריט ש-`step_id` שלו אינו
+# מתודה `async_step_…` במחלקה — והמשתמש מקבל שגיאה במקום מסך.
+_classes: dict[str, tuple[list[str], set[str], list[tuple[str, int, str]]]] = {}
+for _f in sorted((ROOT / "custom_components").rglob("*.py")):
+    if "__pycache__" in str(_f):
+        continue
+    for _c in _ast.walk(_ast.parse(_f.read_text("utf-8"))):
+        if not isinstance(_c, _ast.ClassDef):
+            continue
+        _steps = []
+        for _n in _ast.walk(_c):
+            if (isinstance(_n, _ast.Call)
+                    and getattr(_n.func, "attr", "") in ("async_show_form", "async_show_menu")):
+                for _k in _n.keywords:
+                    if _k.arg == "step_id" and isinstance(_k.value, _ast.Constant):
+                        _steps.append((_f.name, _n.lineno, str(_k.value.value)))
+        _classes[_c.name] = (
+            [getattr(_b, "id", getattr(_b, "attr", "")) for _b in _c.bases],
+            {_n.name for _n in _c.body
+             if isinstance(_n, (_ast.AsyncFunctionDef, _ast.FunctionDef))},
+            _steps,
+        )
+
+
+def _has_step(_name: str, _method: str) -> bool:
+    _bases, _methods, _ = _classes.get(_name, ([], set(), []))
+    return _method in _methods or any(_has_step(_b, _method) for _b in _bases)
+
+
+def _children(_name: str) -> list[str]:
+    return [_c for _c, (_b, _, _) in _classes.items() if _name in _b]
+
+
+_no_step = []
+for _name, (_, _, _steps) in _classes.items():
+    for _file, _line, _step in _steps:
+        _method = f"async_step_{_step}"
+        _kids = _children(_name)
+        # מסך שמחלקת בסיס מציגה יכול להיות צעד של כל אחת מהיורשות.
+        if _has_step(_name, _method) or (
+            _kids and all(_has_step(_k, _method) for _k in _kids)
+        ):
+            continue
+        _no_step.append(f"{_file}:{_line} {_name} — {_step}")
+ok("לכל step_id יש async_step", not _no_step)
+for _x in _no_step:
+    print("      ", _x)
+ok("הבדיקה רואה את הטפסים", sum(len(v[2]) for v in _classes.values()) > 10)
+
 print("\n== אין פרטים מזהים בעץ ==")
 # **הריפו ציבורי.** מספר טלפון אמיתי, מפתח, טוקן או נתיב של
 # התקנה מסוימת הם דברים שלא ניתן לקחת בחזרה אחרי דחיפה אחת.

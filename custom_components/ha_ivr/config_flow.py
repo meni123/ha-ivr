@@ -222,8 +222,7 @@ class IvrOptionsFlow(OptionsFlow):
         if getattr(driver, "SUPPORTS_STREAM", False):
             menu.append("stream_settings")
         if not getattr(driver, "HAS_ENDPOINT", True):
-            # בלי נקודת קצה אין כתובת להציג ואין טוקן להחליף.
-            return self.async_show_menu(step_id="line", menu_options=menu)
+            return await self.async_step_line()
         # החלפת הטוקן זמינה לכל ספק: הוא הסוד שמגן על נקודת הקצה,
         # וטוקן שדלף מחליפים.
         menu.append("regenerate_token")
@@ -236,6 +235,15 @@ class IvrOptionsFlow(OptionsFlow):
                 self.hass, self.config_entry, driver
             ),
         )
+
+    async def async_step_line(self, user_input=None) -> ConfigFlowResult:
+        """המסך הראשון של קו בלי נקודת קצה: אין כתובת להציג ואין טוקן להחליף."""
+        ensure_registered()
+        driver = registry.for_entry(self.config_entry)
+        menu = ["menu_settings"]
+        if getattr(driver, "SUPPORTS_STREAM", False):
+            menu.append("stream_settings")
+        return self.async_show_menu(step_id="line", menu_options=menu)
 
     async def async_step_regenerate_token(
         self, user_input=None
