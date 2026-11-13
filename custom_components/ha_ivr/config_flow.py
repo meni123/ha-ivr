@@ -117,9 +117,30 @@ async def _menu_schema(hass, driver, current: dict[str, Any]) -> vol.Schema:
     return vol.Schema(fields)
 
 
-async def _menu_errors(hass, driver, user_input: dict[str, Any]) -> dict[str, str]:
-    """שגיאות הטופס: טווחי IP, ומה שהספק בודק בעצמו."""
+def _line_taken(hass, driver, user_input: dict[str, Any], skip: str) -> bool:
+    """האם הקו שבטופס כבר מוגדר ברשומה אחרת של אותו ספק."""
+    key = getattr(driver, "entry_key", None)
+    if key is None:
+        return False
+    mine = key(driver.menu_save(user_input))
+    return any(
+        entry.entry_id != skip
+        and entry.data.get(CONF_PROVIDER) == driver.DRIVER_ID
+        and key(dict(entry.options)) == mine
+        for entry in hass.config_entries.async_entries(DOMAIN)
+    )
+
+
+async def _menu_errors(
+    hass, driver, user_input: dict[str, Any], skip: str = ""
+) -> dict[str, str]:
+    """שגיאות הטופס: טווחי IP, קו כפול, ומה שהספק בודק בעצמו.
+
+    `skip` היא הרשומה שנערכת עכשיו — היא אינה כפילות של עצמה.
+    """
     errors = ip_errors(user_input)
+    if not errors and _line_taken(hass, driver, user_input, skip):
+        errors["base"] = "line_exists"
     check = getattr(driver, "async_menu_errors", None)
     if check is not None and not errors:
         errors.update(await check(hass, user_input))
@@ -152,8 +173,11 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
             self._provider = str(user_input[CONF_PROVIDER])
             # רשומה אחת לכל ספק: שתיים לאותו ספק היו חולקות
             # טוקן ושלוחה, והשיחה הייתה מגיעה לאחת מהן שרירותית.
-            await self.async_set_unique_id(self._provider)
-            self._abort_if_unique_id_configured()
+            # ספק שכל רשומה שלו היא קו נפרד מכריז על כך בעצמו.
+            driver = registry.get(self._provider)
+            if not getattr(driver, "MANY_ENTRIES", False):
+                await self.async_set_unique_id(self._provider)
+                self._abort_if_unique_id_configured()
             return await self.async_step_settings()
 
         return self.async_show_form(
@@ -169,13 +193,18 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             errors = await _menu_errors(self.hass, driver, user_input)
             if not errors:
+                saved = _menu_save(driver, user_input)
+                title = getattr(driver, "entry_title", None)
                 return self.async_create_entry(
-                    title=getattr(driver, "NAME", self._provider),
+                    title=(
+                        title(saved) if title is not None
+                        else getattr(driver, "NAME", self._provider)
+                    ),
                     data={
                         CONF_PROVIDER: self._provider,
                         "token": secrets.token_urlsafe(24),
                     },
-                    options=_menu_save(driver, user_input),
+                    options=saved,
                 )
 
         return self.async_show_form(
@@ -275,7 +304,9 @@ class IvrOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors = await _menu_errors(self.hass, driver, user_input)
+            errors = await _menu_errors(
+                self.hass, driver, user_input, self.config_entry.entry_id
+            )
             if not errors:
                 return self.async_create_entry(
                     data={**current, **_menu_save(driver, user_input)}

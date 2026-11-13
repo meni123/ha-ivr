@@ -1214,6 +1214,26 @@ async def test_stack() -> None:
                  "sip_password": " p w ", "sip_port": "5080"})
     ok("פורט שאינו מספר חוזר לברירת המחדל",
        sipdrv.menu_save({"sip_server": "h", "sip_port": "abc"})["sip_port"] == "5060")
+    # כמה קווים זה לצד זה, אבל לא אותו חשבון פעמיים.
+    from custom_components.ha_ivr import config_flow  # noqa: PLC0415
+
+    other = {**good, "sip_username": "200"}
+    ok("קו שני בחשבון אחר מותר",
+       not config_flow._line_taken(hass, sipdrv, other, ""))
+    ok("אותו חשבון ברשומה נוספת נעצר בטופס",
+       await config_flow._menu_errors(hass, sipdrv, good) == {"base": "line_exists"})
+    ok("אותיות גדולות בשם השרת אינן עוקפות את הבדיקה",
+       sipdrv.entry_key({"sip_server": "SIP.Example.com", "sip_username": "7"})
+       == sipdrv.entry_key({"sip_server": "sip.example.com:5060",
+                            "sip_username": " 7 "}))
+    ok("רשומה שנערכת אינה כפילות של עצמה",
+       not config_flow._line_taken(hass, sipdrv, good, entry.entry_id))
+    ok("שם הרשומה נושא את השרת",
+       sipdrv.entry_title(good) == f"קו SIP ישיר — {HOST}")
+    flow_src = (ROOT / "custom_components/ha_ivr/config_flow.py").read_text("utf-8")
+    ok("הטופס אינו חוסם קו שני",
+       sipdrv.MANY_ENTRIES and 'getattr(driver, "MANY_ENTRIES", False)' in flow_src)
+
     ok("שדות הטופס",
        [marker.schema for marker in sipdrv.menu_fields({})]
        == ["sip_server", "sip_username", "sip_password", "sip_port"])

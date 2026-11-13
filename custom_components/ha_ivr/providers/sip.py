@@ -38,6 +38,9 @@ GOTO_TARGET_HINT = "לא בשימוש בקו ישיר — המעבר מחבר י
 
 SUPPORTS_STREAM = True
 
+# כל חשבון הוא קו נפרד, ואפשר להגדיר כמה: אין טוקן או שלוחה משותפים.
+MANY_ENTRIES = True
+
 DEFAULT_PORT = 5060
 
 _KEYS = ("sip_server", "sip_username", "sip_password", "sip_port")
@@ -97,6 +100,17 @@ def _settings(options: dict) -> dict[str, Any]:
         "password": str(options.get("sip_password", "") or ""),
         "port": port,
     }
+
+
+def entry_key(options: dict) -> str:
+    """מה שמזהה קו: אותו חשבון בשתי רשומות היה נרשם פעמיים, והשיחה
+    הייתה מגיעה לאחת מהן שרירותית."""
+    settings = _settings(options)
+    return f"{settings['username']}@{settings['server'].lower()}"
+
+
+def entry_title(options: dict) -> str:
+    return f"{NAME} — {_settings(options)['server']}"
 
 
 def default_ips() -> str:

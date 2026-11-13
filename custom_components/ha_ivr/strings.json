@@ -167,7 +167,8 @@
       "unknown_trunk": "The PBX does not know this trunk.",
       "sip_missing": "This field is required.",
       "sip_auth_failed": "The provider rejected the username or password.",
-      "sip_unreachable": "The SIP server did not answer. Check the address and port."
+      "sip_unreachable": "The SIP server did not answer. Check the address and port.",
+      "line_exists": "This line is already set up in another entry."
     }
   },
   "options": {
@@ -255,7 +256,8 @@
       "unknown_trunk": "The PBX does not know this trunk.",
       "sip_missing": "This field is required.",
       "sip_auth_failed": "The provider rejected the username or password.",
-      "sip_unreachable": "The SIP server did not answer. Check the address and port."
+      "sip_unreachable": "The SIP server did not answer. Check the address and port.",
+      "line_exists": "This line is already set up in another entry."
     }
   },
   "config_subentries": {
