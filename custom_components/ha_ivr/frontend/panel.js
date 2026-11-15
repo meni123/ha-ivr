@@ -241,7 +241,12 @@ h3.withbulk { display: flex; align-items: center; justify-content: space-between
 .btn.small { padding: 5px 10px; font-size: 13px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; }
 .actions .grow { flex: 1; }
-.list { max-height: 46vh; overflow: auto; margin: 0 -6px; padding: 0 6px; }
+.list { max-height: max(46vh, calc(100dvh - 400px)); overflow: auto; margin: 0 -6px; padding: 0 6px; }
+.list h3.withbulk {
+  position: sticky; top: 0; z-index: 1; margin: 0; padding: 10px 0 4px;
+  background: var(--card-background-color);
+}
+.phone { position: sticky; top: 0; }
 .list h4 { margin: 10px 0 2px; font-size: 12.5px; font-weight: 500; color: var(--secondary-text-color);
   position: sticky; top: 0; background: var(--card-background-color); padding: 3px 0; }
 .pick {
@@ -262,6 +267,7 @@ h3.withbulk { display: flex; align-items: center; justify-content: space-between
 }
 @media (max-width: 760px) {
   main { grid-template-columns: minmax(0, 480px); padding: 10px; gap: 10px; }
+  .phone { position: static; }
   .key { min-height: 92px; }
 }
 `;
@@ -751,7 +757,7 @@ class HaIvrPanel extends HTMLElement {
       return `${back}
         <h2>${badge}${esc(mode.found.name)}</h2>
         <form data-form="device">
-          <h3 class="withbulk"><span>מה המתקשר יוכל לעשות</span>${this._bulk("cap")}</h3>
+          <h3 class="withbulk"><span>מה המתקשר יוכל לעשות</span>${this._bulk("cap", mode.found.capabilities.length)}</h3>
           ${caps}
           <label class="field" style="margin-top:12px">שם בטלפון (לא חובה)
             <input type="text" name="name" value="${esc(mode.label || "")}"
@@ -764,10 +770,11 @@ class HaIvrPanel extends HTMLElement {
 
     if (mode.step === "options") {
       const sections = this._choices(mode.idents).map((c) => `
-        <h3 class="withbulk"><span>${esc(c.name)}</span>${this._bulk(`opt:${c.ident}`)}</h3>
-        ${c.options.map((o) => `
+        <h3 class="withbulk"><span>${esc(c.name)}${c.options.length > 9
+          ? " <small>(עד 9, מקש לכל ערך)</small>" : ""}</span>${this._bulk(`opt:${c.ident}`, c.options.length)}</h3>
+        ${c.options.map((o, index) => `
           <label class="check"><input type="checkbox" name="opt:${esc(c.ident)}"
-            value="${esc(o.value)}" checked><span>${esc(o.label)}</span></label>`).join("")}`).join("");
+            value="${esc(o.value)}" ${index < 9 ? "checked" : ""}><span>${esc(o.label)}</span></label>`).join("")}`).join("");
       return `${back}
         <h2>${badge}${esc(mode.found.name)}</h2>
         <p class="muted">אילו ערכים להציע למתקשר. מסירים סימון ממה שאין בו צורך.</p>
@@ -827,8 +834,8 @@ class HaIvrPanel extends HTMLElement {
         "כמה חדרים, קומה שלמה או תווית");
       return `${back}
         <h2>${badge}איזה חדר?</h2>
-        <div class="choices list">${rooms || '<p class="muted">לא נמצאו חדרים עם מכשירים שאפשר להפעיל.</p>'}
-          ${several}</div>`;
+        <div class="choices list">${rooms || '<p class="muted">לא נמצאו חדרים עם מכשירים שאפשר להפעיל.</p>'}</div>
+        <div class="choices" style="margin-top:8px">${several}</div>`;
     }
 
     if (mode.step === "kinds") {
@@ -845,7 +852,7 @@ class HaIvrPanel extends HTMLElement {
       return `${back}
         <h2>${badge}${esc(room.name)}</h2>
         <form data-form="room">
-          <h3 class="withbulk"><span>מה לכלול</span>${this._bulk("kind")}</h3>
+          <h3 class="withbulk"><span>מה לכלול</span>${this._bulk("kind", room.kinds.length)}</h3>
           ${kinds}
           ${level.can_nest ? "" : '<p class="muted">בעומק הזה אפשר לבחור סוג אחד בלבד.</p>'}
           <div class="actions">
@@ -859,9 +866,10 @@ class HaIvrPanel extends HTMLElement {
     if (mode.step === "members") {
       const room = mode.room;
       const out = mode.exclude || [];
+      const of = (domain) => room.members.filter((m) => m.domain === domain);
       const sections = room.kinds.filter((k) => mode.domains.includes(k.domain)).map((k) => `
-        <h3 class="withbulk"><span>${esc(k.name)}</span>${this._bulk(`member:${k.domain}`)}</h3>
-        ${room.members.filter((m) => m.domain === k.domain).map((m) => `
+        <h3 class="withbulk"><span>${esc(k.name)}</span>${this._bulk(`member:${k.domain}`, of(k.domain).length)}</h3>
+        ${of(k.domain).map((m) => `
           <label class="check"><input type="checkbox" name="member:${esc(k.domain)}"
             value="${esc(m.entity_id)}" ${out.includes(m.entity_id) ? "" : "checked"}>
             <span>${esc(m.name)}</span></label>`).join("")}`).join("");
@@ -876,7 +884,7 @@ class HaIvrPanel extends HTMLElement {
 
     if (mode.step === "functions") {
       const sections = mode.functions.map((k) => `
-        <h3 class="withbulk"><span>${esc(k.name)}</span>${this._bulk(`cap:${k.domain}`)}</h3>
+        <h3 class="withbulk"><span>${esc(k.name)}</span>${this._bulk(`cap:${k.domain}`, k.capabilities.length)}</h3>
         ${k.capabilities.map((c) => `
           <label class="check"><input type="checkbox" name="cap:${esc(k.domain)}"
             value="${esc(c.ident)}" checked><span>${esc(c.label)}</span></label>`).join("")}`).join("");
@@ -943,7 +951,8 @@ class HaIvrPanel extends HTMLElement {
   }
 
   // "סימון הכול / ביטול הכול" לקבוצת תיבות סימון אחת.
-  _bulk(name) {
+  _bulk(name, count) {
+    if (count < 3) return "";
     return `<span class="bulk">
       <button type="button" class="link" data-act="check-all" data-name="${esc(name)}" data-on="1">סימון הכול</button>
       <button type="button" class="link" data-act="check-all" data-name="${esc(name)}">ביטול הכול</button></span>`;
@@ -1009,7 +1018,7 @@ class HaIvrPanel extends HTMLElement {
       <h2>תפריט מהחדרים בבית</h2>
       <p class="muted">כל חדר שתסמנו יקבל מקש, ובתוכו מה שאפשר להפעיל בו. יש ${free} מקשים פנויים.</p>
       <form data-form="build">
-        ${rooms ? `<h3 class="withbulk"><span>חדרים</span>${this._bulk("room")}</h3>` : ""}
+        ${rooms ? `<h3 class="withbulk"><span>חדרים</span>${this._bulk("room", this._mode.rooms.length)}</h3>` : ""}
         <div class="list">${rooms || '<p class="muted">לא נמצאו חדרים עם מכשירים שאפשר להפעיל.</p>'}</div>
         <div class="actions"><button class="btn">בנייה</button></div>
       </form>`;
@@ -1032,11 +1041,14 @@ class HaIvrPanel extends HTMLElement {
       const area = (areaId && hass.areas && hass.areas[areaId] && hass.areas[areaId].name) || "";
       const name = state.attributes.friendly_name || id;
       if (text && !`${name} ${id} ${area}`.toLowerCase().includes(text)) continue;
-      rows.push({ id, name, domain, area, rank: rank < 0 ? 99 : rank });
+      const lower = name.toLowerCase();
+      const near = !text ? 0 : lower === text ? 0 : lower.startsWith(text) ? 1 : 2;
+      rows.push({ id, name, domain, area, near, rank: rank < 0 ? 99 : rank });
     }
     rows.sort((a, b) =>
       (a.area ? 0 : 1) - (b.area ? 0 : 1)
       || a.area.localeCompare(b.area, "he")
+      || a.near - b.near
       || a.rank - b.rank
       || a.name.localeCompare(b.name, "he"));
     return rows;
@@ -1296,6 +1308,10 @@ class HaIvrPanel extends HTMLElement {
           this._say("סמנו לפחות פעולה אחת.");
           return;
         }
+        if (idents.length > 9) {
+          this._say(`יש תשעה מקשים, וסומנו ${idents.length} פעולות. הסירו ${idents.length - 9}.`);
+          return;
+        }
         if (this._choices(idents).length) {
           this._setMode({ ...mode, step: "options", idents, label: text("name") });
           return;
@@ -1309,6 +1325,10 @@ class HaIvrPanel extends HTMLElement {
           const values = data.getAll(`opt:${c.ident}`);
           if (!values.length) {
             this._say(`סמנו לפחות ערך אחד ב«${c.name}».`);
+            return;
+          }
+          if (values.length > 9) {
+            this._say(`ב«${c.name}» אפשר עד 9 ערכים, וסומנו ${values.length}.`);
             return;
           }
           options[c.ident] = values;
