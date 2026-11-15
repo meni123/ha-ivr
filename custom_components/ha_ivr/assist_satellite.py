@@ -10,16 +10,20 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import SATELLITES, STREAM_LINES
 from .satellite import IvrSatellite
 
 
+# אין קריאות החוצה מהישויות: הכול מגיע בדחיפה, ואין מה לסדר בתור.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """הקווים של הרשומה, ורישום שלהם כדי שהגשר ימצא אותם."""
     lines = [IvrSatellite(entry, index) for index in range(STREAM_LINES)]

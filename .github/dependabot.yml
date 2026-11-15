@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # הפעולות ב-CI נעוצות ל-SHA. כך הן מתעדכנות בבקשת מיזוג ולא בשקט.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

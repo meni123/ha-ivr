@@ -6,6 +6,7 @@ import asyncio
 import hmac
 import ipaddress
 import logging
+import time
 from dataclasses import replace
 
 from aiohttp import web
@@ -21,11 +22,14 @@ from .const import (
     EVENT_CALL_RECEIVED,
     MENU_MAX_REPEATS,
     SERVICE_CALL_TIMEOUT,
-    STATE_CHANGE_TIMEOUT,
     signal_call_received,
 )
 from .policy import action_allowed, domain_needs_confirmation
-from .translations_he import field_unit, translate_option, translate_unit
+from .translations_he import field_unit
+
+from . import call as call_mod
+from . import security
+from . import speech
 
 from . import history
 from . import net
@@ -50,18 +54,36 @@ TODO_MAX_SPOKEN = 10
 TODO_ITEM_CHARS = 100
 TODO_TOTAL_CHARS = 320
 
-_STATES = {
-    "on": "דולק", "off": "כבוי", "locked": "נעול", "unlocked": "לא נעול",
-    "open": "פתוח", "closed": "סגור", "opening": "נפתח", "closing": "נסגר",
-    "cool": "על קירור", "heat": "על חימום", "fan_only": "על אוורור",
-    "dry": "על ייבוש", "auto": "על אוטומטי", "idle": "ממתין",
-    "playing": "מנגן", "paused": "מושהה", "home": "בבית",
-    "not_home": "מחוץ לבית", "unavailable": "לא זמין", "unknown": "לא ידוע",
-}
+_STATES = speech.STATE_WORDS
 
 # יחידות שכבר נרשמו ביומן כלא מתורגמות. פעם אחת לכל יחידה,
 # אחרת כל הקראת חיישן מייצרת שורה.
-_UNKNOWN_UNITS: set[str] = set()
+_UNKNOWN_UNITS = speech._UNKNOWN_UNITS
+
+# הקשה כפולה: ב-VoIP ובסלולר אותו מקש מגיע לפעמים פעמיים בהפרש של
+# מאות אלפיות. בלי סינון, `toggle` מתהפך פעמיים ותת-תפריט נפתח ומיד
+# נבחר בו פריט. רק מקשי תפריט — באיסוף ספרות (קוד, מספר) 1111 הוא
+# ערך לגיטימי.
+DOUBLE_PRESS_SEC = 0.6
+_LAST_KEY: dict[str, tuple[str, float]] = {}
+_LAST_KEY_MAX = 500
+
+# מה שהמתקשר שומע על כל תוצאה של הפעלה. ההבחנה חשובה: הוא אינו
+# רואה יומן, ו"אירעה שגיאה" אחד לכל מקרה אינו אומר לו מה לעשות.
+OUTCOME_WORDS = {
+    call_mod.UNAVAILABLE: "המכשיר אינו זמין כרגע",
+    call_mod.MISSING: "המכשיר לא נמצא",
+    call_mod.NOT_FOUND: "הפעולה אינה קיימת עוד",
+    call_mod.NOT_SUPPORTED: "המכשיר אינו תומך בפעולה",
+    call_mod.INVALID: "הערך אינו תקין",
+    call_mod.SCHEMA: "הערך אינו תקין",
+    call_mod.UNAUTHORIZED: "אין הרשאה לפעולה",
+    call_mod.FAILED: "המכשיר לא הגיב",
+    call_mod.TIMEOUT: "הפעולה נשלחה אך לא הסתיימה בזמן",
+    call_mod.ERROR: "אירעה שגיאה בביצוע הפעולה",
+}
+# הודעה מתורגמת של HA ארוכה מזה אינה מוקראת — היא נכתבה למסך.
+MAX_SPOKEN_MESSAGE = 120
 
 
 class IvrView(HomeAssistantView):
@@ -195,11 +217,23 @@ class IvrView(HomeAssistantView):
             ctx.step, ctx.caller, remote,
         )
         _warn_if_proxied(driver_id, remote, filtering)
+
+        # נבנה מחדש בכל בקשה, ולכן משקף תמיד את ההגדרות
+        # העדכניות. לכל רשומה עץ משלה.
+        root = menu_mod.build_tree(self.hass, entry)
+        found = tree_mod.find_collector(root, ctx.path)
+        secret = found is not None and found[0].is_secret
+
+        # ספרות של קוד נוסעות בנתיב. ביומן הן מוסתרות.
+        shown_path = (
+            "/".join([*found[1], *("•" for _ in found[2])]) if secret
+            else "/".join(ctx.path)
+        )
         history.record(
             "menu.request",
             driver=driver_id,
-            path="/".join(ctx.path) or "(שורש)",
-            digit=ctx.digit,
+            path=shown_path or "(שורש)",
+            digit="•" if secret and ctx.digit not in (None, KEY_ROOT) else ctx.digit,
             step=ctx.step,
             caller=ctx.caller,
             remote=remote,
@@ -214,9 +248,6 @@ class IvrView(HomeAssistantView):
                 cfg,
             )
 
-        # נבנה מחדש בכל בקשה, ולכן משקף תמיד את ההגדרות
-        # העדכניות. לכל רשומה עץ משלה.
-        root = menu_mod.build_tree(self.hass, entry)
         moved = tree_mod.navigate(root, ctx.path, ctx.digit)
 
         # אין הקשה: התפריט מושמע שוב, עד למספר החזרות המרבי. בלי
@@ -238,8 +269,20 @@ class IvrView(HomeAssistantView):
         # צומת איסוף מספר: ההקשה היא ספרה של ערך, לא בחירה בתפריט.
         # נבדק לפני הניווט, כי הספרות הנאספות אינן ילדים בעץ אלא
         # המשך של הנתיב — ו-`navigate` היה פוסל אותן כבחירה שגויה.
-        if (found := tree_mod.find_collector(root, ctx.path)) is not None:
+        if found is not None:
+            if found[0].is_secret:
+                return await self._collect_code(drv, entry, driver_id, root, ctx, cfg, found)
             return await self._collect_digit(drv, entry, driver_id, root, ctx, cfg, found)
+
+        if ctx.digit is not None and _double_press(ctx):
+            _LOGGER.debug("%s: dropped a repeated key %s", driver_id, ctx.digit)
+            node = tree_mod.resolve(root, ctx.path) or root
+            return _reply(
+                drv,
+                tree_mod.prompt_for(node, ctx.path, ctx.step,
+                                    supports_goto=drv.SUPPORTS_GOTO),
+                cfg,
+            )
 
         if moved is None:
             # הקשה שאינה בתפריט. שואלים שוב מאותו מקום.
@@ -294,8 +337,34 @@ class IvrView(HomeAssistantView):
         # קוראת לשירות בלי פרמטר, נכשלת, ומשמיעה "אירעה שגיאה"
         # לפני שהמתקשר בכלל הספיק להקיש.
         if node.is_collect:
+            if node.is_secret and security.blocked(
+                self.hass, entry.entry_id, ctx.call_id or ctx.caller, ctx.caller
+            ):
+                return self._code_blocked(drv, root, path, ctx, cfg)
             return _reply(
                 drv, tree_mod.collect_prompt(node, path, ctx.step, ()), cfg
+            )
+
+        # הכתבה: המתקשר עובר לשלוחת הסטרימינג, שם הטקסט מוקלט, מוקרא
+        # לאישור ומופעל, ואז הוא חוזר לכאן.
+        if node.is_dictate:
+            from . import dictation  # noqa: PLC0415
+
+            goto = dictation.async_start(self.hass, entry, node, path, ctx)
+            if goto is not None:
+                self._report_call(entry, driver_id, path, node)
+                return _reply(drv, goto, cfg)
+            parent_path = path[:-1]
+            parent = tree_mod.resolve(root, parent_path) or root
+            prompt = tree_mod.prompt_for(
+                parent, parent_path, ctx.step, supports_goto=drv.SUPPORTS_GOTO
+            )
+            return _reply(
+                drv,
+                replace(prompt, messages=[
+                    Say("text", "ההכתבה אינה זמינה כרגע"), *prompt.messages,
+                ]),
+                cfg,
             )
 
         # עלה. מבצעים, ואז מחזירים את תפריט ההורה עם התוצאה בראשו.
@@ -310,7 +379,7 @@ class IvrView(HomeAssistantView):
             result = self._say_alerts(entry, node, ctx.caller)
         else:
             self._report_call(entry, driver_id, path, node)
-            result = await self._run_leaf(node)
+            result = await self._run_leaf(node, entry)
 
         parent_path = path[:-1]
         parent = tree_mod.resolve(root, parent_path) or root
@@ -372,7 +441,7 @@ class IvrView(HomeAssistantView):
         leaf = replace(node, data={field_name: value}, collect={})
 
         self._report_call(entry, driver_id, base, leaf)
-        result = await self._run_leaf(leaf)
+        result = await self._run_leaf(leaf, entry)
 
         # אישור הערך שהוקש, לפני הקראת המצב. בלי זה מי שכיוון 22
         # מעלות במזגן כבוי שומע "כבוי" בלבד ואינו יודע אם ההקשה
@@ -391,6 +460,78 @@ class IvrView(HomeAssistantView):
         return _reply(
             drv, replace(prompt, messages=[*result, *prompt.messages]), cfg
         )
+
+    def _code_blocked(self, drv, root, path, ctx, cfg):
+        """פעולות הקוד נעולות. חוזרים לתפריט ההורה בלי לאסוף ספרות."""
+        parent_path = tuple(path[:-1])
+        parent = tree_mod.resolve(root, parent_path) or root
+        prompt = tree_mod.prompt_for(
+            parent, parent_path, ctx.step, supports_goto=drv.SUPPORTS_GOTO
+        )
+        return _reply(
+            drv,
+            replace(prompt, messages=[
+                Say("text", "פעולות עם קוד חסומות כרגע. נסו שוב מאוחר יותר"),
+                *prompt.messages,
+            ]),
+            cfg,
+        )
+
+    async def _collect_code(self, drv, entry, driver_id, root, ctx, cfg, found):
+        """הספרה הבאה של קוד, ובסוף — הפעלה עם הקוד.
+
+        הקוד אינו מוקרא, אינו נרשם ואינו נשמר. הספרות נוסעות בנתיב
+        כמו בכל איסוף, ולכן הן מוסתרות ביומן (ראו `async_step`).
+        """
+        node, base, collected = found
+        call_key = ctx.call_id or ctx.caller
+
+        if ctx.digit == KEY_ROOT:
+            prompt = tree_mod.prompt_for(
+                root, (), ctx.step, supports_goto=drv.SUPPORTS_GOTO
+            )
+            return _reply(drv, prompt, cfg)
+
+        if security.blocked(self.hass, entry.entry_id, call_key, ctx.caller):
+            return self._code_blocked(drv, root, base, ctx, cfg)
+
+        if ctx.digit is None:
+            return _reply(drv, tree_mod.collect_prompt(node, base, ctx.step, ()), cfg)
+
+        if ctx.digit not in tree_mod.valid_next_digits(node.collect, collected):
+            prompt = tree_mod.collect_prompt(node, base, ctx.step, collected)
+            return _reply(
+                drv,
+                replace(prompt, messages=[Say("text", "בחירה שאינה קיימת"), *prompt.messages]),
+                cfg,
+            )
+
+        if ctx.digit != tree_mod.KEY_END:
+            collected = (*collected, ctx.digit)
+        if not tree_mod.code_complete(node.collect, collected, ctx.digit):
+            # בין ספרות של קוד: ארבע שניות, לא עשר. מי שהפסיק להקיש
+            # באמצע קוד לא יחזור אליו, ולא כדאי להשאיר אותו פתוח.
+            prompt = tree_mod.collect_prompt(node, base, ctx.step, collected)
+            return _reply(drv, replace(prompt, timeout=4), cfg)
+
+        code = "".join(collected)
+        leaf = replace(node, data={**node.data, "code": code}, collect={})
+        self._report_call(entry, driver_id, base, replace(leaf, data={}))
+        result, outcome = await self._run_leaf_outcome(leaf, entry)
+        del code, leaf
+
+        if outcome is not None and outcome.status == call_mod.INVALID:
+            security.record_failure(self.hass, entry.entry_id, call_key, ctx.caller)
+            result = [Say("text", "הקוד שגוי או שהפעולה נדחתה")]
+        elif outcome is not None and outcome.succeeded:
+            security.record_success(self.hass, entry.entry_id, call_key)
+
+        parent_path = base[:-1]
+        parent = tree_mod.resolve(root, parent_path) or root
+        prompt = tree_mod.prompt_for(
+            parent, parent_path, ctx.step, supports_goto=drv.SUPPORTS_GOTO
+        )
+        return _reply(drv, replace(prompt, messages=[*result, *prompt.messages]), cfg)
 
     def _say_alerts(self, entry, node, caller: str) -> list[Say]:
         """ההתראות של המתקשר, מהחדשה לישנה.
@@ -476,17 +617,24 @@ class IvrView(HomeAssistantView):
             },
         )
 
-    async def _run_leaf(self, node) -> list[Say]:
+    async def _run_leaf(self, node, entry=None) -> list[Say]:
         """הקראת מצב, או ביצוע פעולה והקראת התוצאה.
 
         מחזיר הודעות בלבד. מי שקורא מחליט לאן ממשיכים.
         """
+        says, _outcome = await self._run_leaf_outcome(node, entry)
+        return says
+
+    async def _run_leaf_outcome(self, node, entry=None):
+        """כמו `_run_leaf`, ומחזיר גם את התוצאה — למי שצריך לדעת אם
+        הפעולה נדחתה (קוד שגוי) ולא רק מה להקריא."""
+        entry_id = getattr(entry, "entry_id", "")
         if node.is_group:
-            return await self._run_group(node)
+            return await self._run_group(node, entry_id)
 
         state = self.hass.states.get(node.entity or "")
         if state is None:
-            return [Say("text", "המכשיר לא נמצא")]
+            return [Say("text", "המכשיר לא נמצא")], None
 
         name = self._friendly_name(node.entity, state)
 
@@ -494,31 +642,49 @@ class IvrView(HomeAssistantView):
             # מצב של רשימת מטלות הוא מספר הפריטים הפתוחים בלבד.
             # התוכן מגיע משירות תגובה.
             if node.entity and node.entity.startswith("todo."):
-                return await self._speak_todo([node.entity], name)
-            return [Say("text", f"{name} כרגע"), *_speak_state(state)]
+                return await self._speak_todo([node.entity], name), None
+            return [Say("text", f"{name} כרגע"), *_speak_state(state)], None
 
-        domain = node.entity.split(".", 1)[0]
+        entity_domain = node.entity.split(".", 1)[0]
+        domain, action = call_mod.split_action(node.action, entity_domain)
 
         # המדיניות נבדקת גם כאן ולא רק בטופס. תת-רשומה שנשמרה לפני
         # שינוי מדיניות, או עריכה ידנית ב-storage, לא תעקוף אותה.
-        if not action_allowed(self.hass, domain, node.action):
+        if not _permitted(self.hass, entity_domain, domain, action):
             _LOGGER.warning(
-                "Blocked an attempt to call a forbidden action: %s.%s", domain, node.action
+                "Blocked an attempt to call a forbidden action: %s.%s", domain, action
             )
-            return [Say("text", "הפעולה אינה מורשית")]
+            return [Say("text", "הפעולה אינה מורשית")], None
 
-        if domain_needs_confirmation(domain) and not node.confirmed:
+        if _needs_confirmation(entity_domain, domain, action) and not node.confirmed:
             _LOGGER.warning("Blocked a sensitive action without confirmation: %s", node.entity)
-            return [Say("text", "הפעולה דורשת אישור שלא ניתן")]
+            return [Say("text", "הפעולה דורשת אישור שלא ניתן")], None
 
-        new_state = await self._call_and_wait(node)
-        if new_state is False:
-            return [Say("text", "אירעה שגיאה בביצוע הפעולה")]
-        if new_state is None:
-            return [Say("text", "הפעולה בוצעה")]
-        return [Say("text", f"{name} כרגע"), *_speak_state(new_state)]
+        outcome = await call_mod.async_call_one(
+            self.hass, node.entity, node.action, dict(node.data), entry_id=entry_id
+        )
+        return self._outcome_says(name, outcome), outcome
 
-    async def _run_group(self, node) -> list[Say]:
+    def _outcome_says(self, name: str, outcome) -> list[Say]:
+        """מה שהמתקשר שומע על תוצאה של הפעלה על ישות אחת."""
+        if outcome.status in (call_mod.OK, call_mod.UNCONFIRMED):
+            if outcome.state is None:
+                return [Say("text", "הפעולה בוצעה")]
+            prefix = [Say("text", "לא אושר")] if outcome.status == call_mod.UNCONFIRMED else []
+            return [*prefix, Say("text", f"{name} כרגע"), *_speak_state(outcome.state)]
+        if outcome.status == call_mod.TIMEOUT:
+            says = [Say("text", OUTCOME_WORDS[call_mod.TIMEOUT])]
+            if outcome.state is not None:
+                says += [Say("text", f"{name} כרגע"), *_speak_state(outcome.state)]
+            return says
+        message = (outcome.message or "").strip()
+        if message and len(message) <= MAX_SPOKEN_MESSAGE and outcome.status in (
+            call_mod.INVALID, call_mod.FAILED, call_mod.NOT_SUPPORTED,
+        ):
+            return [Say("text", message)]
+        return [Say("text", OUTCOME_WORDS.get(outcome.status, OUTCOME_WORDS[call_mod.ERROR]))]
+
+    async def _run_group(self, node, entry_id: str = ""):
         """פעולה על קבוצה — כל האורות במטבח וכדומה.
 
         הישויות נפתרות עכשיו ולא בהגדרה, ולכן מכשיר שנוסף למרחב
@@ -533,44 +699,31 @@ class IvrView(HomeAssistantView):
         )
         name = target.get("name") or node.say or "הקבוצה"
         if not entity_ids:
-            return [Say("text", f"אין מכשירים ב{name}")]
+            return [Say("text", f"אין מכשירים ב{name}")], None
 
         if not node.action:
             if target.get("domain") == "todo":
-                return await self._speak_todo(entity_ids, name)
+                return await self._speak_todo(entity_ids, name), None
             return [
                 Say("text", f"{name} כרגע"),
                 *self._speak_many(entity_ids),
-            ]
+            ], None
 
-        domain = target.get("domain", "")
-        if not action_allowed(self.hass, domain, node.action):
+        entity_domain = target.get("domain", "")
+        domain, action = call_mod.split_action(node.action, entity_domain)
+        if not _permitted(self.hass, entity_domain, domain, action):
             _LOGGER.warning(
-                "Blocked an attempt to call a forbidden action: %s.%s",
-                domain, node.action,
+                "Blocked an attempt to call a forbidden action: %s.%s", domain, action,
             )
-            return [Say("text", "הפעולה אינה מורשית")]
-        if domain_needs_confirmation(domain) and not node.confirmed:
-            _LOGGER.warning("Blocked a sensitive action on a group: %s", domain)
-            return [Say("text", "הפעולה דורשת אישור שלא ניתן")]
+            return [Say("text", "הפעולה אינה מורשית")], None
+        if _needs_confirmation(entity_domain, domain, action) and not node.confirmed:
+            _LOGGER.warning("Blocked a sensitive action on a group: %s", entity_domain)
+            return [Say("text", "הפעולה דורשת אישור שלא ניתן")], None
 
-        try:
-            async with asyncio.timeout(SERVICE_CALL_TIMEOUT):
-                await self.hass.services.async_call(
-                    domain, node.action,
-                    {"entity_id": entity_ids, **node.data},
-                    blocking=True,
-                )
-        except TimeoutError:
-            _LOGGER.warning("Calling %s on %s did not finish in time", node.action, name)
-            return [Say("text", "הפעולה נשלחה אך לא הסתיימה בזמן")]
-        except Exception:  # noqa: BLE001 — השיחה ממשיכה גם בכשל
-            _LOGGER.exception("Calling %s on %s failed", node.action, name)
-            return [Say("text", "אירעה שגיאה בביצוע הפעולה")]
-
-        count = len(entity_ids)
-        word = "מכשיר אחד" if count == 1 else f"{count} מכשירים"
-        return [Say("text", f"בוצע על {word}")]
+        outcome = await call_mod.async_call_many(
+            self.hass, entity_ids, node.action, dict(node.data), entry_id=entry_id
+        )
+        return _group_says(outcome), outcome
 
     def _speak_many(self, entity_ids: list[str]) -> list[Say]:
         """מצב של כמה ישויות, בשמן או בספירה לפי הגודל.
@@ -670,43 +823,6 @@ class IvrView(HomeAssistantView):
             says.append(Say("text", f"ועוד {count - said}"))
         return says
 
-    async def _call_and_wait(self, node):
-        """הפעלת השירות והמתנה לשינוי מצב אמיתי, לא sleep קבוע."""
-        future: asyncio.Future = self.hass.loop.create_future()
-
-        @callback
-        def _listener(event) -> None:
-            if not future.done():
-                future.set_result(event.data.get("new_state"))
-
-        unsub = async_track_state_change_event(self.hass, [node.entity], _listener)
-        try:
-            domain = node.entity.split(".", 1)[0]
-            # תקרה על הקריאה עצמה. בלי זה שירות שנתקע חוסם את
-            # הבקשה עד שהספק מוותר, והמתקשר שומע שקט ואז שגיאה.
-            async with asyncio.timeout(SERVICE_CALL_TIMEOUT):
-                await self.hass.services.async_call(
-                    domain, node.action,
-                    {"entity_id": node.entity, **node.data},
-                    blocking=True,
-                )
-            try:
-                return await asyncio.wait_for(future, timeout=STATE_CHANGE_TIMEOUT)
-            except TimeoutError:
-                # המכשיר לא דיווח בזמן. המצב הידוע האחרון עדיף על שקט.
-                return self.hass.states.get(node.entity)
-        except TimeoutError:
-            _LOGGER.warning("Calling %s did not finish in time", node.entity)
-            return self.hass.states.get(node.entity)
-        except Exception:  # noqa: BLE001 — השיחה ממשיכה גם בכשל
-            _LOGGER.exception("Calling %s failed", node.entity)
-            return False
-        finally:
-            unsub()
-            if not future.done():
-                future.cancel()
-
-
 # ----------------------------------------------------------------------
 
 
@@ -757,38 +873,8 @@ def _stream_url(request, token: str) -> str:
 
 
 def _speak_state(state) -> list[Say]:
-    """מצב ישות כפריטי השמעה. מספרים לעולם לא כטקסט — ראו say_number."""
-    raw = str(state.state)
-    lowered = raw.lower()
-    if lowered in _STATES:
-        return [Say("text", _STATES[lowered])]
-
-    # מצבי מיזוג, מאווררים ובוררים מתורגמים במילון המשותף,
-    # אחרת הם מוקראים באנגלית.
-    translated = translate_option(raw)
-    if translated != raw:
-        return [Say("text", translated)]
-
-    try:
-        number = float(raw)
-    except (TypeError, ValueError):
-        return [Say("text", raw)]
-
-    unit = str(state.attributes.get("unit_of_measurement", "")).strip()
-    parts = say_number(number)
-    spoken = translate_unit(unit)
-    if spoken:
-        parts.append(Say("text", spoken))
-    elif unit and unit not in _UNKNOWN_UNITS:
-        # לא מוקרא, אבל כן נרשם: המילון גדל לפי מה שבאמת מופיע
-        # אצל המשתמש, במקום לנחש מראש רשימת יחידות.
-        _UNKNOWN_UNITS.add(unit)
-        _LOGGER.info(
-            "Unit of measurement with no translation, so it is not spoken: "
-            "%r. It can be added to UNIT_NAMES in translations_he.py",
-            unit,
-        )
-    return parts
+    """מצב ישות כפריטי השמעה. ראו `speech.speak_state`."""
+    return speech.speak_state(state)
 
 
 def _looks_opaque(text: str) -> bool:
@@ -802,13 +888,23 @@ def _looks_opaque(text: str) -> bool:
     return len(cleaned) >= 8 and all(ch in "0123456789abcdef" for ch in cleaned)
 
 
-def _speak_state_word(raw: str) -> list[Say]:
+def _speak_state_word(raw: str, domain: str = "") -> list[Say]:
     """מילת המצב בלבד, בלי יחידות — לשימוש בסיכום קבוצה."""
-    lowered = raw.lower()
-    if lowered in _STATES:
-        return [Say("text", _STATES[lowered])]
-    translated = translate_option(raw)
-    return [Say("text", translated if translated != raw else raw)]
+    return speech.speak_word(raw, domain)
+
+
+def _double_press(ctx) -> bool:
+    """האם זו אותה הקשה שהגיעה פעמיים, תוך פחות מ-`DOUBLE_PRESS_SEC`."""
+    key = ctx.call_id or ctx.caller
+    if not key:
+        return False
+    now = time.monotonic()
+    last = _LAST_KEY.get(key)
+    _LAST_KEY[key] = (ctx.digit, now)
+    if len(_LAST_KEY) > _LAST_KEY_MAX:
+        for stale in [k for k, (_, t) in _LAST_KEY.items() if now - t > 60]:
+            _LAST_KEY.pop(stale, None)
+    return last is not None and last[0] == ctx.digit and now - last[1] < DOUBLE_PRESS_SEC
 
 
 _PROXY_WARNED: set[str] = set()
@@ -865,3 +961,47 @@ def _repeats(step: int, path: tuple[str, ...]) -> int:
     ספק שצובר אותם, ואצל ספק שמחזיר פרמטר אחד המונה נתקע על אחת.
     """
     return max(0, step - len(path) - 1)
+
+
+def _permitted(hass, entity_domain: str, domain: str, action: str) -> bool:
+    """האם מותר להפעיל. פעולה מדומיין אחר — רק שלוש הפעולות של קבוצה."""
+    from .capabilities import GROUP_ACTION_DOMAIN, GROUP_ACTIONS  # noqa: PLC0415
+
+    if domain == entity_domain:
+        return action_allowed(hass, domain, action)
+    return (
+        entity_domain == "group"
+        and domain == GROUP_ACTION_DOMAIN
+        and action in GROUP_ACTIONS
+        and hass.services.has_service(domain, action)
+    )
+
+
+def _needs_confirmation(entity_domain: str, domain: str, action: str) -> bool:
+    """הדלקה וכיבוי של קבוצה עוברים דרך `homeassistant`, שדורש אישור.
+    אלה פעולות רגילות של קבוצה, ולכן אינן דורשות."""
+    from .capabilities import GROUP_ACTION_DOMAIN, GROUP_ACTIONS  # noqa: PLC0415
+
+    if entity_domain == "group" and domain == GROUP_ACTION_DOMAIN and action in GROUP_ACTIONS:
+        return False
+    return domain_needs_confirmation(domain)
+
+
+def _count(n: int, one: str, many: str) -> str:
+    return one if n == 1 else f"{n} {many}"
+
+
+def _group_says(outcome) -> list[Say]:
+    """סיכום של פעולה על קבוצה: כמה ביצעו, כמה לא זמינים, כמה נכשלו."""
+    if outcome.done and outcome.done == outcome.total:
+        return [Say("text", f"בוצע על {_count(outcome.done, 'מכשיר אחד', 'מכשירים')}")]
+    if outcome.done:
+        parts = [f"בוצע ב-{outcome.done} מתוך {outcome.total}"]
+        if outcome.unavailable:
+            parts.append(_count(outcome.unavailable, "אחד לא זמין", "לא זמינים"))
+        if outcome.failed:
+            parts.append(_count(outcome.failed, "אחד נכשל", "נכשלו"))
+        return [Say("text", ", ".join(parts))]
+    if outcome.unavailable and outcome.unavailable == outcome.total:
+        return [Say("text", "המכשירים אינם זמינים כרגע")]
+    return [Say("text", OUTCOME_WORDS.get(outcome.status, OUTCOME_WORDS[call_mod.ERROR]))]

@@ -27,6 +27,7 @@ from homeassistant.components.assist_pipeline import (
     VadSensitivitySelect,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.device_registry import DeviceInfo
 
 _LOGGER = logging.getLogger(__name__)
@@ -112,6 +113,13 @@ def selects(hass: HomeAssistant, entry) -> list:
     return [IvrPipelineSelect(hass, entry), IvrVadSensitivitySelect(hass, entry)]
 
 
-async def async_setup_entry(hass, entry, async_add_entities) -> None:
+PARALLEL_UPDATES = 0
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
     """זוג בוררים לרשומה. שני הקווים מצביעים לאותו זוג."""
     async_add_entities(selects(hass, entry))

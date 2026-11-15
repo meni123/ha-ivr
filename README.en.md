@@ -212,6 +212,11 @@ that is already registered on a PBX or another phone, create a
 separate SIP user: two registrations of one account steal calls from
 each other.
 
+A password the provider rejects later shows up on the integration card
+as a request to sign in again: enter the current password, and it is
+checked before it is saved. A changed server or port is updated with
+"Reconfigure" on the same card.
+
 ---
 
 ### Step 5 · Build the menu
@@ -360,7 +365,12 @@ this section before enabling it.
 - An action allow-list, checked before any other stage
 - Caller-number filtering — the strongest layer available
 - A line cap and a call-length cap, as a ceiling against abuse
-- Secrets redacted in the log, the history buffer and the diagnostics file
+- Secrets redacted in the log, the history buffer and the diagnostics file,
+  and so are phone numbers and SIP addresses inside free text
+- A lock or alarm code is dialled during the call and never stored.
+  Three rejections in one call lock code actions until it ends; repeated
+  guessing from one number, or from several numbers together, blocks
+  them for fifteen minutes
 
 ### The token is a password
 

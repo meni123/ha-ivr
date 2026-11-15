@@ -83,6 +83,9 @@
     },
     "sip_not_registered": {
       "message": "The SIP line is not registered, so no call can be placed."
+    },
+    "entry_not_loaded": {
+      "message": "The entry {entry} is not loaded right now."
     }
   },
   "config": {
@@ -133,10 +136,61 @@
           "pbx_audiosocket_host": "The address Home Assistant listens on for the PBX, for the voice assistant. 0.0.0.0 when the PBX is on another machine.",
           "pbx_audiosocket_port": "9010 unless changed in the PBX dialplan."
         }
+      },
+      "reauth_confirm": {
+        "title": "The line was rejected",
+        "description": "The provider rejected the credentials of {title}. Enter the current password; it is checked with a trial registration before it is saved.",
+        "data": {
+          "sip_password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Line settings",
+        "description": "Change the settings of this line. A different account is a different line, so add it as a new entry.",
+        "data": {
+          "intro": "Message played when the menu opens",
+          "provider_ips": "Provider IP ranges",
+          "allowed_phones": "Allowed caller numbers",
+          "technoline_api_key": "Technoline API key",
+          "technoline_campaign_base": "Campaign API base URL",
+          "technoline_files_base": "Extensions API base URL",
+          "technoline_announce_extension": "Streaming extension for alerts",
+          "technoline_announce_hours": "Do not call at night",
+          "yemot_token": "Yemot management token",
+          "pbx_alert_url": "PBX alert service URL",
+          "pbx_trunk": "Outbound trunk for alerts",
+          "pbx_alert_secret": "Alert service secret",
+          "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
+          "pbx_audiosocket_port": "Voice assistant listen port",
+          "sip_server": "SIP server",
+          "sip_username": "Username",
+          "sip_password": "Password",
+          "sip_port": "Port"
+        },
+        "data_description": {
+          "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
+          "allowed_phones": "Comma separated. Leave empty to allow every caller.",
+          "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
+          "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
+          "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
+          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it.",
+          "sip_server": "The address the provider gave for the line, for example sip.example.com.",
+          "sip_port": "5060 unless the provider says otherwise. UDP only.",
+          "intro": "What the caller hears first, before the list of keys. Optional.",
+          "sip_username": "The line's username at the provider. Usually a number.",
+          "pbx_alert_url": "The address of the alert service installed on the PBX, for example http://192.168.1.5:5000/ha. Needed only for alert calls.",
+          "pbx_trunk": "The trunk the PBX dials alerts through.",
+          "pbx_alert_secret": "The secret set when the alert service was installed on the PBX.",
+          "pbx_audiosocket_host": "The address Home Assistant listens on for the PBX, for the voice assistant. 0.0.0.0 when the PBX is on another machine.",
+          "pbx_audiosocket_port": "9010 unless changed in the PBX dialplan."
+        }
       }
     },
     "abort": {
-      "already_configured": "This provider is already configured."
+      "already_configured": "This provider is already configured.",
+      "unique_id_mismatch": "These credentials belong to a different line. To use it, add a new entry.",
+      "reauth_unsupported": "This provider has no credentials to update.",
+      "reconfigure_unsupported": "The provider of this entry is not available."
     },
     "error": {
       "invalid_network": "Invalid IP range. Enter comma separated ranges.",
@@ -595,7 +649,8 @@
         "name": "Last call"
       },
       "call_count": {
-        "name": "Selection count"
+        "name": "Selection count",
+        "unit_of_measurement": "selections"
       }
     },
     "select": {
@@ -612,6 +667,14 @@
           "default": "Normal",
           "relaxed": "Relaxed"
         }
+      }
+    },
+    "assist_satellite": {
+      "line": {
+        "name": "Voice assistant"
+      },
+      "line_n": {
+        "name": "Voice assistant {index}"
       }
     }
   },
@@ -674,6 +737,31 @@
     "sip_unreachable": {
       "title": "The SIP line is not connected",
       "description": "The server {server} is not answering, so calls are not answered and alerts are not sent. Home Assistant keeps trying, and this message clears by itself once the line is back.\n\nIf it persists, check the server address and port in the integration settings (line settings)."
+    },
+    "action_missing": {
+      "title": "A menu action no longer exists",
+      "description": "The phone menu calls {action} on {entity}, but Home Assistant no longer has this action. Callers hear that the action no longer exists.\n\nOpen the phone menu panel and replace or remove the key. This message clears by itself once the action works again."
+    },
+    "action_unsupported": {
+      "title": "A device does not support a menu action",
+      "description": "{entity} rejected {action} because it does not support it (for example after a firmware or integration update).\n\nOpen the phone menu panel and remove the key, or choose another action. This message clears by itself once the action works again."
+    },
+    "plan_drift": {
+      "title": "A saved menu value is no longer valid",
+      "description": "{action} on {entity} rejected the value saved in the phone menu. The device probably changed the values it accepts.\n\nOpen the phone menu panel and choose the key again so it picks up the current values."
+    },
+    "code_lockout": {
+      "title": "Code actions locked after repeated wrong codes",
+      "description": "Callers entered too many wrong codes in a short time, so actions that need a code are locked on this line for {minutes} minutes.\n\nIf this was not you, check who has the line number. The lock lifts by itself; restarting Home Assistant also clears it."
+    },
+    "duplicate_line": {
+      "title": "The same line is set up twice",
+      "description": "The line {line} is also set up in the entry {other}. Two entries for the same account register over each other, and a call reaches one of them at random. Delete one of them."
+    }
+  },
+  "device": {
+    "parent": {
+      "name": "Phone menu — {title}"
     }
   }
 }

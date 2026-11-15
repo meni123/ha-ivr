@@ -259,7 +259,7 @@ p { margin: 0; }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-.page { display: flex; flex-direction: column; height: 100%; }
+.page { display: flex; flex-direction: column; height: 100%; container-type: inline-size; container-name: page; }
 header.top {
   display: flex; align-items: center; gap: var(--s2);
   min-height: var(--header-height, 56px); padding: 0 var(--s3);
@@ -293,7 +293,15 @@ header.top :focus-visible { outline-color: currentColor; }
 main.layout {
   flex: 1; min-height: 0; overflow: auto; padding: var(--s4);
   display: grid; gap: var(--s4); align-items: start;
-  grid-template-columns: minmax(320px, 420px) 1fr;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+}
+/* HA מסמן narrow רק לפי רוחב החלון. עם סרגל צד פתוח הלוח עצמו יכול
+   להיות צר בהרבה, ולכן גם רוחב העמוד עצמו מעביר לעמודה אחת. */
+@container page (max-width: 760px) {
+  main.layout { grid-template-columns: minmax(0, 1fr); }
+  .phone, .editor { position: static; max-height: none; }
+  /* הלוח לא נמתח לכל הרוחב: מקשים ענקיים קשים לסריקה כמו קטנים מדי. */
+  .phone { width: 100%; max-width: 440px; justify-self: center; }
 }
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
@@ -1692,6 +1700,20 @@ class HaIvrPanel extends HTMLElement {
     this._mode = mode;
     this._sure = "";
     this._render();
+    this._revealEditor();
+  }
+
+  /** בעמודה אחת העורך נפתח מתחת ללוח, מחוץ למסך. מגללים אליו. */
+  _revealEditor() {
+    if (this._narrow || this._mode.name === "heard") return;
+    const main = this.shadowRoot.querySelector("main.layout");
+    const editor = this.shadowRoot.querySelector(".editor");
+    if (!main || !editor || typeof getComputedStyle !== "function") return;
+    const tracks = String(getComputedStyle(main).gridTemplateColumns || "").trim().split(/\s+/);
+    if (tracks.length !== 1 || typeof editor.scrollIntoView !== "function") return;
+    const reduce = typeof matchMedia === "function"
+      && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    editor.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
   }
 
   _parent(path) {

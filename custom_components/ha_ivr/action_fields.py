@@ -26,6 +26,7 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.helpers.service import async_get_all_descriptions
 
+from .capabilities import OPTION_ATTRIBUTES, entity_info, entity_options, field_applies
 from .translations_he import translate_action, translate_field, translate_option
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,18 +40,7 @@ SUPPORTED_SELECTORS = frozenset({"number", "select", "text", "boolean"})
 # שדות שהאפשרויות שלהם נקבעות לפי הישות עצמה ולא לפי תיאור גנרי.
 # מזגן אחד תומך בקירור בלבד ואחר גם בחימום, ולכן קריאת המאפיין
 # מהישות מדויקת יותר מכל רשימה קבועה.
-ENTITY_OPTION_ATTRIBUTES: dict[str, str] = {
-    "hvac_mode": "hvac_modes",
-    "preset_mode": "preset_modes",
-    "fan_mode": "fan_modes",
-    "swing_mode": "swing_modes",
-    "humidity_mode": "available_modes",
-    "mode": "available_modes",
-    "option": "options",
-    "source": "source_list",
-    "sound_mode": "sound_mode_list",
-    "effect": "effect_list",
-}
+ENTITY_OPTION_ATTRIBUTES: dict[str, str] = OPTION_ATTRIBUTES
 
 # שדות שהטווח שלהם נקבע לפי הישות ולא לפי התיאור הגנרי. תיאור
 # `climate.set_temperature` מכריז על 0 עד 250 — הטווח התיאורטי של
@@ -62,6 +52,10 @@ ENTITY_RANGE_ATTRIBUTES: dict[str, tuple[str, str]] = {
     "target_temp_low": ("min_temp", "max_temp"),
     "humidity": ("min_humidity", "max_humidity"),
 }
+
+
+# ישויות שהערך שלהן מספר בטווח שהן עצמן מדווחות.
+NUMBER_DOMAINS = frozenset({"number", "input_number"})
 
 
 def entity_number_range(
@@ -121,9 +115,14 @@ async def async_action_fields(
         return {}
 
 
+    info = entity_info(hass, entity_id) if entity_id else None
     fields: dict[str, dict[str, Any]] = {}
     for name, spec in _flatten_fields(description.get("fields", {})).items():
         if name in IGNORED_FIELDS or not isinstance(spec, dict):
+            continue
+        # מסנן השדה של `services.yaml`: שדה אפקט רק לנורה עם אפקטים,
+        # שדה מיקום רק לתריס עם מיקום — כמו בטופס של HA.
+        if not field_applies(spec, info):
             continue
         fields[name] = spec
 
@@ -269,29 +268,47 @@ def enrich_with_entity_options(
 
     חלק מהשדות, כמו מצב מיזוג, אינם מגיעים עם רשימת אפשרויות בתיאור
     הגנרי, משום שהיא תלויה בישות. כאן נקראת הרשימה מהישות עצמה, כך
-    שיוצגו רק המצבים שהמכשיר הספציפי באמת תומך בהם.
+    שיוצגו רק המצבים שהמכשיר הספציפי באמת תומך בהם. המאפיין נמצא
+    לפי המפה ולפי הכלל הכללי (`<f>s`, `<f>_list`, `available_<f>s`).
     """
     state = hass.states.get(entity_id)
     if state is None:
         return fields
 
+    attributes = dict(state.attributes)
+    domain = entity_id.split(".", 1)[0]
     enriched: dict[str, dict[str, Any]] = {}
     for name, spec in fields.items():
         spec = dict(spec)
-        attribute = ENTITY_OPTION_ATTRIBUTES.get(name)
-
-        if attribute:
-            values = state.attributes.get(attribute)
-            if isinstance(values, (list, tuple)) and values:
-                spec["selector"] = {
-                    "select": {
-                        "options": [
-                            {"value": str(value), "label": translate_option(value)}
-                            for value in values
-                        ]
-                    }
+        # ערך של ישות מספר: התיאור מכריז על טקסט, אבל הישות מדווחת
+        # טווח וצעד. כך `number.set_value` נאסף בהקשה כמו טמפרטורה.
+        if domain in NUMBER_DOMAINS and name == "value":
+            low, high = attributes.get("min"), attributes.get("max")
+            if low is not None and high is not None:
+                number: dict[str, Any] = {"min": low, "max": high}
+                if attributes.get("step") is not None:
+                    number["step"] = attributes["step"]
+                spec["selector"] = {"number": number}
+        values = entity_options(name, attributes)
+        if values:
+            translation_key = ""
+            selector = spec.get("selector")
+            if isinstance(selector, dict) and isinstance(selector.get("select"), dict):
+                translation_key = str(selector["select"].get("translation_key") or "")
+            spec["selector"] = {
+                "select": {
+                    "options": [
+                        {
+                            "value": value,
+                            "label": translate_option(
+                                value, domain, name, translation_key
+                            ),
+                        }
+                        for value in values
+                    ],
+                    **({"translation_key": translation_key} if translation_key else {}),
                 }
-
+            }
         enriched[name] = spec
 
     return enriched
@@ -305,31 +322,29 @@ async def async_action_name(
     Home Assistant מתרגם את שמות הפעולות והשדות לשפת הממשק, ולכן
     אין צורך בתרגום מקומי.
     """
-    try:
-        descriptions = await async_get_all_descriptions(hass)
-    except Exception:  # noqa: BLE001
-        return action
-
-    translated = translate_action(action)
+    translated = translate_action(action, domain)
     if translated != action:
         return translated
-
-    description = descriptions.get(domain, {}).get(action)
-    if isinstance(description, dict):
-        name = description.get("name")
-        if name:
-            return str(name)
-    return action
+    # התיאור הגולמי (`name` ב-services.yaml) הוא באנגלית ואינו מתורגם
+    # בצד השרת, ולכן אינו מוקרא. שם קריא מהמזהה עדיף על אנגלית.
+    return readable(action)
 
 
-def field_label(name: str, spec: dict[str, Any]) -> str:
+def readable(ident: str) -> str:
+    """מזהה טכני כטקסט: בלי קווים תחתונים, בלי הדומיין."""
+    return str(ident).rsplit(".", 1)[-1].replace("_", " ").strip()
+
+
+def field_label(
+    name: str, spec: dict[str, Any], domain: str = "", action: str = ""
+) -> str:
     """תווית השדה בעברית.
 
     Home Assistant מחזיר בצד השרת מפתחות טכניים בלבד, ולכן התרגום
     מגיע מהמילון המקומי. שדה שאינו מתורגם מוצג בשם שהתקבל
     מהתיאור, ולבסוף בשם הטכני.
     """
-    translated = translate_field(name)
+    translated = translate_field(name, domain, action)
     if translated != name:
         return translated
     label = spec.get("name")

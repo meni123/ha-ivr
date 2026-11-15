@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -56,6 +57,56 @@ def _redact_keys(data: dict) -> set[str]:
     return found
 
 
+REDACTED = "**REDACTED**"
+
+# ערכים שנראים כמו טלפון או כתובת SIP, בכל מקום ובכל שם מפתח.
+# `async_redact_data` מסתיר רק לפי שם המפתח, ואינו נכנס ל-tuple או
+# ל-set. מספר שנכנס לשם של פריט או לטקסט חופשי היה עובר.
+_SIP_URI = re.compile(r"\bsips?:[^\s\"'<>]+", re.IGNORECASE)
+_PHONE = re.compile(r"(?<![\w.])\+?\d[\d\- ]{6,}\d(?![\w.])")
+
+
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _phone(match: re.Match) -> str:
+    found = match.group()
+    digits = sum(ch.isdigit() for ch in found)
+    # תאריך ושעה אינם טלפון; מספר טלפון הוא 9 עד 15 ספרות.
+    if _DATE.match(found) or not 9 <= digits <= 15:
+        return found
+    return REDACTED
+
+
+def _scrub_text(text: str) -> str:
+    text = _SIP_URI.sub(REDACTED, text)
+    return _PHONE.sub(_phone, text)
+
+
+def scrub(node: Any) -> Any:
+    """הסתרה רקורסיבית: מפתחות וערכים, גם בתוך tuple, set ו-frozenset."""
+    if isinstance(node, dict):
+        out: dict = {}
+        for key, value in node.items():
+            low = str(key).lower()
+            if any(h in low for h in _SECRET_HINTS + _PERSONAL_HINTS):
+                out[_scrub_key(key)] = REDACTED
+            else:
+                out[_scrub_key(key)] = scrub(value)
+        return out
+    if isinstance(node, (list, tuple)):
+        return [scrub(item) for item in node]
+    if isinstance(node, (set, frozenset)):
+        return sorted((scrub(item) for item in node), key=str)
+    if isinstance(node, str):
+        return _scrub_text(node)
+    return node
+
+
+def _scrub_key(key: Any) -> Any:
+    return _scrub_text(key) if isinstance(key, str) else key
+
+
 def _tree_summary(node: dict, depth: int = 0) -> dict[str, Any]:
     """העץ בצורה קריאה, בלי לחשוף שמות ידידותיים מיותרים."""
     out: dict[str, Any] = {
@@ -71,7 +122,9 @@ def _tree_summary(node: dict, depth: int = 0) -> dict[str, Any]:
     if action := node.get("action"):
         out["action"] = action
     if data := node.get("data"):
-        out["data"] = data
+        # ערכים קבועים של פעולה יכולים להיות טקסט חופשי — הודעה, מספר.
+        # הם מוצגים רק כשמות השדות.
+        out["data"] = sorted(str(k) for k in data) if isinstance(data, dict) else REDACTED
     if items := node.get("items"):
         out["items"] = {key: _tree_summary(child, depth + 1)
                         for key, child in sorted(items.items())}
@@ -120,11 +173,11 @@ async def async_get_config_entry_diagnostics(
     from . import build_stamp  # noqa: PLC0415
 
     build = hass.data.get(DOMAIN, {}).get("build")
-    
+
     if not build:
         build = await hass.async_add_executor_job(build_stamp)
 
-    return {
+    return scrub({
         "build": build,
         "entry": {
             "version": entry.version,
@@ -150,4 +203,4 @@ async def async_get_config_entry_diagnostics(
         # החלק שמחליף את גרירת היומן.
         "recent": history.snapshot(),
         "recent_capacity": history.MAX_EVENTS,
-    }
+    })

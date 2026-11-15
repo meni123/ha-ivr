@@ -7,7 +7,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .model import KEY_BACK, KEY_ROOT, Prompt, Say
+from .model import KEY_BACK, KEY_ROOT, Prompt, Say, speakable
+
+# מקש הסיום של קוד באורך משתנה.
+KEY_END = "#"
 
 
 def lamed(name: str) -> str:
@@ -64,6 +67,13 @@ class Node:
     confirmed: bool = False
     """האם פעולה רגישה אושרה במפורש בטופס. נבדק שוב בזמן ריצה."""
 
+    dictate: dict = field(default_factory=dict)
+    """צומת שמקבל טקסט מוכתב בקול: `field`, ו-`max_length` אם ידוע.
+
+    מועבר לשלוחת הסטרימינג עם כרטיס, ושם מוקלט, מוקרא לאישור
+    ומופעל. קיים רק בקו עם סטרימינג.
+    """
+
     @property
     def is_menu(self) -> bool:
         return bool(self.items)
@@ -80,6 +90,15 @@ class Node:
     def is_group(self) -> bool:
         return bool(self.target)
 
+    @property
+    def is_dictate(self) -> bool:
+        return bool(self.dictate)
+
+    @property
+    def is_secret(self) -> bool:
+        """איסוף של קוד: הספרות אינן מוקראות, נרשמות או נשמרות."""
+        return bool(self.collect.get("secret"))
+
 
 def build(config: dict) -> Node:
     """בניית עץ מקונפיגורציה."""
@@ -87,7 +106,7 @@ def build(config: dict) -> Node:
         str(key): build(value) for key, value in (config.get("items") or {}).items()
     }
     return Node(
-        say=str(config.get("say", "")),
+        say=speakable(config.get("say", "")),
         intro=config.get("intro"),
         items=items,
         entity=config.get("entity"),
@@ -98,6 +117,7 @@ def build(config: dict) -> Node:
         alerts=bool(config.get("alerts", False)),
         collect=dict(config.get("collect") or {}),
         confirmed=bool(config.get("confirmed", False)),
+        dictate=dict(config.get("dictate") or {}),
     )
 
 
@@ -214,6 +234,9 @@ def valid_next_digits(collect: dict, collected: tuple[str, ...]) -> set[str]:
     כאן עדיפה על קבלת 45 ואז הודעת שגיאה: המתקשר אינו רואה מסך,
     והקשה שאינה מתקבלת נענית מיד ב"בחירה שאינה קיימת".
     """
+    if collect.get("secret"):
+        return _code_next_keys(collect, collected)
+
     width = int(collect.get("width") or 0)
     if width <= 0 or len(collected) >= width:
         return set()
@@ -231,6 +254,29 @@ def valid_next_digits(collect: dict, collected: tuple[str, ...]) -> set[str]:
         if highest >= low and lowest <= high:
             allowed.add(digit)
     return allowed
+
+
+def _code_next_keys(collect: dict, collected: tuple[str, ...]) -> set[str]:
+    """המקשים שממשיכים קוד: כל ספרה, וסולמית כשהקוד ארוך מספיק."""
+    width = int(collect.get("width") or 0)
+    longest = width or int(collect.get("max_len") or 0)
+    allowed: set[str] = set()
+    if not longest or len(collected) < longest:
+        allowed |= set("0123456789")
+    if not width and len(collected) >= int(collect.get("min_len") or 1):
+        allowed.add(KEY_END)
+    return allowed
+
+
+def code_complete(collect: dict, collected: tuple[str, ...], key: str | None) -> bool:
+    """האם הקוד הושלם — באורך הקבוע, בסולמית, או באורך המרבי."""
+    width = int(collect.get("width") or 0)
+    if width:
+        return len(collected) >= width
+    if key == KEY_END:
+        return len(collected) >= int(collect.get("min_len") or 1)
+    longest = int(collect.get("max_len") or 0)
+    return bool(longest) and len(collected) >= longest
 
 
 def collect_prompt(
@@ -255,6 +301,21 @@ def collect_prompt(
     # מתקבלת, וזו בדיוק ההרגשה של "המערכת איטית". הספק ממתין
     # לספרה גם בלי טקסט להשמיע.
     messages: list[Say] = []
+    if node.is_secret:
+        if not collected:
+            messages.append(Say("text", node.say))
+            if width:
+                messages.append(Say("text", f"הקש קוד בן {width} ספרות"))
+            else:
+                messages.append(Say("text", "הקש את הקוד ובסיומו סולמית"))
+            messages.append(Say("text", "לביטול הקש כוכבית"))
+        return Prompt(
+            messages=messages,
+            allowed=frozenset(allowed | {KEY_ROOT}),
+            at_path=(*path, *collected),
+            step=step,
+            timeout=timeout,
+        )
     if not collected:
         low = int(float(node.collect.get("min", 0)))
         high = int(float(node.collect.get("max", 0)))

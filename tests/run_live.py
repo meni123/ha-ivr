@@ -640,6 +640,8 @@ for _f in sorted((ROOT / "custom_components").rglob("*.py")):
 _strings = _js2.loads((_core / "strings.json").read_text("utf-8"))
 _valid_keys = (
     set(_exc_en) | set(_strings.get("selector", {})) | set(_strings.get("issues", {}))
+    | set(_strings.get("device", {}))
+    | {k for d in _strings.get("entity", {}).values() for k in d}
 )
 _missing = sorted(_used - _valid_keys)
 ok("כל מפתח שבקוד קיים במחרוזות", not _missing)
@@ -2099,10 +2101,10 @@ ok("build stamp is stable", _stamp == core.build_stamp())
 # חתימה בדיוק על קוד אחר.
 _before = _core_mod.build_stamp()
 _prov = ROOT / "custom_components" / "ha_ivr" / "providers" / "yemot.py"
-_orig = _prov.read_text("utf-8")
-_prov.write_text(_orig + "\n# touch\n")
+_orig = _prov.read_bytes()
+_prov.write_bytes(_orig + b"\n# touch\n")
 ok("build stamp covers providers", _core_mod.build_stamp() != _before)
-_prov.write_text(_orig)
+_prov.write_bytes(_orig)
 ok("build stamp returns after undo", _core_mod.build_stamp() == _before)
 
 # ======================================================================
@@ -2448,9 +2450,11 @@ def _gpress(path, digit):
 
 _gh.services.calls.clear()
 _gres = _gpress("6", "1")
+# קריאה לכל חבר בנפרד ובמקביל: מכשיר תקוע אחד אינו מפיל את כולם,
+# וכל אחד נספר — "בוצע ב-3 מתוך 4".
 ok("הפעולה נשלחה לכל חברי הקבוצה",
-   any(c[2].get("entity_id") == ["light.a", "light.b", "light.c"]
-       for c in _gh.services.calls))
+   sorted(c[2].get("entity_id") for c in _gh.services.calls)
+   == ["light.a", "light.b", "light.c"])
 ok("ובדומיין של היעד",
    any(c[:2] == ("light", "turn_on") for c in _gh.services.calls))
 ok("והמתקשר שומע כמה מכשירים הושפעו", "3" in _gres.get("say", ""))
@@ -2662,7 +2666,7 @@ _KCAPS = {
 }
 
 
-async def _kdiscover(hass, entity_id):
+async def _kdiscover(hass, entity_id, descriptions=None):
     return list(_KCAPS.get(entity_id.split(".", 1)[0], []))
 
 
@@ -3008,7 +3012,8 @@ ok("המרה: ספק בלי יעד קבוע לעוזר נשאר כמות שהו�
 _kinit = (_core_dir / "__init__.py").read_text("utf-8")
 ok("ההמרה רצה בעדכון, והגרסה של הרשומה מתקדמת",
    "assistant_type(subentry, driver)" in _kinit
-   and "minor_version=3" in _kinit and _kcf.IvrConfigFlow.MINOR_VERSION == 3)
+   and "minor_version=3" in _kinit and "minor_version=4" in _kinit
+   and _kcf.IvrConfigFlow.MINOR_VERSION == 4)
 
 # --- חדרים ---
 _rooms = _krun(editor.async_rooms(_kh))

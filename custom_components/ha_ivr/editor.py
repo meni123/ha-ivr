@@ -29,6 +29,7 @@ from homeassistant.core import HomeAssistant
 
 from . import menu as menu_mod
 from . import registry
+from . import capabilities as caps
 from . import smart as smart_mod
 from . import tree as tree_mod
 from .const import (
@@ -247,6 +248,7 @@ def _driver_flags(entry: ConfigEntry) -> dict:
         "assistant": goto and bool(getattr(driver, "SUPPORTS_STREAM", False)),
         "assistant_target": str(getattr(driver, "ASSIST_GOTO", "") or ""),
         "alerts": bool(getattr(driver, "async_notify", None)),
+        "streaming": bool(getattr(driver, "SUPPORTS_STREAM", False)),
     }
 
 
@@ -384,6 +386,7 @@ class _View:
                 entity_id=entity_id,
                 domain=entity_id.split(".", 1)[0],
                 missing=self.hass.states.get(entity_id) is None,
+                state=_entity_state(self.hass, entity_id),
             )
             if kind == SUBENTRY_TYPE_SMART:
                 return {**out, "kind": "device", "name": fallback,
@@ -454,17 +457,55 @@ def _cap_label(capability) -> str:
     return f"{capability.label} ({detail})" if detail else capability.label
 
 
+def _code_info(capability) -> dict | None:
+    """איך מקישים את הקוד של הפעולה. None = בלי קוד. הקוד עצמו לעולם אינו כאן."""
+    if capability.code in (caps.CODE_NONE, caps.CODE_UNDIALABLE):
+        return None
+    return {
+        "end": capability.code == caps.CODE_TERMINATED,
+        "width": capability.code_width,
+        "min": capability.code_min,
+        "max": capability.code_max,
+    }
+
+
 def _cap_choice(capability) -> dict:
-    """יכולת כפי שבוחרים אותה בהוספה, עם הערכים שאפשר להציע בה."""
+    """יכולת כפי שבוחרים אותה בהוספה, עם הערכים שאפשר להציע בה.
+
+    החוזה מול הלוח: `kind` אחד מ-simple/status/choice/number/text/fixed.
+    `needs_fixed` = אי אפשר להקיש את הערך, ולכן היא נבחרת רק כמקש עם
+    ערך קבוע. `code` מתאר את ההקשה של קוד, בלי הקוד.
+    """
+    kind = capability.kind
     return {
         "ident": capability.ident,
+        "kind": kind,
         "label": _cap_label(capability),
         "name": capability.label,
+        "action": capability.action,
         "options": [
             {"value": value, "label": capability.option_label(value)}
             for value in capability.options
-        ] if capability.kind == smart_mod.KIND_CHOICE else [],
+        ] if kind == smart_mod.KIND_CHOICE else [],
+        "min": capability.minimum if kind == smart_mod.KIND_NUMBER else None,
+        "max": capability.maximum if kind == smart_mod.KIND_NUMBER else None,
+        "code": _code_info(capability),
+        "needs_fixed": kind == smart_mod.KIND_FIXED,
+        "max_length": capability.max_length if kind == smart_mod.KIND_TEXT else 0,
     }
+
+
+def _shown(capabilities, streaming: bool) -> list:
+    """הכתבה מוצעת רק בקו עם סטרימינג. בלעדיו היא מקש שאין מאחוריו דבר."""
+    return [c for c in capabilities if streaming or c.kind != smart_mod.KIND_TEXT]
+
+
+def _entity_state(hass: HomeAssistant, entity_id: str) -> str:
+    """ok, unavailable (קיים ואינו זמין), או missing (נמחק מ-Home Assistant)."""
+    state = hass.states.get(entity_id)
+    if state is None:
+        return "missing"
+    return "unavailable" if state.state == "unavailable" else "ok"
 
 
 def _picked(raw: object) -> dict[str, list[str]]:
@@ -505,11 +546,17 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
     addable = None
     if level == "plan":
         used = {str(e.get("ident", "")) for e in _plan(spot.sub)}
+        found = _shown(await _capabilities(hass, spot.sub), view.flags["streaming"])
+        # מה שהתגלה ואינו בתוכנית הוא "חדש": לא נוסף מעצמו, רק מוצע.
         addable = [
-            {"ident": c.ident, "label": _cap_label(c)}
-            for c in await _capabilities(hass, spot.sub)
-            if c.ident not in used
+            {**_cap_choice(c), "new": True}
+            for c in found if c.ident not in used
         ]
+        # מה שבתוכנית ואינו מתגלה עוד: המקש נשאר, ומסומן "לא זמין".
+        live = {c.ident for c in found}
+        for digit, key in keys.items():
+            if key and key.get("kind") == "cap":
+                key["gone"] = bool(found) and key.get("ident") not in live
     elif level == "options":
         addable = [
             {"value": value, "label": translate_option(value)}
@@ -525,6 +572,7 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
         "entry_id": entry.entry_id,
         "path": _join(parts),
         "kind": level,
+        "streaming": view.flags["streaming"],
         "self": view.key(parts),
         "crumbs": crumbs,
         "keys": keys,
@@ -541,23 +589,35 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
     }
 
 
-async def async_capabilities(hass: HomeAssistant, entity_id: str) -> dict:
+async def async_capabilities(
+    hass: HomeAssistant, entity_id: str, entry: ConfigEntry | None = None
+) -> dict:
     """מה מכשיר יודע לעשות, ומה מסומן כברירת מחדל.
 
     מכשיר שיש לו פעולה אחת בלבד — כפתור, סצנה — מקבל אותה ישר על המקש,
     בלי תפריט של פריט אחד והקראת מצב.
     """
     _check_entity(hass, entity_id)
-    found = await smart_mod.async_discover(hass, entity_id)
-    active = [c for c in found if c.kind != smart_mod.KIND_STATUS]
+    streaming = bool(entry is not None and _driver_flags(entry)["streaming"])
+    found = _shown(await smart_mod.async_discover(hass, entity_id), streaming)
+    active = [
+        c for c in found
+        if c.kind not in (smart_mod.KIND_STATUS, smart_mod.KIND_FIXED)
+    ]
     single = len(active) == 1 and active[0].kind == smart_mod.KIND_SIMPLE
     return {
         "entity_id": entity_id,
         "name": _entity_name(hass, entity_id),
+        "state": _entity_state(hass, entity_id),
+        "streaming": streaming,
         "capabilities": [
             {
                 **_cap_choice(c),
-                "checked": (c is active[0]) if single else index < len(MENU_DIGITS),
+                # מה שדורש ערך קבוע אינו מסומן מראש: אין לו ספרה משלו.
+                "checked": (
+                    (c is active[0]) if single
+                    else index < len(MENU_DIGITS) and c.kind != smart_mod.KIND_FIXED
+                ),
             }
             for index, c in enumerate(found)
         ],

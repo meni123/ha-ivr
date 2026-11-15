@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
@@ -21,10 +21,14 @@ from .const import SUBENTRY_TYPE_ITEM, signal_call_received, subentry_kind
 from .entity import IvrItemEntity
 
 
+# אין קריאות החוצה מהישויות: הכול מגיע בדחיפה, ואין מה לסדר בתור.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """חיישן לכל פריט."""
 
@@ -102,7 +106,7 @@ class CallCountSensor(_CallTracking, RestoreEntity):
 
     _attr_translation_key = "call_count"
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_native_unit_of_measurement = "בחירות"
+    # היחידה מתורגמת: `entity.sensor.call_count.unit_of_measurement`.
 
     def __init__(self, entry: ConfigEntry, subentry: ConfigSubentry) -> None:
         super().__init__(entry, subentry)

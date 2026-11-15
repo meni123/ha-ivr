@@ -36,9 +36,15 @@ GOTO_ONLY_ASSIST = True
 ASSIST_GOTO = "assist"
 
 SUPPORTS_STREAM = True
+# המקשים מגיעים אלינו כמות שהם, כולל סולמית — ולכן קוד באורך משתנה
+# אפשר לסיים בה. אצל ספק אחר הסולמית נבלעת בצד שלו.
+SUPPORTS_TERMINATOR = True
 
 # כל חשבון הוא קו נפרד, ואפשר להגדיר כמה: אין טוקן או שלוחה משותפים.
 MANY_ENTRIES = True
+# מה ש-reauth שואל מחדש. שם המשתמש הוא חלק מזהות הקו, ולכן אינו כאן:
+# חשבון אחר הוא רשומה אחרת.
+REAUTH_FIELDS = ("sip_password",)
 
 DEFAULT_PORT = 5060
 
@@ -195,13 +201,18 @@ async def async_start_transport(hass, entry) -> _Transport:
         _LOGGER.warning(
             "SIP line: not registered at %s (%s)", settings["server"], reason
         )
+        if reason == "auth":
+            # סיסמה שנדחתה היא בדיוק מה ש-reauth נועד לו: HA מציג
+            # הודעה בכרטיס, והטופס בודק את הסיסמה החדשה לפני שמירה.
+            # זרימה פתוחה לא נפתחת שוב, ולכן ניסיון חוזר אינו מציף.
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+            entry.async_start_reauth(hass)
+            return
         ir.async_create_issue(
             hass, DOMAIN, issue_id,
             is_fixable=False,
             severity=ir.IssueSeverity.ERROR,
-            translation_key=(
-                "sip_auth_failed" if reason == "auth" else "sip_unreachable"
-            ),
+            translation_key="sip_unreachable",
             translation_placeholders={"server": settings["server"]},
         )
 

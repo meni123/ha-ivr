@@ -14,9 +14,10 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from . import capabilities as caps_mod
+from . import registry
 from . import smart as smart_mod
 from . import tree as tree_mod
-from .action_fields import ENTITY_OPTION_ATTRIBUTES
 from .model import say_number
 from .translations_he import field_unit, translate_action, translate_field, translate_option
 from .const import (
@@ -81,6 +82,7 @@ def _prune(node: dict) -> bool:
         node.pop("items", None)
     return (
         bool(node.get("entity"))
+        or bool(node.get("dictate"))
         or bool(node.get("goto"))
         or bool(node.get("alerts"))
         or bool(node.get("collect"))
@@ -98,6 +100,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
     """
     root: dict = {}
     taken: set[str] = set()
+    driver = _driver_flags(entry)
 
     root.setdefault("intro", str(entry.options.get(CONF_INTRO, "") or ""))
 
@@ -157,7 +160,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
             )
             continue
         taken.add(path)
-        _expand_smart(hass, _dig(root, path.split("/")), data)
+        _expand_smart(hass, _dig(root, path.split("/")), data, driver)
 
     for subentry in entry.subentries.values():
         if subentry_kind(subentry) != SUBENTRY_TYPE_GROUP:
@@ -173,7 +176,7 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
             )
             continue
         taken.add(path)
-        _expand_group(hass, _dig(root, path.split("/")), data)
+        _expand_group(hass, _dig(root, path.split("/")), data, driver)
 
     for subentry in entry.subentries.values():
         kind = subentry_kind(subentry)
@@ -208,6 +211,18 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
     _prune(root)
 
     return root
+
+
+def _driver_flags(entry) -> dict:
+    """מה הקו יודע לעשות: סולמית בסוף קוד, והכתבה דרך סטרימינג."""
+    try:
+        driver = registry.for_entry(entry)
+    except Exception:  # noqa: BLE001
+        driver = None
+    return {
+        "terminator": bool(getattr(driver, "SUPPORTS_TERMINATOR", False)),
+        "stream": bool(getattr(driver, "SUPPORTS_STREAM", False)),
+    }
 
 
 def build_tree(hass: HomeAssistant, entry: ConfigEntry):
@@ -309,7 +324,7 @@ def _apply_spoken_names(hass, root: dict) -> None:
 # ----------------------------------------------------------------------
 
 
-def _expand_smart(hass, node: dict, data) -> None:
+def _expand_smart(hass, node: dict, data, driver: dict | None = None) -> None:
     """הרחבת תוכנית של ישות חכמה לענף שלם בעץ.
 
     המספרים מגיעים מהתוכנית השמורה ואינם מחושבים כאן. מה שכן
@@ -333,13 +348,26 @@ def _expand_smart(hass, node: dict, data) -> None:
         digit = str(raw.get("digit", ""))
         if digit not in MENU_DIGITS:
             continue
-        child = _smart_child(hass, entity_id, confirmed, raw)
+        child = _smart_child(hass, entity_id, confirmed, raw, driver)
         if child is not None:
             node.setdefault("items", {})[digit] = child
 
 
-def _smart_child(hass, entity_id: str, confirmed: bool, raw: dict) -> dict | None:
-    """צומת אחד מתוך התוכנית, לפי סוג היכולת."""
+def _smart_child(
+    hass,
+    entity_id: str,
+    confirmed: bool,
+    raw: dict,
+    driver: dict | None = None,
+    domain: str = "",
+) -> dict | None:
+    """צומת אחד מתוך התוכנית, לפי סוג היכולת.
+
+    יכולת שהקו אינו יכול לבצע — קוד שמסתיים בסולמית בקו בלי סולמית,
+    הכתבה בקו בלי סטרימינג — אינה נבנית, והספרה שלה נשארת ריקה
+    בלי להזיז את האחרות.
+    """
+    driver = driver or {}
     kind = str(raw.get("kind", ""))
     action = str(raw.get("action", "") or "")
     # `_label` על כל צומת שנוצר כאן: השם כבר מדויק, ואסור
@@ -347,9 +375,10 @@ def _smart_child(hass, entity_id: str, confirmed: bool, raw: dict) -> dict | Non
     # תווית שנשמרה כשם הפעולה הטכני מתורגמת עכשיו. התוכנית קפואה
     # בכוונה כדי שהמספרים לא יזוזו, אבל שם באנגלית באמצע תפריט
     # עברי אינו החלטה של המשתמש אלא תרגום שחסר בזמן ההגדרה.
+    domain = domain or (entity_id.split(".", 1)[0] if entity_id else "")
     stored = str(raw.get("label", "") or "").strip()
-    if not stored or stored == action:
-        stored = translate_action(action) if action else "הקראת מצב"
+    if not stored or stored == action or stored == action.rsplit(".", 1)[-1]:
+        stored = translate_action(action, domain) if action else "הקראת מצב"
 
     base = {
         "say": stored,
@@ -362,7 +391,21 @@ def _smart_child(hass, entity_id: str, confirmed: bool, raw: dict) -> dict | Non
         return {**base, "action": "", "data": {}}
 
     if kind == smart_mod.KIND_SIMPLE:
+        code = raw.get("code")
+        if isinstance(code, dict) and code.get("kind") not in (None, caps_mod.CODE_NONE):
+            return _code_node(base, action, code, driver)
         return {**base, "action": action, "data": {}}
+
+    if kind == smart_mod.KIND_TEXT:
+        if not driver.get("stream"):
+            return None
+        field_name = str(raw.get("field", ""))
+        if not field_name:
+            return None
+        dictate = {"field": field_name}
+        if raw.get("max_length"):
+            dictate["max_length"] = int(raw["max_length"])
+        return {**base, "action": action, "data": {}, "dictate": dictate}
 
     if kind == smart_mod.KIND_CHOICE:
         field_name = str(raw.get("field", ""))
@@ -373,7 +416,7 @@ def _smart_child(hass, entity_id: str, confirmed: bool, raw: dict) -> dict | Non
         for index, value in enumerate(options[: len(MENU_DIGITS)]):
             items[MENU_DIGITS[index]] = {
                 **base,
-                "say": translate_option(value),
+                "say": translate_option(value, domain, field_name),
                 "action": action,
                 "data": {field_name: _typed(value)},
             }
@@ -398,7 +441,21 @@ def _smart_child(hass, entity_id: str, confirmed: bool, raw: dict) -> dict | Non
     return None
 
 
-def _expand_group(hass, node: dict, data) -> None:
+def _code_node(base: dict, action: str, code: dict, driver: dict) -> dict | None:
+    """צומת שאוסף קוד ואז מפעיל. הספרות אינן נשמרות ואינן מוקראות."""
+    kind = code.get("kind")
+    collect = {"field": caps_mod.CODE_FIELD, "secret": True, "code": kind}
+    if kind == caps_mod.CODE_FIXED and int(code.get("width") or 0) > 0:
+        collect["width"] = int(code["width"])
+    elif kind == caps_mod.CODE_TERMINATED and driver.get("terminator"):
+        collect["min_len"] = int(code.get("min") or 1)
+        collect["max_len"] = int(code.get("max") or caps_mod.MAX_CODE_LENGTH)
+    else:
+        return None
+    return {**base, "action": action, "data": {}, "collect": collect}
+
+
+def _expand_group(hass, node: dict, data, driver: dict | None = None) -> None:
     """הרחבת תוכנית של קבוצה — כל האורות במטבח וכדומה.
 
     זהה בצורתה להרחבת ישות בודדת, אלא שבמקום `entity` הצומת נושא
@@ -435,7 +492,7 @@ def _expand_group(hass, node: dict, data) -> None:
         digit = str(raw.get("digit", ""))
         if digit not in MENU_DIGITS:
             continue
-        child = _smart_child(hass, "", confirmed, raw)
+        child = _smart_child(hass, "", confirmed, raw, driver, target["domain"])
         if child is None:
             continue
         _apply_target(child, target)
@@ -521,18 +578,14 @@ def _live_options(hass, entity_id: str, field_name: str, raw: dict) -> list[str]
     stored = [str(v) for v in (raw.get("options") or [])]
     excluded = [str(v) for v in (raw.get("excluded") or [])]
 
-    attribute = ENTITY_OPTION_ATTRIBUTES.get(field_name)
-    if not attribute:
-        return stored
-
     state = hass.states.get(entity_id)
     if state is None:
         return stored
-    live = state.attributes.get(attribute)
-    if not isinstance(live, (list, tuple)) or not live:
+    live = caps_mod.entity_options(field_name, dict(state.attributes))
+    if not live:
         return stored
 
-    return smart_mod.merge_options(stored, excluded, [str(v) for v in live])
+    return smart_mod.merge_options(stored, excluded, live)
 
 
 def _typed(value: str):
