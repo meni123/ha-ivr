@@ -1010,7 +1010,7 @@ class HaIvrPanel extends HTMLElement {
       // כל מספר בכיוון משלו, כדי שסימן המינוס והסדר לא יתהפכו.
       const unit = UNITS[field.unit] || field.unit || "";
       const range = field.min !== null && field.max !== null && field.max < 1e6
-        ? ` (<bdi>${field.min}</bdi> עד <bdi>${field.max}</bdi>${unit ? ` ${esc(unit)}` : ""})` : "";
+        ? ` (<span dir="ltr">${field.min}</span> עד <span dir="ltr">${field.max}</span>${unit ? ` ${esc(unit)}` : ""})` : "";
       const attrs = [
         field.min !== null ? `min="${field.min}"` : "",
         field.max !== null && field.max < 1e6 ? `max="${field.max}"` : "",
