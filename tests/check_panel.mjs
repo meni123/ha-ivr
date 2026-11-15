@@ -72,6 +72,11 @@ const hass = {
       { name: "brightness_pct", label: "בהירות", type: "number", required: false, min: 0, max: 100, step: 1, unit: "%" },
       { name: "effect", label: "אפקט", type: "select", required: false, options: [{ value: "rainbow", label: "קשת" }] },
       { name: "flash", label: "הבהוב", type: "boolean", required: false }] }] };
+    if (m.op === "group") return { domain: "switch", name: "מתגים", target: { area_id: ["kit"], entity_id: ["switch.direct"] }, exclude: ["switch.r"], places: { floors: [], areas: [{ id: "kit", name: "מטבח" }, { id: "liv", name: "סלון" }], labels: [{ id: "eco", name: "חיסכון" }] } };
+    if (m.op === "fixed") return { entity_id: "light.a", name: "מנורה", values: { brightness_pct: 30, effect: "rainbow", flash: true }, action: { action: "turn_on", label: "הדלקה", fields: [
+      { name: "brightness_pct", label: "בהירות", type: "number", required: false, min: 0, max: 100, step: 1, unit: "%" },
+      { name: "effect", label: "אפקט", type: "select", required: false, options: [{ value: "rainbow", label: "קשת" }] },
+      { name: "flash", label: "הבהוב", type: "boolean", required: false }] } };
     if (m.op === "capabilities") return { entity_id: m.args.entity_id, name: "מנורה", fixed: true, capabilities: [
       { ident: "turn_on", label: "הדלקה", name: "הדלקה", checked: true, options: [] },
       { ident: "turn_off", label: "כיבוי", name: "כיבוי", checked: false, options: [] },
@@ -205,6 +210,7 @@ ok("פרטי מקש", html().includes("פעולה אחת במכשיר «פעמו
 await submit("rename", { name: "צלצול" }, { path: "2" });
 ok("שינוי שם", last().op === "rename" && last().path === "2" && last().args.name === "צלצול");
 await click("key", { digit: "4" });
+ok("מקש רגיל בלי כפתורי עריכה של ערך", !html().includes('data-act="edit-value"'));
 ok("יעד מעבר", html().includes('value="200"'));
 await submit("target", { target: "300" }, { path: "4" });
 ok("יעד נשלח", last().op === "update" && last().args.target === "300");
@@ -214,6 +220,33 @@ el._entries[0].assistant_target = "";
 el._render();
 ok("עוזר בשלוחה של המשתמש: היעד נערך", html().includes("השלוחה שמחוברת לעוזר הקולי") && html().includes('data-form="target"'));
 el._entries[0].assistant_target = "ha-assist";
+// --- עריכת מקש קיים: ערך קבוע, והמקום של קבוצה ---
+levels[""].keys["2"].fixed = true;
+await el._open("");
+await click("key", { digit: "2" });
+ok("מקש עם ערך קבוע מציע לשנות אותו", html().includes('data-act="edit-value"'));
+await click("edit-value", { path: "2" });
+ok("הטופס נפתח עם הערכים השמורים", last().op === "fixed" && last().path === "2" && html().includes('name="brightness_pct" dir="ltr" value="30"') && html().includes('<option value="rainbow" selected>') && html().includes('name="flash" checked') && html().includes(">שמירה<"));
+await submit("edit-values", { brightness_pct: "45", effect: "" });
+ok("הערך החדש נשלח, ומה שנוקה יורד", last().op === "update" && last().path === "2" && JSON.stringify(last().args.values) === '{"brightness_pct":"45"}');
+levels[""].keys["2"].fixed = false;
+
+levels["7"] = { ...levels[""], path: "7", kind: "plan", crumbs: [{ path: "", name: "ראשי" }, { path: "7", name: "מתגים" }], self: key("7", "group", { domain: "switch", name: "מתגים", label: "" }), keys: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null, 8: null, 9: null }, heard: [], addable: [] };
+await el._open("7");
+ok("קבוצה מציעה לשנות את המקום והמכשירים", html().includes('data-act="edit-place"'));
+await click("edit-place", { path: "7" });
+ok("המקומות הנוכחיים מסומנים, ומכשירים שנבחרו ישירות מוזכרים", last().op === "group" && html().includes("איפה המתגים?") && html().includes('name="area_id" value="kit"\n        checked') && !html().includes('value="liv"\n        checked') && html().includes("1 מכשירים שנבחרו ישירות"));
+await submit("edit-places", { area_id: ["kit", "liv"] });
+ok("המקום החדש נשאל, והבחירה הישירה נשמרת", last().op === "place" && last().args.target.area_id.length === 2 && last().args.target.entity_id[0] === "switch.direct");
+ok("מי שכבר בחוץ אינו מסומן", html().includes("אילו מתגים?") && html().includes('value="switch.r"\n          >') && html().includes('value="switch.q"\n          checked'));
+await click("edit-back");
+ok("חזרה למקומות שומרת את מה שנבחר", html().includes('value="liv"\n        checked'));
+await submit("edit-places", { area_id: ["kit", "liv"] });
+await submit("edit-members", {});
+ok("בלי אף מכשיר אין שמירה", last().op === "place");
+await submit("edit-members", { member: ["switch.r"] });
+ok("המקום וההחרגות נשמרים יחד", last().op === "update" && last().path === "7" && last().args.place.target.area_id.length === 2 && JSON.stringify(last().args.place.exclude) === '["switch.q"]');
+await el._open("");
 await click("key", { digit: "4" });
 const n = sent.length;
 await click("remove", { path: "4", sure: 'remove:data-path="4"' });

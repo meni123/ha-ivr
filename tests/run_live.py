@@ -3213,6 +3213,50 @@ ok("רק הפעולות שנבחרו נכנסות למקש של המקום",
 _kadd("9", "room", entry=_kx, target={"area_id": ["kit"]}, domains=["switch"])
 ok("בלי בחירה — כל מה שמשותף למכשירים",
    len(_ksub("9", _kx).data["plan"]) == len(_kfuncs[0]["capabilities"]))
+
+# --- עריכת מקש קיים: המקום של קבוצה, וערך קבוע ---
+_kgp = editor.group_place(_kh, _kx, "4")
+ok("המקום של קבוצה, ומי שמחוץ לה",
+   _kgp["domain"] == "switch" and _kgp["name"] == "מתגים"
+   and _kgp["target"] == {"area_id": ["kit"], "floor_id": ["f1"]}
+   and _kgp["exclude"] == ["switch.k2"] and bool(_kgp["places"]["areas"]))
+editor.update(_kh, _kx, "4", place={"target": {"area_id": ["kit"]}, "exclude": []})
+ok("מקום בלי החרגות כולל את כל המכשירים שבו",
+   _ksub("4", _kx).data["target"] == {"area_id": ["kit"]}
+   and _klevel("", _kx)["keys"]["4"]["detail"] == "2 מכשירים")
+ok("מקום שאין בו מכשירים מהסוג נדחה, והקבוצה נשארת",
+   _kerr(lambda: editor.update(
+       _kh, _kx, "4", place={"target": {"area_id": ["none"]}})) == "empty_room"
+   and _ksub("4", _kx).data["target"] == {"area_id": ["kit"]})
+ok("מקום יש רק לקבוצה",
+   _kerr(lambda: editor.update(_kh, _kx, "1", place={"target": {}})) == "not_found")
+
+_kaf.async_get_all_descriptions = _kdesc
+ok("מקש עם ערך קבוע מסומן ככזה, ומקש אחר לא",
+   _klevel("", _kx)["keys"]["1"]["fixed"] is True
+   and not _klevel("", _kx)["keys"]["7"].get("fixed"))
+_kfx = _krun(editor.async_fixed(_kh, _kx, "1"))
+ok("ערך קבוע: הפעולה, השדות והערכים השמורים",
+   _kfx["action"]["action"] == "turn_on" and _kfx["name"] == "מנורה"
+   and _kfx["values"] == {"brightness_pct": 30}
+   and [f["name"] for f in _kfx["action"]["fields"]]
+   == ["brightness_pct", "transition"])
+_krun(editor.async_set_values(_kh, _kx, "1", {"brightness_pct": "45"}))
+ok("ערך חדש נשמר, והשם שנגזר ממנו מתעדכן איתו",
+   _ksub("1", _kx).data["action_data"] == {"brightness_pct": 45}
+   and _ksub("1", _kx).data["label"].endswith(" 45")
+   and _ksub("1", _kx).title.endswith(" 45"))
+_krun(editor.async_set_values(_kh, _kx, "2", {"transition": 4}))
+ok("שם שניתן ביד נשאר",
+   _ksub("2", _kx).data["action_data"] == {"transition": 4}
+   and _ksub("2", _kx).data["label"] == "אור איטי")
+ok("ערך מחוץ לטווח נדחה, והערך השמור נשאר",
+   _kerr(lambda: editor.async_set_values(
+       _kh, _kx, "1", {"brightness_pct": 500})) == "bad_value"
+   and _ksub("1", _kx).data["action_data"] == {"brightness_pct": 45})
+ok("למקש בלי ערך קבוע אין מה לערוך",
+   _kerr(lambda: editor.async_fixed(_kh, _kx, "7")) == "not_found")
+_kaf.async_get_all_descriptions = _kreal_desc
 _kfloors.async_get, _klabels.async_get = _kreal_floors, _kreal_labels
 
 _kb = fake_ha.FakeEntry()

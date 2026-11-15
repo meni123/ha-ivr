@@ -576,6 +576,7 @@ class HaIvrPanel extends HTMLElement {
     if (mode.name === "add") return this._addHtml();
     if (mode.name === "info") return this._infoHtml();
     if (mode.name === "build") return this._buildHtml();
+    if (mode.name === "edit") return this._editHtml();
     return this._heardHtml();
   }
 
@@ -628,6 +629,8 @@ class HaIvrPanel extends HTMLElement {
         ${self.missing ? `<div class="warn"><ha-icon icon="mdi:alert-outline"></ha-icon>
           <span>${self.kind === "group" ? "אין כרגע מכשירים בקבוצה הזו." : "המכשיר הזה אינו קיים עוד."}</span></div>` : ""}
         <div class="actions">
+          ${self.kind === "group" ? `<button class="btn flat" data-act="edit-place"
+            data-path="${esc(level.path)}">שינוי המקום והמכשירים</button>` : ""}
           <button class="btn flat" data-act="carry" data-path="${esc(level.path)}"
             data-name="${esc(self.name)}" data-up="1">
             העברה למקש אחר</button>
@@ -707,6 +710,8 @@ class HaIvrPanel extends HTMLElement {
       ${rename}
       ${target}
       <div class="actions">
+        ${key.fixed ? `<button class="btn flat" data-act="edit-value"
+          data-path="${esc(key.path)}">שינוי הערך</button>` : ""}
         <button class="btn flat" data-act="carry" data-path="${esc(key.path)}"
           data-name="${esc(key.name)}">העברה למקש אחר</button>
         <span class="grow"></span>
@@ -979,16 +984,17 @@ class HaIvrPanel extends HTMLElement {
     button.textContent = this._capsButton(idents);
   }
 
-  _fieldHtml(field) {
+  _fieldHtml(field, value) {
     const name = esc(field.name);
     const star = field.required ? "" : " (לא חובה)";
+    const given = value === undefined || value === null ? "" : String(value);
     if (field.type === "boolean") {
-      return `<label class="check"><input type="checkbox" name="${name}">
+      return `<label class="check"><input type="checkbox" name="${name}"${value ? " checked" : ""}>
         <span>${esc(field.label)}</span></label>`;
     }
     if (field.type === "select") {
       const options = field.options.map((o) =>
-        `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+        `<option value="${esc(o.value)}"${o.value === given ? " selected" : ""}>${esc(o.label)}</option>`).join("");
       return `<label class="field">${esc(field.label)}${star}
         <select name="${name}"><option value=""></option>${options}</select></label>`;
     }
@@ -1001,10 +1007,71 @@ class HaIvrPanel extends HTMLElement {
         `step="${field.step || "any"}"`,
       ].join(" ");
       return `<label class="field">${esc(field.label)}${range}${star}
-        <input type="number" name="${name}" dir="ltr" ${attrs}></label>`;
+        <input type="number" name="${name}" dir="ltr" value="${esc(given)}" ${attrs}></label>`;
     }
     return `<label class="field">${esc(field.label)}${star}
-      <input type="text" name="${name}"></label>`;
+      <input type="text" name="${name}" value="${esc(given)}"></label>`;
+  }
+
+  // הערכים שמולאו בטופס של פעולה: שדה ריק אינו נשלח.
+  _formValues(fields, data) {
+    const values = {};
+    for (const field of fields) {
+      const raw = data.get(field.name);
+      if (field.type === "boolean") {
+        if (raw) values[field.name] = true;
+      } else if (String(raw || "").trim() !== "") {
+        values[field.name] = String(raw).trim();
+      }
+    }
+    return values;
+  }
+
+  // עריכה של מקש קיים: המקום והמכשירים של קבוצה, או ערך קבוע.
+  _editHtml() {
+    const mode = this._mode;
+    if (mode.step === "values") {
+      const found = mode.fixed;
+      return `${this._backButton("close")}
+        <h2>${esc(found.action.label)}</h2>
+        <p class="muted">${esc(found.name)}</p>
+        <form data-form="edit-values">
+          ${found.action.fields.map((f) => this._fieldHtml(f, found.values[f.name])).join("")}
+          <div class="actions"><button class="btn">שמירה</button></div>
+        </form>`;
+    }
+    const group = mode.group;
+    if (mode.step === "members") {
+      const out = mode.exclude;
+      const rows = mode.members.map((m) => `
+        <label class="check"><input type="checkbox" name="member" value="${esc(m.entity_id)}"
+          ${out.includes(m.entity_id) ? "" : "checked"}><span>${esc(m.name)}</span></label>`).join("");
+      return `${this._backButton("edit-back")}
+        <h2>אילו ${esc(group.name)}?</h2>
+        <p class="muted">מסירים סימון ממכשיר שלא רוצים לכלול. מכשיר חדש שיתווסף למקום הזה יצטרף מעצמו.</p>
+        <form data-form="edit-members">
+          <h3 class="withbulk"><span>${esc(group.name)}</span>${this._bulk("member", mode.members.length)}</h3>
+          <div class="list">${rows}</div>
+          <div class="actions"><button class="btn">שמירה</button></div>
+        </form>`;
+    }
+    const chosen = mode.target || group.target;
+    const part = (title, name, items) => (items.length ? `<h3>${title}</h3>${items.map((i) => `
+      <label class="check"><input type="checkbox" name="${name}" value="${esc(i.id)}"
+        ${(chosen[name] || []).includes(i.id) ? "checked" : ""}><span>${esc(i.name)}</span></label>`).join("")}` : "");
+    const direct = (group.target.device_id || []).length + (group.target.entity_id || []).length;
+    return `${this._backButton("close")}
+      <h2>איפה ה${esc(group.name)}?</h2>
+      <p class="muted">בלי סימון — כל הבית.${direct
+        ? ` ${direct} מכשירים שנבחרו ישירות נשארים בקבוצה.` : ""}</p>
+      <form data-form="edit-places">
+        <div class="list">
+          ${part("קומות", "floor_id", group.places.floors)}
+          ${part("חדרים", "area_id", group.places.areas)}
+          ${part("תוויות", "label_id", group.places.labels)}
+        </div>
+        <div class="actions"><button class="btn">המשך</button></div>
+      </form>`;
   }
 
   _buildHtml() {
@@ -1142,6 +1209,19 @@ class HaIvrPanel extends HTMLElement {
         return;
       case "close":
         this._setMode({ name: "heard" });
+        return;
+      case "edit-place": {
+        const group = await this._call("group", { path: data.path });
+        if (group) this._setMode({ name: "edit", step: "places", path: data.path, group });
+        return;
+      }
+      case "edit-value": {
+        const fixed = await this._call("fixed", { path: data.path });
+        if (fixed) this._setMode({ name: "edit", step: "values", path: data.path, fixed });
+        return;
+      }
+      case "edit-back":
+        this._setMode({ ...mode, step: "places" });
         return;
       case "carry-cancel":
         this._carry = null;
@@ -1410,18 +1490,51 @@ class HaIvrPanel extends HTMLElement {
         if (room) this._setMode({ ...mode, step: "kinds", room, domains: null, exclude: null });
         return;
       }
-      case "fixed": {
-        const values = {};
-        for (const field of mode.action.fields) {
-          if (field.type === "boolean") {
-            if (data.get(field.name)) values[field.name] = true;
-          } else if (text(field.name) !== "") {
-            values[field.name] = text(field.name);
-          }
-        }
+      case "fixed":
         await this._add("action", {
           entity_id: mode.fixed.entity_id, action: mode.action.action,
-          data: values, name: text("_name"),
+          data: this._formValues(mode.action.fields, data), name: text("_name"),
+        });
+        return;
+      case "edit-values":
+        await this._change("update", {
+          path: mode.path,
+          args: { values: this._formValues(mode.fixed.action.fields, data) },
+        });
+        return;
+      case "edit-places": {
+        // מכשירים שנבחרו ישירות אינם בטופס, ולכן נשארים כמות שהם.
+        const target = {};
+        for (const key of ["device_id", "entity_id"]) {
+          if ((mode.group.target[key] || []).length) target[key] = mode.group.target[key];
+        }
+        for (const key of ["floor_id", "area_id", "label_id"]) {
+          const ids = data.getAll(key);
+          if (ids.length) target[key] = ids;
+        }
+        const room = await this._call("place", { args: { target } });
+        if (!room) return;
+        const members = room.members.filter((m) => m.domain === mode.group.domain);
+        if (!members.length) {
+          this._say(`אין שם ${mode.group.name}.`);
+          return;
+        }
+        // בפעם הראשונה — מי שכבר בחוץ. אחרי שינוי המקום הבחירה נשמרת.
+        this._setMode({
+          ...mode, step: "members", target, members,
+          exclude: mode.exclude || mode.group.exclude,
+        });
+        return;
+      }
+      case "edit-members": {
+        const kept = new Set(data.getAll("member"));
+        if (!kept.size) {
+          this._say("סמנו לפחות מכשיר אחד.");
+          return;
+        }
+        const exclude = mode.members.map((m) => m.entity_id).filter((id) => !kept.has(id));
+        await this._change("update", {
+          path: mode.path, args: { place: { target: mode.target, exclude } },
         });
         return;
       }

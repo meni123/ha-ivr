@@ -396,7 +396,7 @@ class _View:
                     for k, v in stored.items()
                 )
             return {**out, "kind": "action", "name": fallback, "detail": device,
-                    "does": does}
+                    "does": does, "fixed": isinstance(stored, dict) and bool(stored)}
 
         if kind == SUBENTRY_TYPE_GROUP:
             target = _group_target(subentry)
@@ -684,6 +684,61 @@ def _action_values(fields: list[dict], raw: object) -> dict:
     return values
 
 
+async def _fixed_item(hass: HomeAssistant, entry: ConfigEntry, path: object):
+    """המקש, והפעולה שלו עם השדות — למקש של ערך קבוע בלבד."""
+    spot = _spot(hass, _layout(entry), _parts(path))
+    data = spot.sub.data if spot.kind == "sub" else {}
+    stored = data.get(CONF_ACTION_DATA)
+    if (
+        spot.kind != "sub"
+        or subentry_kind(spot.sub) != SUBENTRY_TYPE_ITEM
+        or not isinstance(stored, dict) or not stored
+    ):
+        raise EditorError("not_found", "למקש הזה אין ערך קבוע")
+    entity_id = str(data.get(CONF_TARGET_ENTITY, "") or "")
+    _check_entity(hass, entity_id)
+    action = str(data.get(CONF_ACTION, "") or "")
+    chosen = next(
+        (a for a in await _fixed_actions(hass, entity_id) if a["action"] == action),
+        None,
+    )
+    if chosen is None:
+        raise EditorError("unsupported", "המכשיר אינו תומך עוד בפעולה הזו")
+    return spot.sub, chosen
+
+
+async def async_fixed(hass: HomeAssistant, entry: ConfigEntry, path: object) -> dict:
+    """הפעולה של מקש עם ערך קבוע, והערכים שנקבעו בו."""
+    subentry, chosen = await _fixed_item(hass, entry, path)
+    entity_id = str(subentry.data.get(CONF_TARGET_ENTITY, "") or "")
+    return {
+        "entity_id": entity_id,
+        "name": _entity_name(hass, entity_id),
+        "action": chosen,
+        "values": dict(subentry.data.get(CONF_ACTION_DATA) or {}),
+    }
+
+
+async def async_set_values(
+    hass: HomeAssistant, entry: ConfigEntry, path: object, raw: object
+) -> None:
+    """ערכים חדשים למקש עם ערך קבוע. שם שנגזר מהערכים מתעדכן איתם."""
+    subentry, chosen = await _fixed_item(hass, entry, path)
+    data = subentry.data
+    values = _action_values(chosen["fields"], raw)
+    device = _entity_name(hass, str(data.get(CONF_TARGET_ENTITY, "") or ""))
+    label = str(data.get(CONF_LABEL, "") or "")
+    derived = f"{device}, {_values_text(chosen['fields'], dict(data[CONF_ACTION_DATA]))}"
+    title = None
+    if not label or label == derived:
+        label = f"{device}, {_values_text(chosen['fields'], values)}"
+        title = f"{_path_of(subentry)} — {label}"
+    _write(
+        hass, entry, subentry,
+        {**data, CONF_ACTION_DATA: values, CONF_LABEL: label}, title,
+    )
+
+
 def _values_text(fields: list[dict], values: dict) -> str:
     """"טמפרטורה 24" — הערכים כפי שקוראים אותם."""
     parts = []
@@ -793,6 +848,31 @@ async def async_place(hass: HomeAssistant, args: dict) -> dict:
             {"domain": d, "name": domain_title(d), "count": n} for d, n in kinds
         ],
         "members": sorted(members, key=lambda m: (m["domain"], m["name"])),
+    }
+
+
+def _group_item(hass: HomeAssistant, entry: ConfigEntry, path: object):
+    spot = _spot(hass, _layout(entry), _parts(path))
+    if spot.kind != "sub" or subentry_kind(spot.sub) != SUBENTRY_TYPE_GROUP:
+        raise EditorError("not_found", "המקש הזה אינו קבוצת מכשירים")
+    return spot.sub
+
+
+def group_place(hass: HomeAssistant, entry: ConfigEntry, path: object) -> dict:
+    """המקום של קבוצה ומי שהושאר מחוץ לה, ומה אפשר לבחור במקומו."""
+    found = _group_target(_group_item(hass, entry, path))
+    domain, target = found["domain"], found["target"]
+    place = {k: v for k, v in target.items() if k in smart_mod.TARGET_KEYS}
+    kept = set(smart_mod.match_entities(hass, domain, target))
+    return {
+        "domain": domain,
+        "name": domain_title(domain),
+        "target": place,
+        # כל מי שבמקום ואינו בקבוצה, תהא הסיבה אשר תהא.
+        "exclude": [
+            e for e in smart_mod.match_entities(hass, domain, place) if e not in kept
+        ],
+        "places": async_places(hass),
     }
 
 
@@ -1240,7 +1320,7 @@ def rename(hass: HomeAssistant, entry: ConfigEntry, path: object, name: str) -> 
 
 
 def update(hass: HomeAssistant, entry: ConfigEntry, path: object, **args: Any) -> None:
-    """משפט הפתיחה של רמה, או היעד של מעבר."""
+    """משפט הפתיחה של רמה, היעד של מעבר, או המקום של קבוצה."""
     parts = _parts(path)
     spot = _spot(hass, _layout(entry), parts)
 
@@ -1256,6 +1336,16 @@ def update(hass: HomeAssistant, entry: ConfigEntry, path: object, **args: Any) -
         ):
             raise EditorError("not_found", "לרמה הזו אין משפט פתיחה")
         _write(hass, entry, spot.sub, {**spot.sub.data, CONF_INTRO: intro})
+        return
+
+    if "place" in args:
+        subentry = _group_item(hass, entry, path)
+        chosen = args.get("place")
+        place = _place_target(chosen if isinstance(chosen, dict) else {"target": {}})
+        domain = str(subentry.data.get(CONF_DOMAIN, "") or "")
+        if not smart_mod.match_entities(hass, domain, place):
+            raise EditorError("empty_room", "לא נשאר אף מכשיר בקבוצה")
+        _write(hass, entry, subentry, {**subentry.data, CONF_TARGET: place})
         return
 
     if "target" in args:

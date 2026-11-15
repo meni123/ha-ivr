@@ -102,6 +102,10 @@ async def async_run(hass: HomeAssistant, msg: dict) -> Any:
         return await editor.async_place(hass, args)
     if op == "place_functions":
         return await editor.async_place_functions(hass, args)
+    if op == "group":
+        return editor.group_place(hass, entry, path)
+    if op == "fixed":
+        return await editor.async_fixed(hass, entry, path)
 
     if op == "add":
         what = str(args.pop("what", ""))
@@ -111,10 +115,13 @@ async def async_run(hass: HomeAssistant, msg: dict) -> Any:
     elif op == "rename":
         editor.rename(hass, entry, path, str(args.get("name", "")))
     elif op == "update":
-        editor.update(
-            hass, entry, path,
-            **{k: args[k] for k in ("intro", "target") if k in args},
-        )
+        if "values" in args:
+            await editor.async_set_values(hass, entry, path, args["values"])
+        else:
+            editor.update(
+                hass, entry, path,
+                **{k: args[k] for k in ("intro", "target", "place") if k in args},
+            )
     elif op == "remove":
         editor.remove(hass, entry, path, str(args.get("id", "")))
     elif op == "move":
