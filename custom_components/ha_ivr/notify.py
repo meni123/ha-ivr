@@ -51,8 +51,8 @@ class IvrNotify(NotifyEntity):
         self._entry = entry
         self._subentry = subentry
         self._phone = str(dict(subentry.data).get(CONF_PHONE, ""))
-        # ברירת המחדל היא שיחה קולית — נמען ותיק שנשמר לפני שהיה
-        # ערוץ אינו משנה התנהגות.
+        # ברירת המחדל היא שיחה קולית: נמען שנשמר בלי שדה ערוץ
+        # מחייג כרגיל.
         self._channel = str(dict(subentry.data).get(CONF_CHANNEL, "voice"))
         # טראנק יוצא לנמען זה, אם הוגדר — לזיהוי יוצא אחר. ריק חוזר
         # לטראנק ברירת המחדל של הרשומה. רלוונטי רק לספק עם טראנקים.

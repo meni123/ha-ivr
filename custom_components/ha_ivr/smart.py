@@ -432,7 +432,7 @@ async def async_domain_is_usable(hass: HomeAssistant, domain: str) -> bool:
 # מפתחות בחירת היעד, כפי ש-`TargetSelector` שומר אותם.
 TARGET_KEYS = ("area_id", "floor_id", "label_id", "device_id", "entity_id")
 TARGET_EXCLUDE = "exclude"
-# יעד שהומר משדות נפרדים של גרסה קודמת: כל שדה מצמצם, ולא מרחיב.
+# יעד שנבנה משדות נפרדים (מרחב, קומה, תווית): כל שדה מצמצם, ולא מרחיב.
 _MATCH_ALL = "_match_all"
 
 
@@ -460,8 +460,8 @@ def clean_target(value) -> dict:
 def stored_target(data) -> dict:
     """היעד של קבוצה או של תפריט אזור, מהנתונים השמורים.
 
-    רשומה מלפני 1.9.0 שמרה מרחב, קומה ותווית בשדות נפרדים, וכשנבחר
-    יותר מאחד — ההתאמה הייתה לכולם יחד. ההמרה שומרת על המשמעות.
+    רשומה בלי `CONF_TARGET` נושאת מרחב, קומה ותווית בשדות נפרדים,
+    וכשיש יותר מאחד ההתאמה היא לכולם יחד. ההמרה שומרת על המשמעות.
     """
     from .const import CONF_AREA, CONF_FLOOR, CONF_LABEL_TARGET, CONF_TARGET  # noqa: PLC0415
 

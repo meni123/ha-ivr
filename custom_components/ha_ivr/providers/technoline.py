@@ -121,7 +121,7 @@ def parse(params: dict[str, str], body: dict | None = None) -> CallContext:
     """פענוח בקשה נכנסת.
 
     `body` מתקבל ואינו בשימוש: הנתיב וההקשה מגיעים בשם הפרמטר.
-    החתימה אחידה לשלושת הדרייברים.
+    החתימה אחידה לכל הדרייברים.
     """
     decoded = TECHNOLINE_CODEC.decode(params)
     digit = decoded.digit

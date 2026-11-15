@@ -1,8 +1,7 @@
 """Home Assistant מזויף, כדי שאפשר יהיה להריץ את הקוד באמת.
 
-עד היום כל הבדיקות קראו את הקוד כטקסט. זה תפס הרבה, אבל לא תפס
-`UnboundLocalError` — שם שהוגדר בפונקציה אבל מאוחר מדי, ונופל רק
-כשהשורה מתבצעת בפועל.
+בדיקה שקוראת את הקוד כטקסט אינה תופסת `UnboundLocalError` — שם
+שהוגדר בפונקציה אבל מאוחר מדי, ונופל רק כשהשורה מתבצעת בפועל.
 
 כאן נבנה מספיק מ-HA כדי שהמודולים ייובאו ושהפונקציות ירוצו: hass
 מזויף עם states, services ו-bus, בקשה מזויפת, ותשובות HTTP.
@@ -155,9 +154,8 @@ def install() -> None:
     _module("aiohttp.web", **vars(web))
 
     # voluptuous מזויף אך **ניתן לבדיקה**: הסכמה שומרת את המילון
-    # והמצייני שומרים את שם השדה. כשהכול היה `_Any`, בוני הטפסים
-    # לא היו ניתנים להרצה כלל — 1,100 שורות של config_flow שאף
-    # בדיקה לא נגעה בהן, וטעות בהן מתגלה רק כשמשתמש פותח את המסך.
+    # והמציינים שומרים את שם השדה. כ-`_Any` בוני הטפסים אינם
+    # ניתנים להרצה כלל, וטעות בהם מתגלה רק כשמשתמש פותח את המסך.
     _module("homeassistant.components.notify",
             NotifyEntity=type("NotifyEntity", (), {"hass": None}))
 
@@ -224,9 +222,9 @@ def install() -> None:
             async_extract_excluded_entity_ids=fake_extract_excluded)
     _module("homeassistant.helpers.config_validation",
             string=str, entity_id=str, boolean=bool)
-    # מצייני המצב הם קבועים ולא מחלקות. כשהם היו `_Any` כמו השאר,
-    # כל ניסיון לבנות סכמה אמיתית נפל על `SelectSelectorMode.DROPDOWN`
-    # — ולכן אף בדיקה לא הריצה את בוני הטפסים בפועל.
+    # מצייני המצב הם קבועים ולא מחלקות. כ-`_Any` כמו השאר, כל
+    # בנייה של סכמה אמיתית נופלת על `SelectSelectorMode.DROPDOWN`,
+    # ואף בדיקה אינה מריצה את בוני הטפסים בפועל.
     _mode = types.SimpleNamespace(DROPDOWN="dropdown", LIST="list", BOX="box",
                                   SLIDER="slider")
     _module("homeassistant.helpers.selector", **{
@@ -310,7 +308,7 @@ def install() -> None:
             require_admin=_passthrough, async_response=_passthrough,
             async_register_command=lambda hass, command: None)
     # קבועי פורמט ההקראה. הלוויין מבקש דרכם WAV בקצב של הספק —
-    # בלעדיהם הצינור מחזיר mp3, וזה בדיוק מה שהתגלה בשיחה.
+    # בלעדיהם הצינור מחזיר mp3.
     _module(
         "homeassistant.components.tts",
         ATTR_PREFERRED_FORMAT="preferred_format",

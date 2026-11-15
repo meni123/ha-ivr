@@ -33,9 +33,9 @@ ASSISTANT_NAME: Final = "עוזר קולי"
 # קבוצת מכשירים: כל הישויות מסוג אחד ביעד. אותו מנגנון גילוי, אלא
 # שהיכולות הן החיתוך של כל החברים.
 SUBENTRY_TYPE_GROUP: Final = "smart_group"
-# סוגים שאוחדו ב-1.9.0: ישות חכמה היא מכשיר עם תוכנית, ותפריט אזור
-# הוא תת-תפריט. נשארים כאן בשביל ההמרה ב-`async_migrate_entry` ולסיווג
-# הלוגי — לא נוצרים עוד.
+# סוגים שמורים שאינם נוצרים: ישות חכמה היא מכשיר עם תוכנית, ותפריט
+# אזור הוא תת-תפריט. משמשים להמרת פריטים שמורים מהסוגים האלה בשדרוג
+# (`async_migrate_entry`), ולסיווג הלוגי.
 SUBENTRY_TYPE_SMART: Final = "smart_entity"
 SUBENTRY_TYPE_AREA: Final = "smart_area"
 # שלוחה שמקריאה את ההתראות האחרונות שנשלחו. ראו `announce.log_alert`.
@@ -73,8 +73,8 @@ CONF_DOMAIN: Final = "target_domain"
 # היעד כבחירת יעד של Home Assistant: מרחבים, קומות, תוויות, מכשירים
 # וישויות, עם החרגות. נפתר בזמן השיחה — ראו `smart.match_entities`.
 CONF_TARGET: Final = "target"
-# השדות שקדמו ל-`CONF_TARGET` (עד 1.8.0). נקראים בלבד — ראו
-# `smart.stored_target`.
+# שדות היעד הנפרדים של רשומה שנשמרה בלי `CONF_TARGET`. נקראים
+# בלבד — ראו `smart.stored_target`.
 CONF_AREA: Final = "target_area"
 CONF_FLOOR: Final = "target_floor"
 CONF_LABEL_TARGET: Final = "target_label"

@@ -203,7 +203,7 @@ def respond(action: Action, cfg: dict | None = None):
 
 
 # הערוצים שימות יודעת להוציא בהם התראה. שיחה קולית עולה יחידה;
-# SMS וצינתוק עולים עשירית יחידה — נמדד ואומת מול המחירון.
+# SMS וצינתוק עולים עשירית יחידה.
 NOTIFY_CHANNELS = ("voice", "sms", "tzintuk")
 
 
@@ -343,8 +343,7 @@ async def async_send_call(hass, options: dict, data: dict) -> None:
     )
 
     # הבקשה נרשמת לפני השליחה, בלי הטוקן. בלי זה אי אפשר לדעת מה
-    # באמת יצא — וזו הייתה הסיבה שלא ניתן היה לאבחן שיחה שצלצלה
-    # אך לא השמיעה דבר.
+    # באמת יצא, ושיחה שצלצלה אך לא השמיעה דבר אינה ניתנת לאבחון.
     masked = {**payload, "token": f"***{token[-4:]}" if token else "(empty)"}
     _LOGGER.debug("Yemot <- %s | %s", SEND_TTS_URL, masked)
     history.record("yemot.request", url=SEND_TTS_URL, payload=masked)
