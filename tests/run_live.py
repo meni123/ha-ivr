@@ -3062,6 +3062,12 @@ ok("חדרים, ו\"כל הבית\" בסוף",
 ok("בכל חדר מה שאפשר להפעיל בו",
    [(k["domain"], k["count"]) for k in _rooms[0]["kinds"]]
    == [("light", 1), ("switch", 2)])
+from custom_components.ha_ivr import const  # noqa: E402
+
+ok("במסך שם הסוג ברבים, ובטלפון נשאר ביחיד",
+   [k["name"] for k in _rooms[0]["kinds"]] == ["אורות", "מתגים"]
+   and const.DOMAIN_NAMES["switch"] == "המתג"
+   and const.domain_title("weather") == const.DOMAIN_NAMES["weather"])
 _kadd("9", "room", area_id="kit")
 ok("חדר עם כמה סוגים נעשה תפריט",
    _ksub("9").subentry_type == "submenu" and _ksub("9").data["label"] == "מטבח"

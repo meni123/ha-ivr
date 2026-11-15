@@ -55,6 +55,7 @@ from .const import (
     SUBENTRY_TYPE_ITEM,
     SUBENTRY_TYPE_SMART,
     SUBENTRY_TYPE_SUBMENU,
+    domain_title,
     subentry_kind,
 )
 from .action_fields import (
@@ -724,7 +725,7 @@ async def async_rooms(hass: HomeAssistant) -> list[dict]:
                 "area_id": area_id,
                 "name": name,
                 "kinds": [
-                    {"domain": d, "name": DOMAIN_NAMES.get(d, d), "count": n}
+                    {"domain": d, "name": domain_title(d), "count": n}
                     for d, n in kinds
                 ],
             }
@@ -789,7 +790,7 @@ async def async_place(hass: HomeAssistant, args: dict) -> dict:
         "name": menu_mod.place_name(hass, target) or "כל הבית",
         "target": {k: v for k, v in target.items() if k != smart_mod.TARGET_EXCLUDE},
         "kinds": [
-            {"domain": d, "name": DOMAIN_NAMES.get(d, d), "count": n} for d, n in kinds
+            {"domain": d, "name": domain_title(d), "count": n} for d, n in kinds
         ],
         "members": sorted(members, key=lambda m: (m["domain"], m["name"])),
     }
@@ -809,7 +810,7 @@ async def async_place_functions(hass: HomeAssistant, args: dict) -> dict:
         if found:
             kinds.append({
                 "domain": domain,
-                "name": DOMAIN_NAMES.get(domain, domain),
+                "name": domain_title(domain),
                 "capabilities": [_cap_choice(c) for c in found[: len(MENU_DIGITS)]],
             })
     return {"kinds": kinds}

@@ -50,7 +50,7 @@ from .const import (
     CONF_DOMAIN,
     CONF_PLAN,
     CONF_TARGET,
-    DOMAIN_NAMES,
+    domain_title,
     CONF_TRUNK,
     CONF_CALLER_ID,
     CONF_RETRIES,
@@ -1302,7 +1302,7 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
 
     def _domain_label(self, domain: str, count: int) -> str:
         """שם הסוג עם מספר החברים, כדי שיהיה ברור על כמה זה פועל."""
-        name = DOMAIN_NAMES.get(domain, domain)
+        name = domain_title(domain)
         return name if count <= 1 else f"{name} ({count})"
 
     def _pick_schema(self, labels: dict[str, str]) -> vol.Schema:
@@ -1456,7 +1456,7 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
                 }
             ),
             description_placeholders={
-                "kind": DOMAIN_NAMES.get(domain, domain)
+                "kind": domain_title(domain)
             },
         )
 
@@ -1483,7 +1483,7 @@ class SmartGroupFlowHandler(SmartEntityFlowHandler):
             if not await smart_mod.async_domain_is_usable(self.hass, domain):
                 continue
             options.append(
-                SelectOptionDict(value=domain, label=DOMAIN_NAMES.get(domain, domain))
+                SelectOptionDict(value=domain, label=domain_title(domain))
             )
         return SelectSelector(
             SelectSelectorConfig(options=options, mode=SelectSelectorMode.DROPDOWN)

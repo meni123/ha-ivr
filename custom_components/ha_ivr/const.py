@@ -195,6 +195,46 @@ DOMAIN_NAMES: Final = {
     "vacuum": "שואב האבק",
 }
 
+# שמות הסוגים כפי שהם מוצגים במסכים: ברבים, כי שם בוחרים קבוצה של
+# מכשירים. `DOMAIN_NAMES` שלמעלה הוא מה שמוקרא בטלפון.
+DOMAIN_TITLES: Final = {
+    "climate": "מזגנים",
+    "light": "אורות",
+    "switch": "מתגים",
+    "lock": "מנעולים",
+    "cover": "תריסים",
+    "fan": "מאווררים",
+    "sensor": "חיישנים",
+    "binary_sensor": "חיישנים",
+    "media_player": "נגנים",
+    "vacuum": "שואבי אבק",
+    "water_heater": "דודי מים",
+    "scene": "סצנות",
+    "script": "תסריטים",
+    "automation": "אוטומציות",
+    "button": "כפתורים",
+    "input_boolean": "מתגי עזר",
+    "input_select": "בוררי עזר",
+    "input_number": "מספרי עזר",
+    "input_text": "שדות טקסט",
+    "select": "בוררים",
+    "number": "מספרים",
+    "humidifier": "מאדים",
+    "siren": "סירנות",
+    "valve": "שסתומים",
+    "lawn_mower": "מכסחות דשא",
+    "remote": "שלטים",
+    "camera": "מצלמות",
+    "calendar": "יומנים",
+    "todo": "רשימות משימות",
+    "alarm_control_panel": "מערכות אזעקה",
+}
+
+
+def domain_title(domain: str) -> str:
+    """שם הסוג למסך, או השם המוקרא כשאין לו צורת רבים."""
+    return DOMAIN_TITLES.get(domain) or DOMAIN_NAMES.get(domain, domain)
+
 
 def subentry_kind(subentry) -> str:
     """הסוג הלוגי של תת-רשומה, לבניית העץ.
