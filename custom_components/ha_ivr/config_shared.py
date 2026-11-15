@@ -59,6 +59,7 @@ from .const import (
     CONF_ACTION,
     CONF_ACTION_DATA,
     CONF_CONFIRM_RISKY,
+    ASSISTANT_NAME,
     CONF_GOTO_TARGET,
     CONF_INTRO,
     CONF_LABEL,
@@ -337,15 +338,15 @@ class _EditMixin:
     `ValueError: Source is user, expected reconfigure`.
     """
 
-    def _target_hint(self) -> str:
-        """מה להזין ביעד, לפי הספק של הרשומה."""
+    def _driver_text(self, name: str) -> str:
+        """מחרוזת שהדרייבר של הרשומה מכריז עליה, או ריק."""
         from . import registry  # noqa: PLC0415
 
         try:
             driver = registry.for_entry(self._get_entry())
         except Exception:  # noqa: BLE001 — הטופס חשוב יותר מהרמז
             return ""
-        return str(getattr(driver, "GOTO_TARGET_HINT", "") or "")
+        return str(getattr(driver, name, "") or "")
 
     def _editing_subentry_id(self) -> str:
         """מזהה תת-הרשומה הנערכת, או ריק בהוספה.
@@ -459,17 +460,20 @@ class _PathMixin(_EditMixin):
         user_input,
         current: dict,
         *,
-        field: str,
+        field: str | None,
         title_default: str,
         required: bool = False,
+        fixed: dict | None = None,
+        hint: str = "",
     ) -> SubentryFlowResult:
-        """מסך תת-רשומה של נתיב, תווית ושדה אחד.
+        """מסך תת-רשומה של נתיב, תווית, ולכל היותר שדה אחד נוסף.
 
-        תת-תפריט ומעבר לשלוחה נבדלים בשדה הזה ובכותרת שנבנית,
-        וכל השאר — ולידציית הנתיב, עדכון-או-יצירה, ובחירת הנתיב
-        הפנוי הבא — זהה. `field` הוא שם השדה השלישי, `required`
-        קובע אם ריק שלו הוא שגיאה, ו-`title_default` הוא מה
-        שמופיע בכותרת כשאין תווית.
+        תת-תפריט, מעבר לשלוחה ועוזר קולי נבדלים בשדה הזה ובכותרת
+        שנבנית, וכל השאר — ולידציית הנתיב, עדכון-או-יצירה, ובחירת
+        הנתיב הפנוי הבא — זהה. `field` הוא שם השדה השלישי (או None
+        כשאין מה לשאול), `required` קובע אם ריק שלו הוא שגיאה,
+        `fixed` הוא מה שנשמר בלי לשאול, `hint` משלים את התיאור,
+        ו-`title_default` הוא מה שמופיע בכותרת כשאין תווית.
         """
         errors: dict[str, str] = {}
 
@@ -478,16 +482,17 @@ class _PathMixin(_EditMixin):
             path, err = self._validate_path(raw, check_parent=True)
             if not path and not err:
                 err = "invalid_path"
-            value = str(user_input.get(field, "") or "").strip()
+            value = str(user_input.get(field, "") or "").strip() if field else ""
             if err:
                 errors[CONF_MENU_PATH] = err
-            elif required and not value:
+            elif field and required and not value:
                 errors[field] = "target_required"
             else:
                 data = {
                     CONF_MENU_PATH: path,
                     CONF_LABEL: str(user_input.get(CONF_LABEL, "") or "").strip(),
-                    field: value,
+                    **({field: value} if field else {}),
+                    **(fixed or {}),
                 }
                 title = f"{path} — {data[CONF_LABEL] or title_default}"
                 if self._editing_subentry_id():
@@ -508,32 +513,28 @@ class _PathMixin(_EditMixin):
         path = normalize_path(current.get(CONF_MENU_PATH, "")) or next_free_path(
             self._get_entry(), exclude=self._editing_subentry_id()
         )
-        marker = vol.Required if required else vol.Optional
+        schema: dict = {
+            vol.Required(
+                CONF_MENU_PATH, default=to_form(path)
+            ): self._path_selector(path, allow_none=False),
+            vol.Optional(
+                CONF_LABEL,
+                description={"suggested_value": str(current.get(CONF_LABEL, ""))},
+            ): str,
+        }
+        if field:
+            marker = vol.Required if required else vol.Optional
+            schema[
+                marker(
+                    field,
+                    description={"suggested_value": str(current.get(field, "") or "")},
+                )
+            ] = str
         return self.async_show_form(
             step_id=step_id,
             errors=errors,
-            # הרמז מגיע מהדרייבר: משמעות היעד שונה בין הספקים,
-            # ותיאור קבוע אחד היה נכון לאחד ושגוי לשאר.
-            description_placeholders={"hint": self._target_hint()},
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_MENU_PATH, default=to_form(path)
-                    ): self._path_selector(path, allow_none=False),
-                    vol.Optional(
-                        CONF_LABEL,
-                        description={
-                            "suggested_value": str(current.get(CONF_LABEL, ""))
-                        },
-                    ): str,
-                    marker(
-                        field,
-                        description={
-                            "suggested_value": str(current.get(field, "") or "")
-                        },
-                    ): str,
-                }
-            ),
+            description_placeholders={"hint": hint},
+            data_schema=vol.Schema(schema),
         )
 
 
@@ -1766,10 +1767,6 @@ class SubMenuFlowHandler(_PathMixin, ConfigSubentryFlow):
 class GoToFlowHandler(_PathMixin, ConfigSubentryFlow):
     """פריט שמעביר לשלוחה אחרת אצל הספק.
 
-    השימוש המרכזי: שלוחת הסטרימינג של העוזר הקולי. המתקשר מקיש,
-    נוחת בעוזר, ואומר "תפריט ראשי" כדי לחזור — החזרה מוגדרת בשדה
-    "שלוחה למעבר בסיום" של אותה שלוחה אצל הספק.
-
     סוג נפרד ולא שדה בפריט הרגיל: אין כאן מכשיר ואין פעולה.
     """
 
@@ -1782,13 +1779,45 @@ class GoToFlowHandler(_PathMixin, ConfigSubentryFlow):
         )
 
     async def _step(self, step_id, user_input, current) -> SubentryFlowResult:
-        # בלי ברירת מחדל לתווית: היא הייתה מוצעת גם לספק שאין
-        # לו את היעד שהיא מתארת.
-        #
-        # היעד חובה: פריט מעבר בלי שלוחה מוליך לשומקום.
+        # היעד חובה: פריט מעבר בלי שלוחה מוליך לשומקום. הרמז מגיע
+        # מהדרייבר, כי משמעות היעד שונה בין הספקים.
         return await self._simple_step(
             step_id, user_input, current,
             field=CONF_GOTO_TARGET,
             title_default="מעבר לשלוחה",
             required=True,
+            hint=self._driver_text("GOTO_TARGET_HINT"),
+        )
+
+
+class AssistantFlowHandler(_PathMixin, ConfigSubentryFlow):
+    """מקש שמחבר את המתקשר לעוזר הקולי.
+
+    אצל ספק שהיעד של העוזר ידוע מראש אין מה לשאול מלבד המקש והשם.
+    אצל ספק שהעוזר יושב בשלוחה שהמשתמש הקים אצלו — שואלים איזו.
+    """
+
+    async def async_step_user(self, user_input=None) -> SubentryFlowResult:
+        return await self._step("user", user_input, {})
+
+    async def async_step_reconfigure(self, user_input=None) -> SubentryFlowResult:
+        return await self._step(
+            "reconfigure", user_input, dict(self._get_reconfigure_subentry().data)
+        )
+
+    async def _step(self, step_id, user_input, current) -> SubentryFlowResult:
+        target = self._driver_text("ASSIST_GOTO")
+        if target:
+            return await self._simple_step(
+                step_id, user_input, current,
+                field=None,
+                title_default=ASSISTANT_NAME,
+                fixed={CONF_GOTO_TARGET: target},
+            )
+        return await self._simple_step(
+            step_id, user_input, current,
+            field=CONF_GOTO_TARGET,
+            title_default=ASSISTANT_NAME,
+            required=True,
+            hint=self._driver_text("GOTO_TARGET_HINT"),
         )

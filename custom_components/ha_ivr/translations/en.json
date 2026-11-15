@@ -9,9 +9,6 @@
     "pbx_alert_failed": {
       "message": "The PBX alert service did not accept the call. Failed: {failed}."
     },
-    "tts_only": {
-      "message": "Only an alert generated from text is supported. Ready media does not go through the pipeline, so there is nothing to build the playback from."
-    },
     "provider_no_alerts": {
       "message": "The provider {provider} does not support outgoing voice alerts."
     },
@@ -94,39 +91,11 @@
         "title": "Phone provider",
         "description": "Which provider is this entry for?",
         "data": {
-          "provider": "Provider",
-          "intro": "Message played when the menu opens",
-          "provider_ips": "Technoline IP ranges",
-          "allowed_phones": "Allowed caller numbers",
-          "technoline_api_key": "Technoline API key",
-          "technoline_campaign_base": "Campaign API base URL",
-          "technoline_files_base": "Extensions API base URL",
-          "technoline_announce_extension": "Streaming extension for alerts",
-          "technoline_announce_hours": "Do not call at night",
-          "yemot_token": "Yemot management token",
-          "pbx_alert_url": "PBX alert service URL",
-          "pbx_trunk": "Outbound trunk for alerts",
-          "pbx_alert_secret": "Alert service secret",
-          "pbx_audiosocket_host": "Voice assistant listen address (AudioSocket)",
-          "pbx_audiosocket_port": "Voice assistant listen port",
-          "sip_server": "SIP server",
-          "sip_username": "Username",
-          "sip_password": "Password",
-          "sip_port": "Port"
-        },
-        "data_description": {
-          "provider_ips": "Comma separated. Empty disables filtering. Behind a proxy you also need use_x_forwarded_for and trusted_proxies.",
-          "allowed_phones": "Comma separated. Leave empty to allow every caller.",
-          "technoline_api_key": "Required for voice alerts. You must also ask their technical team to approve your server's outbound IP address.",
-          "technoline_announce_extension": "The extension the alert call is connected to. Leave empty for automatic discovery, which works when the account has exactly one streaming extension.",
-          "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
-          "yemot_token": "Needed only for the voice alert service. The menu itself does not use it.",
-          "sip_server": "The address the provider gave for the line, for example sip.example.com.",
-          "sip_port": "5060 unless the provider says otherwise. UDP only."
+          "provider": "Provider"
         }
       },
       "settings": {
-        "title": "Menu settings",
+        "title": "Line settings",
         "data": {
           "intro": "Message played when the menu opens",
           "provider_ips": "Provider IP ranges",
@@ -179,7 +148,7 @@
       "init": {
         "title": "IVR settings",
         "menu_options": {
-          "menu_settings": "Phone menu",
+          "menu_settings": "Line settings",
           "stream_settings": "Voice assistant",
           "regenerate_token": "Regenerate token"
         },
@@ -220,7 +189,7 @@
           "sip_server": "The address the provider gave for the line, for example sip.example.com.",
           "sip_port": "5060 unless the provider says otherwise. UDP only."
         },
-        "title": "Phone menu"
+        "title": "Line settings"
       },
       "stream_settings": {
         "data": {
@@ -246,7 +215,7 @@
         "title": "IVR settings",
         "description": "Home Assistant registers to the SIP line itself and answers its calls. There is no URL to paste at a provider.",
         "menu_options": {
-          "menu_settings": "Phone menu",
+          "menu_settings": "Line settings",
           "stream_settings": "Voice assistant"
         }
       }
@@ -450,26 +419,65 @@
       },
       "entry_type": "Submenu"
     },
+    "assistant": {
+      "title": "Voice assistant",
+      "step": {
+        "user": {
+          "title": "New voice assistant",
+          "description": "A key that connects the caller to the home's voice assistant.\n\n{hint}",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "goto_target": "The assistant's extension at the provider"
+          },
+          "data_description": {
+            "label": "Empty — \"Voice assistant\"."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit voice assistant",
+          "description": "A key that connects the caller to the home's voice assistant.\n\n{hint}",
+          "data": {
+            "menu_path": "Menu position",
+            "label": "Spoken name",
+            "goto_target": "The assistant's extension at the provider"
+          },
+          "data_description": {
+            "label": "Empty — \"Voice assistant\"."
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "Invalid position.",
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu.",
+        "target_required": "The assistant's extension is required."
+      },
+      "initiate_flow": {
+        "user": "Add voice assistant"
+      },
+      "entry_type": "Voice assistant"
+    },
     "goto": {
       "title": "Transfer to extension",
       "step": {
         "user": {
-          "title": "New transfer",
+          "title": "New transfer to extension",
+          "description": "A key that transfers the call to another extension at the provider.\n\nTarget: {hint}",
           "data": {
             "menu_path": "Menu position",
             "label": "Spoken name",
-            "goto_target": "Target"
-          },
-          "description": "Target: {hint}"
+            "goto_target": "Where to transfer"
+          }
         },
         "reconfigure": {
-          "title": "Edit transfer",
+          "title": "Edit transfer to extension",
+          "description": "A key that transfers the call to another extension at the provider.\n\nTarget: {hint}",
           "data": {
             "menu_path": "Menu position",
             "label": "Spoken name",
-            "goto_target": "Target"
-          },
-          "description": "Target: {hint}"
+            "goto_target": "Where to transfer"
+          }
         }
       },
       "error": {
@@ -479,9 +487,9 @@
         "target_required": "A target is required."
       },
       "initiate_flow": {
-        "user": "Add transfer"
+        "user": "Add transfer to extension"
       },
-      "entry_type": "Transfer"
+      "entry_type": "Transfer to extension"
     },
     "contact": {
       "title": "Alert recipient",
@@ -543,7 +551,8 @@
             "menu_path": "Menu position",
             "label": "Spoken name",
             "intro": "Intro sentence"
-          }
+          },
+          "description": "A key that reads out the recent alerts the home sent to the phone."
         },
         "reconfigure": {
           "title": "Edit alerts extension",
@@ -551,13 +560,14 @@
             "menu_path": "Menu position",
             "label": "Spoken name",
             "intro": "Intro sentence"
-          }
+          },
+          "description": "A key that reads out the recent alerts the home sent to the phone."
         }
       },
       "error": {
         "invalid_path": "Invalid position.",
-        "path_in_use": "Position is taken.",
-        "parent_is_item": "A parent is an item, not a submenu."
+        "path_in_use": "That position is taken.",
+        "parent_is_item": "One of the parent levels is an item, not a submenu."
       },
       "initiate_flow": {
         "user": "Add alerts extension"
@@ -645,11 +655,11 @@
     },
     "sip_auth_failed": {
       "title": "The SIP line rejected the login",
-      "description": "The server {server} rejected the username or password, so calls are not answered and alerts are not sent.\n\nCorrect them in the integration settings (phone menu)."
+      "description": "The server {server} rejected the username or password, so calls are not answered and alerts are not sent.\n\nCorrect them in the integration settings (line settings)."
     },
     "sip_unreachable": {
       "title": "The SIP line is not connected",
-      "description": "The server {server} is not answering, so calls are not answered and alerts are not sent. Home Assistant keeps trying, and this message clears by itself once the line is back.\n\nIf it persists, check the server address and port in the integration settings (phone menu)."
+      "description": "The server {server} is not answering, so calls are not answered and alerts are not sent. Home Assistant keeps trying, and this message clears by itself once the line is back.\n\nIf it persists, check the server address and port in the integration settings (line settings)."
     }
   }
 }

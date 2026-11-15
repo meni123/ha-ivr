@@ -34,7 +34,6 @@ HAS_ENDPOINT = False
 SUPPORTS_GOTO = True
 GOTO_ONLY_ASSIST = True
 ASSIST_GOTO = "assist"
-GOTO_TARGET_HINT = "לא בשימוש בקו ישיר — המעבר מחבר ישירות לעוזר הקולי"
 
 SUPPORTS_STREAM = True
 
@@ -42,8 +41,6 @@ SUPPORTS_STREAM = True
 MANY_ENTRIES = True
 
 DEFAULT_PORT = 5060
-
-_KEYS = ("sip_server", "sip_username", "sip_password", "sip_port")
 
 # למה נמען לא קיבל את ההתראה, כפי שזה נכתב ביומן.
 _WHY = {
@@ -195,7 +192,9 @@ async def async_start_transport(hass, entry) -> _Transport:
         if ok:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
             return
-        _LOGGER.warning("SIP line: not registered (%s)", reason)
+        _LOGGER.warning(
+            "SIP line: not registered at %s (%s)", settings["server"], reason
+        )
         ir.async_create_issue(
             hass, DOMAIN, issue_id,
             is_fixable=False,

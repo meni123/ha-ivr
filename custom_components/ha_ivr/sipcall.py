@@ -135,7 +135,10 @@ class SipCallSession:
     async def run(self) -> None:
         call = self._call
         history.record("sip.start", caller=call.caller, call_id=call.call_id[:12])
-        _LOGGER.info("SIP line: call from %s", call.caller[-4:] or "(unidentified)")
+        _LOGGER.info(
+            "SIP line: call from %s on %s",
+            call.caller[-4:] or "(unidentified)", self._entry.title,
+        )
         menu = asyncio.ensure_future(self._menu())
         ended = asyncio.ensure_future(call.ended.wait())
         try:

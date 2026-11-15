@@ -25,6 +25,11 @@ ALERT_LOG: Final = "ha_ivr_alert_log"
 SUBENTRY_TYPE_ITEM: Final = "menu_item"
 SUBENTRY_TYPE_SUBMENU: Final = "submenu"
 SUBENTRY_TYPE_GOTO: Final = "goto"
+# העוזר הקולי הוא מעבר שהיעד שלו ידוע מראש אצל רוב הספקים, ולכן
+# הוא סוג משלו: כפתור משלו, וטופס בלי שדה יעד היכן שאין מה לשאול.
+SUBENTRY_TYPE_ASSISTANT: Final = "assistant"
+# השם שמוקרא למקש של העוזר כשלא ניתן לו שם אחר.
+ASSISTANT_NAME: Final = "עוזר קולי"
 # קבוצת מכשירים: כל הישויות מסוג אחד ביעד. אותו מנגנון גילוי, אלא
 # שהיכולות הן החיתוך של כל החברים.
 SUBENTRY_TYPE_GROUP: Final = "smart_group"

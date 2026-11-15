@@ -33,7 +33,7 @@ from .action_fields import (
 )
 from .const import MENU_DIGITS
 from .policy import available_actions
-from .translations_he import translate_action, translate_option
+from .translations_he import translate_option
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,16 +108,6 @@ class Capability:
 
     def option_label(self, value: str) -> str:
         return translate_option(value)
-
-
-@dataclass
-class PlanEntry:
-    """יכולת שנבחרה, עם המספר שננעל לה."""
-
-    digit: str
-    capability: Capability
-    options: tuple[str, ...] = ()
-    """אפשרויות שנבחרו, בסדר שנקבע. ריק ביכולת שאינה בחירה."""
 
 
 # ----------------------------------------------------------------------

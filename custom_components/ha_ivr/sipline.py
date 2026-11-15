@@ -487,7 +487,9 @@ class SipLine:
                 self.registered = False
                 self.reason = str(err)
                 if failures == 1:
-                    _LOGGER.warning("SIP line: registration failed: %s", err)
+                    _LOGGER.warning(
+                        "SIP line: registration at %s failed: %s", self._server, err
+                    )
                 if err.kind == "unreachable":
                     self._addr = None  # הכתובת תיבדק מחדש בניסיון הבא
                 # כשל רשת רגעי אינו תקלה. סיסמה שגויה — כן, ומיד.

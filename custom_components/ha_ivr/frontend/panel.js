@@ -665,9 +665,14 @@ class HaIvrPanel extends HTMLElement {
             placeholder="${esc(key.name)}" data-focus></label>
         <button class="btn flat">שמירה</button>
       </form>`;
-    const target = key.kind === "goto" && flags.extensions ? `
+    // יעד נערך רק היכן שהמשתמש הוא שקבע אותו: שלוחה שהוא בחר, או
+    // שלוחת העוזר אצל ספק שאין לו יעד קבוע לעוזר.
+    const editable = key.kind === "goto"
+      ? flags.extensions
+      : key.kind === "assistant" && !flags.assistant_target;
+    const target = editable ? `
       <form class="inline" data-form="target" data-path="${esc(key.path)}">
-        <label class="field">לאן עוברים
+        <label class="field">${key.kind === "assistant" ? "השלוחה שמחוברת לעוזר הקולי" : "לאן עוברים"}
           <input type="text" name="target" dir="ltr" value="${esc(key.target)}"></label>
         <button class="btn flat">שמירה</button>
       </form>
@@ -782,7 +787,7 @@ class HaIvrPanel extends HTMLElement {
     if (mode.step === "goto" || mode.step === "assistant") {
       const assistant = mode.step === "assistant";
       return `${back}
-        <h2>${badge}${assistant ? "העוזר הקולי" : "מעבר לשלוחה אחרת"}</h2>
+        <h2>${badge}${assistant ? "עוזר קולי" : "מעבר לשלוחה אחרת"}</h2>
         <form data-form="${mode.step}">
           <label class="field">${assistant ? "השלוחה שמחוברת לעוזר הקולי" : "לאן עוברים"}
             <input type="text" name="target" dir="ltr" data-focus></label>
@@ -804,7 +809,7 @@ class HaIvrPanel extends HTMLElement {
         "מקש שפותח עוד מקשים", 'data-step="submenu"'));
     }
     if (flags.assistant) {
-      choices.push(this._choice("add-assistant", "mdi:account-voice", "לדבר עם העוזר הקולי",
+      choices.push(this._choice("add-assistant", "mdi:account-voice", "עוזר קולי",
         "המתקשר מבקש בקול מה שהוא רוצה"));
     }
     if (flags.extensions) {
@@ -998,7 +1003,7 @@ class HaIvrPanel extends HTMLElement {
         return;
       }
       case "add-assistant":
-        if (this._flags.assistant_target || !this._flags.extensions) await this._add("assistant");
+        if (this._flags.assistant_target) await this._add("assistant");
         else this._setMode({ ...mode, step: "assistant" });
         return;
       case "add-alerts":

@@ -839,6 +839,7 @@ class Entry(fake_ha.FakeEntry):
     def __init__(self, options=None) -> None:
         super().__init__(data={"token": "T", "provider": "sip"}, options=options)
         self.domain = "ha_ivr"
+        self.title = "קו SIP ישיר — 127.0.0.1"
         self.background: list[asyncio.Task] = []
 
     def async_create_background_task(self, hass, coro, name):

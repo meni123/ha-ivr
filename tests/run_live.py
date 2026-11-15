@@ -379,9 +379,11 @@ ok("אין תווית ברירת מחדל למעבר",
 
 # **משמעות היעד שונה בין הספקים.** מזהה שלוחה אצל אחד, ולא
 # בשימוש כלל אצל אחר. תיאור קבוע היה נכון לאחד ושגוי לשאר.
+# מי ששואל על יעד חייב להסביר מהו; מי שאינו שואל אינו נושא רמז מת.
 for _d5 in (_ym, _tl, _vg, _pbx):
-    ok(f"{_d5.DRIVER_ID}: יש רמז ליעד",
-       bool(getattr(_d5, "GOTO_TARGET_HINT", "")))
+    _asks5 = not getattr(_d5, "GOTO_ONLY_ASSIST", False)
+    ok(f"{_d5.DRIVER_ID}: רמז ליעד רק למי ששואל עליו",
+       bool(getattr(_d5, "GOTO_TARGET_HINT", "")) == _asks5)
 ok("הרמז מגיע מהדרייבר לטופס",
    'GOTO_TARGET_HINT' in _cfg5 and '"hint"' in _cfg5)
 
@@ -2948,11 +2950,20 @@ _kflags = next(e for e in editor.entries(_kh) if e["entry_id"] == "entry1")
 ok("הספק מצהיר מה הוא יודע",
    _kflags["assistant"] and _kflags["assistant_target"] == "ha-assist"
    and _kflags["extensions"] and _kflags["alerts"] and _kflags["title"] == "מרכזייה")
-_kadd("6", "assistant")
-ok("עוזר קולי נשמר עם היעד של הספק",
-   _ksub("6").data == {"menu_path": "6", "label": "עוזר קולי",
-                       "goto_target": "ha-assist"})
-ok("ומוצג כעוזר ולא כשלוחה", _klevel()["keys"]["6"]["kind"] == "assistant")
+_kadd("6", "assistant", target="משהו אחר")
+ok("עוזר קולי הוא סוג משלו, עם היעד של הספק",
+   _ksub("6").subentry_type == "assistant"
+   and _ksub("6").data == {"menu_path": "6", "label": "",
+                           "goto_target": "ha-assist"}
+   and _ksub("6").title == "6 — עוזר קולי")
+ok("ומוצג כעוזר ולא כשלוחה",
+   _klevel()["keys"]["6"]["kind"] == "assistant"
+   and _klevel()["keys"]["6"]["name"] == "עוזר קולי"
+   and _klevel()["keys"]["6"]["detail"] == "")
+ok("והמתקשר שומע אותו בשמו",
+   any("עוזר קולי" in line for line in _klevel()["heard"]))
+ok("היעד שלו אינו נערך כשהספק קבע אותו",
+   _kerr(lambda: editor.update(_kh, _ke, "6", target="x")) == "unsupported")
 ok("מעבר בלי יעד נדחה",
    _kerr(lambda: editor.async_add(_kh, _ke, "7", "goto")) == "target_required")
 _kadd("7", "goto", target="200", name="משרד")
@@ -2986,6 +2997,80 @@ ok("אצלו כל מעבר הוא העוזר",
 ok("ספק בלי הזרמה אינו מציע עוזר",
    not _kf["y"]["assistant"] and _kf["y"]["extensions"]
    and _kerr(lambda: editor.async_add(_kh, _ky, "1", "assistant")) == "unsupported")
+
+# --- עוזר קולי: הכפתורים, הטופס וההמרה ---
+from custom_components.ha_ivr import config_flow as _kcf  # noqa: E402
+from custom_components.ha_ivr import config_shared as _kcs  # noqa: E402
+from custom_components.ha_ivr import menu as _kmenu  # noqa: E402
+
+_kt = fake_ha.FakeEntry()
+_kt.entry_id, _kt.data = "t", {"token": "T", "provider": "technoline"}
+_ks = fake_ha.FakeEntry()
+_ks.entry_id, _ks.data = "s", {"token": "T", "provider": "sip"}
+
+
+def _kbuttons(entry):
+    return set(_kcf.IvrConfigFlow.async_get_supported_subentry_types(entry))
+
+
+ok("מרכזייה: עוזר קולי וגם מעבר לשלוחה",
+   {"assistant", "goto"} <= _kbuttons(_ke))
+ok("קו ישיר ו-Vonage: עוזר קולי בלבד",
+   all("assistant" in _kbuttons(e) and "goto" not in _kbuttons(e)
+       for e in (_ks, _kv)))
+ok("ספק בלי הזרמה: מעבר לשלוחה בלבד",
+   "goto" in _kbuttons(_ky) and "assistant" not in _kbuttons(_ky))
+
+
+def _kform(entry, user_input=None):
+    """מסך "עוזר קולי" של הרשומה: השדות שמוצגים, או מה שנשמר."""
+    flow = _kcs.AssistantFlowHandler()
+    flow.hass = _kh
+    flow._get_entry = lambda: entry
+    flow._editing_subentry_id = lambda: ""
+    flow._path_selector = lambda *args, **kwargs: str
+    flow.async_show_form = lambda **kw: kw
+    flow.async_create_entry = lambda **kw: kw
+    return _krun(flow.async_step_user(user_input))
+
+
+def _kfields(result):
+    return [str(getattr(k, "schema", k)) for k in result["data_schema"].schema]
+
+
+ok("בקו ישיר הטופס שואל רק מקש ושם",
+   _kfields(_kform(_ks)) == ["menu_path", "label"])
+_ksaved = _kform(_ks, {"menu_path": "9", "label": ""})
+ok("ושומר את היעד של הספק בלי לשאול",
+   _ksaved["data"] == {"menu_path": "9", "label": "", "goto_target": "assist"}
+   and _ksaved["title"] == "9 — עוזר קולי")
+ok("אצל ספק שהעוזר יושב בשלוחה שלו הטופס שואל איזו",
+   _kfields(_kform(_kt)) == ["menu_path", "label", "goto_target"]
+   and _kform(_kt)["description_placeholders"]["hint"])
+ok("ושם יעד ריק נעצר",
+   _kform(_kt, {"menu_path": "9", "label": ""})["errors"]
+   == {"goto_target": "target_required"})
+
+
+def _kgoto(target):
+    return fake_ha.FakeSubentry(
+        data={"menu_path": "9", "label": "עוזר", "goto_target": target},
+        subentry_type="goto", title="9 — עוזר", subentry_id="g")
+
+
+ok("המרה: בקו ישיר כל מעבר הוא העוזר",
+   _kmenu.assistant_type(_kgoto("מה שנכתב"), registry.get("sip"))
+   == {"menu_path": "9", "label": "עוזר", "goto_target": "assist"})
+ok("המרה: במרכזייה רק מעבר ליעד של העוזר",
+   _kmenu.assistant_type(_kgoto("ha-assist"), registry.get("pbx")) is not None
+   and _kmenu.assistant_type(_kgoto("200"), registry.get("pbx")) is None)
+ok("המרה: ספק בלי יעד קבוע לעוזר נשאר כמות שהוא",
+   _kmenu.assistant_type(_kgoto("/200"), registry.get("technoline")) is None
+   and _kmenu.assistant_type(_kgoto("5"), registry.get("yemot")) is None)
+_kinit = (_core_dir / "__init__.py").read_text("utf-8")
+ok("ההמרה רצה בעדכון, והגרסה של הרשומה מתקדמת",
+   "assistant_type(subentry, driver)" in _kinit
+   and "minor_version=3" in _kinit and _kcf.IvrConfigFlow.MINOR_VERSION == 3)
 
 # --- חדרים ---
 _rooms = _krun(editor.async_rooms(_kh))

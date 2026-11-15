@@ -61,10 +61,6 @@ class LoggedAlert:
     keys: set[str]
     heard: set[str] = field(default_factory=set)
 
-    def belongs_to(self, caller: str) -> bool:
-        k = _key(caller)
-        return bool(k) and k in self.keys
-
 
 def log_alert(hass, entry_id: str, message: str, phones=None) -> None:
     """רישום התראה שנשלחה, להקראה מאוחרת לפי הנמען.

@@ -47,7 +47,9 @@ from .const import (
     DOMAIN_NAMES,
     MENU_DIGITS,
     MENU_MAX_DEPTH,
+    ASSISTANT_NAME,
     SUBENTRY_TYPE_ALERTS,
+    SUBENTRY_TYPE_ASSISTANT,
     SUBENTRY_TYPE_GOTO,
     SUBENTRY_TYPE_GROUP,
     SUBENTRY_TYPE_ITEM,
@@ -67,16 +69,17 @@ _TREE_KINDS = (
     SUBENTRY_TYPE_SMART,
     SUBENTRY_TYPE_GROUP,
     SUBENTRY_TYPE_GOTO,
+    SUBENTRY_TYPE_ASSISTANT,
     SUBENTRY_TYPE_ALERTS,
 )
 
 _TITLES = {
     SUBENTRY_TYPE_SUBMENU: "תת-תפריט",
     SUBENTRY_TYPE_GOTO: "מעבר לשלוחה",
+    SUBENTRY_TYPE_ASSISTANT: ASSISTANT_NAME,
     SUBENTRY_TYPE_ALERTS: "התראות אחרונות",
 }
 
-ASSISTANT_NAME = "עוזר קולי"
 
 
 class EditorError(Exception):
@@ -386,14 +389,12 @@ class _View:
                     "domain": target["domain"], "missing": count == 0,
                     "detail": _count(count, "מכשיר", "מכשירים")}
 
-        if kind == SUBENTRY_TYPE_GOTO:
+        if kind in (SUBENTRY_TYPE_GOTO, SUBENTRY_TYPE_ASSISTANT):
             target = str(data.get(CONF_GOTO_TARGET, "") or "")
-            assistant = self.flags["assistant"] and (
-                not self.flags["extensions"]
-                or bool(target and target == self.flags["assistant_target"])
-            )
+            assistant = kind == SUBENTRY_TYPE_ASSISTANT
             return {**out, "kind": "assistant" if assistant else "goto",
-                    "name": label or "מעבר", "target": target,
+                    "name": label or (ASSISTANT_NAME if assistant else "מעבר"),
+                    "target": target,
                     "detail": "" if assistant else target,
                     "silent": node is None or not self.flags["goto"]}
 
@@ -792,14 +793,15 @@ async def async_add(
         if not flags["assistant" if what == "assistant" else "extensions"]:
             raise EditorError("unsupported", "הספק הזה אינו תומך בכך")
         target = str(args.get("target", "") or "").strip()
+        kind = SUBENTRY_TYPE_GOTO
         if what == "assistant":
-            target = target or flags["assistant_target"]
-            name = name or ASSISTANT_NAME
+            kind = SUBENTRY_TYPE_ASSISTANT
+            # יעד קבוע של הספק גובר על מה שנשלח: אין שם מה לבחור.
+            target = flags["assistant_target"] or target
         if not target:
             raise EditorError("target_required", "צריך יעד למעבר")
         _create(
-            hass, entry, SUBENTRY_TYPE_GOTO,
-            f"{slot} — {name or _TITLES[SUBENTRY_TYPE_GOTO]}",
+            hass, entry, kind, f"{slot} — {name or _TITLES[kind]}",
             {CONF_MENU_PATH: slot, CONF_LABEL: name, CONF_GOTO_TARGET: target},
         )
         return
@@ -961,9 +963,16 @@ def update(hass: HomeAssistant, entry: ConfigEntry, path: object, **args: Any) -
 
     if "target" in args:
         target = str(args.get("target") or "").strip()
-        if spot.kind != "sub" or subentry_kind(spot.sub) != SUBENTRY_TYPE_GOTO:
+        kind = subentry_kind(spot.sub) if spot.kind == "sub" else ""
+        if kind not in (SUBENTRY_TYPE_GOTO, SUBENTRY_TYPE_ASSISTANT):
             raise EditorError("not_found", "המקש הזה אינו מעבר")
-        if not _driver_flags(entry)["extensions"]:
+        flags = _driver_flags(entry)
+        # יעד של עוזר נערך רק היכן שהמשתמש הוא שקבע אותו.
+        if (
+            flags["assistant_target"]
+            if kind == SUBENTRY_TYPE_ASSISTANT
+            else not flags["extensions"]
+        ):
             raise EditorError("unsupported", "הספק הזה אינו תומך בכך")
         if not target:
             raise EditorError("target_required", "צריך יעד למעבר")

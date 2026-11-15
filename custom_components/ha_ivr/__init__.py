@@ -1,4 +1,4 @@
-"""ha_ivr — תפריט טלפוני ועוזר קולי, מול שלושה ספקי טלפוניה.
+"""ha_ivr — תפריט טלפוני ועוזר קולי, מול ספקי טלפוניה או קו SIP ישיר.
 
 אינטגרציה אחת, רשומה לכל ספק. מי שמפעיל שניים רואה שני כרטיסים
 נפרדים תחת שורה אחת, וכל רשומה מחזיקה עץ תפריטים משלה, טוקן
@@ -174,6 +174,30 @@ if _HA:
                     ),
                 )
             hass.config_entries.async_update_entry(entry, minor_version=2)
+        if entry.minor_version < 3:
+            # 1.9: העוזר הקולי הוא סוג משלו ולא מעבר עם יעד מוסכם.
+            from homeassistant.config_entries import ConfigSubentry  # noqa: PLC0415
+
+            from .const import SUBENTRY_TYPE_ASSISTANT  # noqa: PLC0415
+            from .menu import assistant_type  # noqa: PLC0415
+
+            driver = registry.for_entry(entry)
+            for subentry in list(entry.subentries.values()):
+                data = assistant_type(subentry, driver)
+                if data is None:
+                    continue
+                hass.config_entries.async_remove_subentry(entry, subentry.subentry_id)
+                hass.config_entries.async_add_subentry(
+                    entry,
+                    ConfigSubentry(
+                        data=MappingProxyType(data),
+                        subentry_type=SUBENTRY_TYPE_ASSISTANT,
+                        title=subentry.title,
+                        unique_id=subentry.unique_id,
+                        subentry_id=subentry.subentry_id,
+                    ),
+                )
+            hass.config_entries.async_update_entry(entry, minor_version=3)
         return True
 
     def _platforms(driver) -> list:

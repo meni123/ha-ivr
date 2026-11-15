@@ -35,6 +35,7 @@ from . import registry
 from .providers import ensure_registered
 from .config_shared import (
     AlertsFlowHandler,
+    AssistantFlowHandler,
     ContactFlowHandler,
     GoToFlowHandler,
     DeviceFlowHandler,
@@ -51,6 +52,7 @@ from .const import (
     DOMAIN,
     SUBENTRY_TYPE_ALERTS,
     SUBENTRY_TYPE_CONTACT,
+    SUBENTRY_TYPE_ASSISTANT,
     SUBENTRY_TYPE_GOTO,
     SUBENTRY_TYPE_ITEM,
     SUBENTRY_TYPE_GROUP,
@@ -162,7 +164,8 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
     # 2: ישות חכמה ותפריט אזור אוחדו לתוך מכשיר ותת-תפריט.
-    MINOR_VERSION = 2
+    # 3: העוזר הקולי הוא סוג משלו ולא מעבר עם יעד מוסכם.
+    MINOR_VERSION = 3
 
     def __init__(self) -> None:
         self._provider = ""
@@ -228,11 +231,17 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
             SUBENTRY_TYPE_ITEM: DeviceFlowHandler,
             SUBENTRY_TYPE_GROUP: SmartGroupFlowHandler,
             SUBENTRY_TYPE_SUBMENU: SubMenuFlowHandler,
-            SUBENTRY_TYPE_GOTO: GoToFlowHandler,
         }
+        driver = registry.for_entry(config_entry)
+        # כל כפתור מופיע רק אצל ספק שיש לו מה לעשות איתו: עוזר קולי
+        # למי שיש לו ערוץ שמע, ומעבר לשלוחה למי שיש לו שלוחות.
+        if getattr(driver, "SUPPORTS_GOTO", False):
+            if getattr(driver, "SUPPORTS_STREAM", False):
+                types[SUBENTRY_TYPE_ASSISTANT] = AssistantFlowHandler
+            if not getattr(driver, "GOTO_ONLY_ASSIST", False):
+                types[SUBENTRY_TYPE_GOTO] = GoToFlowHandler
         # נמען הוא תת-רשומה רק אצל מי שיודע לחייג. אצל ספק בלי
         # מסלול יוצא הכפתור היה יוצר ישות שנכשלת בשיחה.
-        driver = registry.for_entry(config_entry)
         if driver is not None and getattr(driver, "async_notify", None):
             types[SUBENTRY_TYPE_CONTACT] = ContactFlowHandler
             # שלוחת ההתראות מקריאה מה שנשלח, ולכן היא רלוונטית רק

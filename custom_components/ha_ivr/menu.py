@@ -37,7 +37,9 @@ from .const import (
     SUBENTRY_TYPE_ITEM,
     SUBENTRY_TYPE_SMART,
     SUBENTRY_TYPE_SUBMENU,
+    ASSISTANT_NAME,
     SUBENTRY_TYPE_GOTO,
+    SUBENTRY_TYPE_ASSISTANT,
     SUBENTRY_TYPE_ALERTS,
     SUBENTRY_TYPE_AREA,
     subentry_kind,
@@ -174,7 +176,8 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
         _expand_group(hass, _dig(root, path.split("/")), data)
 
     for subentry in entry.subentries.values():
-        if subentry_kind(subentry) != SUBENTRY_TYPE_GOTO:
+        kind = subentry_kind(subentry)
+        if kind not in (SUBENTRY_TYPE_GOTO, SUBENTRY_TYPE_ASSISTANT):
             continue
         data = subentry.data
         path = normalize_path(data.get(CONF_MENU_PATH))
@@ -182,7 +185,9 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
             continue
         taken.add(path)
         node = _dig(root, path.split("/"))
-        node["say"] = str(data.get(CONF_LABEL, "") or "מעבר")
+        node["say"] = str(data.get(CONF_LABEL, "") or "") or (
+            ASSISTANT_NAME if kind == SUBENTRY_TYPE_ASSISTANT else "מעבר"
+        )
         node["goto"] = str(data.get(CONF_GOTO_TARGET, ""))
 
     for subentry in entry.subentries.values():
@@ -565,6 +570,7 @@ def used_paths(entry: ConfigEntry, exclude: str = "") -> set[str]:
             SUBENTRY_TYPE_GROUP,
             SUBENTRY_TYPE_SUBMENU,
             SUBENTRY_TYPE_GOTO,
+            SUBENTRY_TYPE_ASSISTANT,
             SUBENTRY_TYPE_ALERTS,
         ):
             continue
@@ -614,3 +620,21 @@ def merged_type(subentry) -> tuple[str, dict] | None:
             CONF_INTRO: "",
         }
     return None
+
+
+def assistant_type(subentry, driver) -> dict | None:
+    """הנתונים של מעבר שהוא בעצם העוזר הקולי, או None.
+
+    אצל ספק שאין לו שלוחות כל מעבר הוא העוזר. אצל ספק שיש לו יעד
+    קבוע לעוזר — רק מעבר שמצביע אליו.
+    """
+    if subentry.subentry_type != SUBENTRY_TYPE_GOTO:
+        return None
+    fixed = str(getattr(driver, "ASSIST_GOTO", "") or "")
+    if not fixed or not getattr(driver, "SUPPORTS_STREAM", False):
+        return None
+    data = dict(subentry.data)
+    only = bool(getattr(driver, "GOTO_ONLY_ASSIST", False))
+    if not only and str(data.get(CONF_GOTO_TARGET, "") or "") != fixed:
+        return None
+    return {**data, CONF_GOTO_TARGET: fixed}
