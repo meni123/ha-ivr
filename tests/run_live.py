@@ -3097,6 +3097,14 @@ async def _kdesc(hass):
                 "transition": {"selector": {"number": {"min": 0, "max": 300}}}}},
         }},
         "turn_off": {"name": "Turn off", "fields": {}},
+    }, "climate": {
+        # הטווח בא מהמזגן עצמו, והמזגן שבבדיקה אינו מדווח עליו
+        "set_temperature": {"fields": {"temperature": {
+            "required": True, "selector": {"number": {"min": 0, "max": 250}}}}},
+        # האפשרויות באות מהמזגן עצמו
+        "set_fan_mode": {"fields": {"fan_mode": {
+            "required": True, "selector": {"select": {"options": []}}}}},
+        "browse_media": {"fields": {"q": {"selector": {"text": None}}}},
     }}
 
 
@@ -3153,6 +3161,25 @@ ok("בלי אף ערך אין מקש",
 ok("פעולה שאינה מקבלת ערך אינה מוצעת כאן",
    _kfix(action="turn_off", data={"x": 1}) == "unsupported"
    and _ksub("3", _kx) is None)
+_kreal_services = _kh.services.async_services
+_kh.services.async_services = lambda: {"climate": {
+    "set_temperature": 1, "set_fan_mode": 1, "browse_media": 1}}
+_kclimate = _krun(editor.async_actions(_kh, "climate.s"))["actions"]
+ok("ערך שהמכשיר אינו תומך בו, ועיון במדיה, אינם מוצעים",
+   [a["action"] for a in _kclimate] == ["set_fan_mode"])
+ok("רשימת הבחירה היא מה שהמכשיר עצמו מדווח",
+   [o["value"] for o in _kclimate[0]["fields"][0]["options"]]
+   == ["low", "high", "auto"])
+_kadd("5", "action", entry=_kx, entity_id="climate.s", action="set_fan_mode",
+      data={"fan_mode": "high"})
+ok("בחירה נשמרת, והמקש נקרא בעברית",
+   _ksub("5", _kx).data["action_data"] == {"fan_mode": "high"}
+   and "high" not in _ksub("5", _kx).data["label"])
+ok("ערך שאינו ברשימה נדחה",
+   _kerr(lambda: editor.async_add(
+       _kh, _kx, "6", "action", entity_id="climate.s", action="set_fan_mode",
+       data={"fan_mode": "turbo"})) == "bad_value")
+_kh.services.async_services = _kreal_services
 _kaf.async_get_all_descriptions = _kreal_desc
 
 # --- כמה מקומות יחד, עם החרגות ---

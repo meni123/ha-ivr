@@ -42,6 +42,8 @@ ACTION_NAMES: Final[dict[str, str]] = {
     "set_aux_heat": "חימום עזר",
     # מאווררים
     "set_percentage": "כוונון עוצמה",
+    "increase_speed": "הגברת מהירות",
+    "decrease_speed": "הנמכת מהירות",
     "set_direction": "כיוון סיבוב",
     "oscillate": "תנועה מצד לצד",
     # מדיה
@@ -135,6 +137,7 @@ FIELD_NAMES: Final[dict[str, str]] = {
     "transition": "משך מעבר",
     "flash": "הבהוב",
     "percentage": "אחוז",
+    "percentage_step": "גודל הצעד באחוזים",
     "direction": "כיוון",
     "oscillating": "תנועה מצד לצד",
     "volume_level": "עוצמת קול",

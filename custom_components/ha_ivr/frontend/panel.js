@@ -894,11 +894,11 @@ class HaIvrPanel extends HTMLElement {
         <select name="${name}"><option value=""></option>${options}</select></label>`;
     }
     if (field.type === "number") {
-      const range = field.min !== null && field.max !== null
+      const range = field.min !== null && field.max !== null && field.max < 1e6
         ? ` (${field.min}–${field.max}${field.unit ? ` ${esc(field.unit)}` : ""})` : "";
       const attrs = [
         field.min !== null ? `min="${field.min}"` : "",
-        field.max !== null ? `max="${field.max}"` : "",
+        field.max !== null && field.max < 1e6 ? `max="${field.max}"` : "",
         `step="${field.step || "any"}"`,
       ].join(" ");
       return `<label class="field">${esc(field.label)}${range}${star}

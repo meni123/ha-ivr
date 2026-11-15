@@ -58,6 +58,7 @@ from .const import (
     subentry_kind,
 )
 from .action_fields import (
+    ENTITY_RANGE_ATTRIBUTES,
     action_is_usable,
     async_action_fields,
     async_action_name,
@@ -594,6 +595,15 @@ async def _fixed_actions(hass: HomeAssistant, entity_id: str) -> list[dict]:
             for name, spec in fields.items()
             if field_is_supported(spec)
         ]
+        # שדה שהטווח שלו בא מהמכשיר, והמכשיר אינו מדווח עליו — המכשיר
+        # אינו תומך בו. שדה חובה כזה מוריד את הפעולה כולה.
+        blind = [
+            f for f in shown
+            if f["name"] in ENTITY_RANGE_ATTRIBUTES and f.get("min") is None
+        ]
+        if any(f["required"] for f in blind):
+            continue
+        shown = [f for f in shown if f not in blind]
         if shown:
             found.append({
                 "action": action,
