@@ -79,7 +79,7 @@ DRIVERS = (("yemot", yemot), ("technoline", technoline), ("pbx", pbx))
 
 print("\n== הגבול: הליבה אינה מייבאת אף ספק ==")
 # הגבול נמדד בייבוא ולא באזכור. הערה שמסבירה למה החלטה התקבלה
-# **חייבת** לנקוב בשם הספק שבגללו — זה בדיוק מה שהופך אותה
+# חייבת לנקוב בשם הספק שבגללו — זה בדיוק מה שהופך אותה
 # לשימושית. מה שאסור הוא תלות קוד.
 _core_dir = ROOT / "custom_components" / "ha_ivr"
 _bad = []
@@ -95,13 +95,9 @@ if _bad:
     for _b in _bad:
         print("     ", _b)
 
-# **הליבה אינה מכירה ספק בשם.** מבחן הספק הרביעי: תיקייה חדשה
-# בלבד, אפס נגיעה בליבה. שני הקבצים שמנהלים את השיחה נבדקים
-# במפורש, כי הם אלה שהסתעפו לפי שם ספק עד 0.28.0.
-# **כל הליבה, לא רק המנוע.** האכיפה כיסתה את ארבעת קבצי
-# השיחה, ובזמן שהם היו נקיים `config_flow.py` השווה
-# `driver.DRIVER_ID == "technoline"` בשלוש שורות — כלומר ספק
-# רביעי עדיין חייב עריכה בליבה, רק דרך דלת אחרת.
+# הליבה אינה מכירה ספק בשם. ספק נוסף הוא תיקייה חדשה בלבד,
+# בלי נגיעה בליבה. נבדקים כל קבצי הליבה, לא רק המנוע: גם השוואה
+# של `DRIVER_ID` לשם ספק בטופס ההגדרות היא תלות.
 _leaks = []
 for _f in sorted(_core_dir.glob("*.py")):
     for _num, _line in enumerate(_f.read_text("utf-8").splitlines(), 1):
@@ -117,7 +113,7 @@ for _l in _leaks:
 
 from custom_components.ha_ivr import registry  # noqa: E402
 
-# **Bearer חובה כשיש טוקן.** בדיקה מותנית בקיום הכותרת אינה
+# Bearer חובה כשיש טוקן. בדיקה מותנית בקיום הכותרת אינה
 # שכבה: מי שמחזיק את הטוקן שבנתיב ומשמיט אותה מגיע לאותו מקום.
 _stream_view_src = (_core_dir / "stream.py").read_text("utf-8")
 ok("Bearer אינו מותנה בקיום הכותרת",
@@ -125,7 +121,7 @@ ok("Bearer אינו מותנה בקיום הכותרת",
 ok("כותרת חסרה נדחית",
    'if not hmac.compare_digest(supplied, expected):' in _stream_view_src)
 
-# בקרת גישה במקום אחד. שני עותקים כבר סטו זה מזה פעם אחת.
+# בקרת גישה במקום אחד: שני עותקים סוטים זה מזה.
 from custom_components.ha_ivr import net  # noqa: E402
 ok("ip_allowed קיימת פעם אחת",
    sum('def _ip_allowed' in (_core_dir / f).read_text("utf-8")
@@ -150,7 +146,7 @@ ok("מעבר עובר דרכו ודורש יעד",
 import json as _j  # noqa: E402
 for _pkg in ("ha_ivr",):
     _m = _j.loads((ROOT / "custom_components" / _pkg / "manifest.json").read_text("utf-8"))
-    ok("ha_ivr: תיעוד אינו מצביע לריפו הישן",
+    ok("ha_ivr: התיעוד מצביע לריפו של האינטגרציה",
        "meni123/ha-yemot" not in _m.get("documentation", ""))
 
 # הרשומה ידועה מהטוקן, ולכן רק הדרייבר שלה נשאל. בלי הסינון
@@ -166,15 +162,14 @@ ok("שלוש הפקודות נראות בקוד",
    all(f"self._driver.{c}(" in _stream_view_src
        for c in ("clear_command", "hangup_command", "leave_command")))
 
-# ip_errors במקום אחד. אחרי האיחוד יש טופס אחד, ולכן מה שנשמר
-# כאן הוא שהוא קורא למשותפת ולא מגדיר עותק משלו.
+# ip_errors במקום אחד: הטופס קורא למשותפת ואינו מגדיר עותק משלו.
 _flow_src = (_core_dir / "config_flow.py").read_text("utf-8")
 ok("ip_errors אינה משוכפלת", "def _ip_errors" not in _flow_src)
 ok("הטופס קורא למשותפת", "ip_errors(user_input)" in _flow_src)
 
 from custom_components.ha_ivr.providers import technoline as tl_out  # noqa: E402
 
-# **השירות שמפורסם חייב להיות השירות שקיים.** שדה ב-services.yaml
+# השירות שמפורסם חייב להיות השירות שקיים. שדה ב-services.yaml
 # שאינו בסכמה מופיע בבורר של הממשק, ומי שממלא אותו מקבל שגיאת
 # ולידציה בלי הסבר.
 # פענוח מצומצם ולא PyYAML: הבדיקות רצות על פייתון נקי בלי
@@ -194,11 +189,10 @@ _marks = {
 }
 ok("services.yaml תואם לסכמה", _declared == set(_marks))
 ok("message חובה", _marks.get("message") == "Required")
-# **חובה.** הרשימה הקבועה הוחלפה בישויות `notify`, ולכן אין
-# לאן ליפול; השירות הזה קיים למספר שמחושב בזמן ריצה.
+# חובה. לשירות אין רשימת ברירת מחדל: הוא מיועד למספר שמחושב
+# בזמן ריצה, ונמענים קבועים הם ישויות `notify`.
 ok("phones חובה", _marks.get("phones") == "Required")
-# תיאור שירות נקרא בממשק. ציטוט של הודעת שגיאה פנימית שייך
-# ל-CHANGELOG, לא לטופס שהמשתמש רואה.
+# תיאור שירות נקרא בממשק, ולכן אינו מצטט הודעת שגיאה פנימית.
 ok("התיאור אינו מצטט שגיאות מערכת",
    "extra keys" not in _svc_src)
 ok("phones מסומן חובה גם ב-yaml",
@@ -206,7 +200,7 @@ ok("phones מסומן חובה גם ב-yaml",
 
 print("\n== שגיאת ספק מגיעה מתורגמת ==")
 import ast as _ast  # noqa: E402
-# **ההמרה חייבת להיות במסלול המשותף.** ישות `notify` ושירות
+# ההמרה חייבת להיות במסלול המשותף. ישות `notify` ושירות
 # `send_call` מגיעים שניהם ל-`_announce`; תפיסה באחד מהם בלבד
 # משאירה את השני עם `OutboundError` גולמית על המסך.
 _sat_src2 = (_core_dir / "satellite.py").read_text("utf-8")
@@ -227,10 +221,8 @@ for _k in _keyless:
     print("      בלי מפתח:", _k)
 
 print("\n== הקשה שאינה מוגדרת מגיעה אלינו ==")
-# **נמדד בשיחה חיה:** הקשת 5 על תפריט עם 2/3/9 לא הופיעה ביומן
-# כלל. `enabledKeys` מצומצם גורם למרכזייה לבלוע את המקש —
-# ההקשה אינה מגיעה, אין שורה ביומן, והמתקשר שומע שקט מוחלט
-# במקום "בחירה שאינה קיימת".
+# `enabledKeys` מצומצם גורם למרכזייה לבלוע מקש שאינו בתפריט:
+# ההקשה אינה מגיעה, והמתקשר שומע שקט במקום "בחירה שאינה קיימת".
 _tl_src4 = (_core_dir / "providers" / "technoline.py").read_text("utf-8")
 ok("טכנוליין מקבל את כל המקשים", '"enabledKeys": "ALL"' in _tl_src4)
 
@@ -258,14 +250,14 @@ import re as _re0  # noqa: E402
 _HEB0 = _re0.compile("[\u0590-\u05ff]")
 print("\n== קבצי ההפצה ==")
 import json as _json  # noqa: E402
-# **HACS קוראת את `hacs.json` ואת המניפסט בנפרד.** שם שונה בין
+# HACS קוראת את `hacs.json` ואת המניפסט בנפרד. שם שונה בין
 # השניים מוצג שונה בחנות ובכרטיס האינטגרציה, ומי שמחפש לפי מה
 # שראה לא מוצא.
 _hacs = _json.loads((ROOT / "hacs.json").read_text("utf-8"))
 _mani = _json.loads(
     (_core_dir / "manifest.json").read_text("utf-8"))
 ok("hacs.json קיים", bool(_hacs.get("name")))
-# **שני שמות לשני מסכים, בכוונה.** `manifest.name` מוצג בכרטיס
+# שני שמות לשני מסכים, בכוונה. `manifest.name` מוצג בכרטיס
 # אחרי ההתקנה, ואין לו ערך גילוי — חלון "הוספת אינטגרציה" מגיע
 # רק אחרי ש-HACS כבר התקינה. `hacs.name` הוא מה שמופיע בחנות,
 # שם הגילוי באמת קורה, ולכן שמות הספקים שייכים לשם.
@@ -274,14 +266,12 @@ ok("שמות הספקים בחנות",
    all(p in _hacs["name"] for p in ("Yemot", "Technoline", "SIP")))
 # גרסת המינימום חייבת לכסות את פלטפורמת ה-notify (2024.6).
 ok("גרסת HA מוצהרת", "homeassistant" in _hacs)
-# **HACS דורשת `brand/icon.png` במפורש**, ובלעדיו הכרטיס מציג
+# HACS דורשת `brand/icon.png` במפורש, ובלעדיו הכרטיס מציג
 # "icon not available". הגדלים הם של מאגר ה-brands של HA, כדי
 # שאותם קבצים ישרתו גם את ה-PR לשם.
 #
-# **והנתיב הוא בתוך החבילה, לא בשורש הריפו.** הקבצים ישבו
-# ב-`brand/` בשורש וה-action החזיר *"does not contain brands
-# assets at custom_components/ha_ivr/brand/icon.png"* ונפל אל
-# מאגר ה-brands, שאיננו בו. לכן הנתיב נגזר מהחבילה.
+# והנתיב הוא בתוך החבילה, לא בשורש הריפו. בדיקת HACS מחפשת
+# את הקבצים ב-`custom_components/ha_ivr/brand/`.
 import struct as _struct  # noqa: E402
 
 _dims = {}
@@ -295,9 +285,9 @@ for _f in ("icon.png", "icon@2x.png", "logo.png", "logo@2x.png"):
     # רקע שקוף: סוג צבע 6 הוא RGBA, 4 הוא אפור+אלפא.
     ok(f"brand/{_f} עם שקיפות", _raw[25] in (4, 6))
 
-# **האייקון ריבועי ובמידה קבועה; הלוגו נקבע בגובה בלבד.**
-# רוחב הלוגו נגזר מיחס הצורה, ולכן קיבוע שלו פוסל כל עיצוב חדש
-# שאינו באותן פרופורציות — וזה בדיוק מה שקרה בהחלפת הלוגו.
+# האייקון ריבועי ובמידה קבועה; הלוגו נקבע בגובה בלבד.
+# רוחב הלוגו נגזר מיחס הצורה, ולכן קיבוע שלו פוסל כל עיצוב
+# שאינו באותן פרופורציות.
 for _f, _side in (("icon.png", 256), ("icon@2x.png", 512)):
     if _f in _dims:
         ok(f"brand/{_f} — {_dims[_f][0]}×{_dims[_f][1]}, ריבוע {_side}",
@@ -306,7 +296,7 @@ for _f, _hh in (("logo.png", 256), ("logo@2x.png", 512)):
     if _f in _dims:
         _gw, _gh = _dims[_f]
         ok(f"brand/{_f} — גובה {_gh}, לרוחב", _gh == _hh and _gw > _gh)
-# **@2x חייב להיות הכפלה מדויקת**, אחרת האייקון קופץ בגודל בין
+# @2x חייב להיות הכפלה מדויקת, אחרת האייקון קופץ בגודל בין
 # מסך רגיל למסך רטינה.
 for _a, _b in (("icon.png", "icon@2x.png"), ("logo.png", "logo@2x.png")):
     if _a in _dims and _b in _dims:
@@ -317,10 +307,8 @@ ok("אין brand בשורש הריפו", not (ROOT / "brand").exists())
 ok("LICENSE קיים ואינו ריק",
    (ROOT / "LICENSE").exists()
    and "MIT" in (ROOT / "LICENSE").read_text("utf-8"))
-# **HACS דוחה כל מפתח שאינו בסכימה שלה, ולא רק ערך שגוי.**
-# `render_readme` ישב כאן ונראה תמים — ה-action החזיר
-# *"The repository has an invalid 'hacs.json' file"* והריפו נפל
-# בבדיקה. הרשימה היא מה שמתועד ב-hacs.xyz/docs/publish/start.
+# HACS דוחה כל מפתח שאינו בסכימה שלה, ולא רק ערך שגוי.
+# הרשימה היא מה שמתועד ב-hacs.xyz/docs/publish/start.
 _HACS_KEYS = {"name", "content_in_root", "zip_release", "filename",
               "hide_default_branch", "country", "homeassistant",
               "hacs", "persistent_directory"}
@@ -329,12 +317,12 @@ ok("hacs.json בלי מפתח שאינו נתמך", not _extra_hacs)
 for _k in _extra_hacs:
     print("      מפתח שאינו בסכימה:", _k)
 
-# **hassfest דורש סדר: domain, name, ואז אלפביתי.** זו שגיאה
+# hassfest דורש סדר: domain, name, ואז אלפביתי. זו שגיאה
 # קשה אצלו, לא אזהרה.
 _mkeys = list(_mani)
 ok("מפתחות המניפסט ממוינים",
    _mkeys[:2] == ["domain", "name"] and _mkeys[2:] == sorted(_mkeys[2:]))
-# **עברית היא ברירת המחדל.** `README.md` הוא מה שגיטהאב ו-HACS
+# עברית היא ברירת המחדל. `README.md` הוא מה שגיטהאב ו-HACS
 # מציגים, וקהל היעד קורא עברית. האנגלית היא הפניה ממנו.
 _readmes = {}
 for _r in ("README.md", "README.en.md"):
@@ -346,7 +334,7 @@ ok("כל אחד מפנה לשני",
    "README.en.md" in _readmes["README.md"]
    and "README.md" in _readmes["README.en.md"])
 
-# **תמונה שבורה ב-README היא מה שרואים ראשון.** כל קובץ שמופנים
+# תמונה שבורה ב-README היא מה שרואים ראשון. כל קובץ שמופנים
 # אליו חייב להיות בעץ לפני פרסום.
 import re as _reR  # noqa: E402
 _missing_img = [
@@ -359,7 +347,7 @@ ok("כל תמונה שה-README מפנה אליה קיימת", not _missing_img)
 for _x in _missing_img:
     print("      חסר:", _x)
 
-# **הצהרת האחריות אינה קישוט.** התוסף שולט במנעולים ומחייג בתשלום,
+# הצהרת האחריות אינה קישוט. התוסף שולט במנעולים ומחייג בתשלום,
 # ואסור שהסעיף הזה ייעלם בעריכה עתידית.
 for _r, _needle in (("README.md", "הצהרת אחריות"), ("README.en.md", "Disclaimer")):
     ok(f"{_r}: יש הצהרת אחריות", _needle in _readmes[_r])
@@ -368,15 +356,14 @@ print("\n== הטופס אינו מציע מה שאינו קיים ==")
 from custom_components.ha_ivr.providers import (  # noqa: E402
     pbx as _pbx, sip as _sipd, technoline as _tl, yemot as _ym,
 )
-# **"עוזר קולי" הוצע כתווית ברירת מחדל לכל ספק**, כולל לימות
-# שאין לו ערוץ סטרימינג כלל — כלומר הטופס הציע שם למשהו שאינו
-# קיים אצלו.
+# למעבר אין תווית ברירת מחדל: "עוזר קולי" אינו קיים אצל ספק בלי
+# ערוץ סטרימינג, והטופס אינו מציע שם למה שאינו קיים.
 _cfg5 = (_core_dir / "config_shared.py").read_text("utf-8")
 ok("אין תווית ברירת מחדל למעבר",
    'label_default="עוזר קולי"' not in _cfg5)
 
-# **משמעות היעד שונה בין הספקים.** מזהה שלוחה אצל אחד, ולא
-# בשימוש כלל אצל אחר. תיאור קבוע היה נכון לאחד ושגוי לשאר.
+# משמעות היעד שונה בין הספקים. מזהה שלוחה אצל אחד, ולא
+# בשימוש כלל אצל אחר. תיאור קבוע נכון לאחד ושגוי לשאר.
 # מי ששואל על יעד חייב להסביר מהו; מי שאינו שואל אינו נושא רמז מת.
 for _d5 in (_ym, _tl, _sipd, _pbx):
     _asks5 = not getattr(_d5, "GOTO_ONLY_ASSIST", False)
@@ -392,9 +379,8 @@ ok("send_call דוחה ספק בלי מסלול יוצא",
    'translation_key="provider_no_alerts"' in _init5)
 
 print("\n== ה-CI מריץ את מה שהשער מריץ ==")
-# **שער שרץ רק מקומית אינו שער.** אם ה-workflow ישכח בדיקה,
-# היא תיעלם בשקט מכל דחיפה — ואיש לא ישים לב עד שמשהו יישבר
-# אצל משתמש.
+# שער שרץ רק מקומית אינו שער. בדיקה שחסרה ב-workflow אינה
+# רצה באף דחיפה.
 _ci = (ROOT / ".github" / "workflows" / "validate.yml")
 ok("קיים workflow", _ci.exists())
 if _ci.exists():
@@ -410,15 +396,14 @@ if _ci.exists():
     ok("hassfest רץ", "hassfest" in _ci_src)
     ok("HACS רץ", "hacs/action" in _ci_src)
 
-print("\n== מבחן הספק הרביעי ==")
+print("\n== ספק נוסף אינו נוגע בליבה ==")
 from custom_components.ha_ivr.diagnostics import _capabilities, _redact_keys  # noqa: E402
 from custom_components.ha_ivr.providers import (  # noqa: E402
     pbx as _pbx, sip as _sipd, technoline as _tl, yemot as _ym,
 )
 
-# **הדגלים על הדרייבר, לא שם הספק בטופס.** שלוש השוואות מחרוזת
-# ב-`config_flow` היו הדלת השנייה שדרכה ספק רביעי חוזר לחייב
-# עריכה בליבה, בזמן שהמנוע עצמו כבר היה נקי.
+# הדגלים על הדרייבר, לא שם הספק בטופס. השוואת מחרוזת לשם ספק
+# ב-`config_flow` מחייבת עריכה בליבה לכל ספק נוסף.
 ok("האבחון מציג את דגלי הדרייבר",
    isinstance(_capabilities(_pbx), dict) and bool(_capabilities(_pbx)))
 _flow4 = (_core_dir / "config_flow.py").read_text("utf-8")
@@ -430,9 +415,8 @@ ok("טכנוליין מכריז על מה שהוא צריך",
 ok("ימות אינו מכריז על ערוץ",
    not getattr(_ym, "NEEDS_CHANNEL_TOKEN", False))
 
-# **הסתרה לפי דפוס.** רשימת שמות מכסה את הספקים שהיו בה ביום
-# שנכתבה; ספק רביעי שיוסיף מפתח לא ייכלל, ואיש לא ישים לב עד
-# שקובץ אבחון ישותף.
+# הסתרה לפי דפוס. רשימת שמות מכסה רק את הספקים שבה; מפתח של
+# ספק נוסף היה נחשף בקובץ אבחון.
 _opts4 = {"newprovider_secret": "S", "newprovider_phone": "05",
           "intro": "x", "stream_max_minutes": 15}
 _hidden = _redact_keys(_opts4)
@@ -441,7 +425,7 @@ ok("מספר טלפון של ספק כזה מוסתר", "newprovider_phone" in _
 ok("מה שאינו סוד נשאר גלוי",
    "intro" not in _hidden and "stream_max_minutes" not in _hidden)
 
-# הפרוטוקול: DOMAIN היה שריד מהפיצול ואינו נדרש עוד.
+# הפרוטוקול אינו דורש DOMAIN מהדרייבר.
 ok("הפרוטוקול בלי DOMAIN",
    "DOMAIN: str" not in (_core_dir / "registry.py").read_text("utf-8"))
 
@@ -454,9 +438,9 @@ from custom_components.ha_ivr.providers import (  # noqa: E402
     pbx as _pbx, sip as _sipd, technoline as _tl, yemot as _ym,
 )
 
-# **ערך מספרי מההגדרות עובר סיבוב דרך JSON.** אותו שדה חוזר
+# ערך מספרי מההגדרות עובר סיבוב דרך JSON. אותו שדה חוזר
 # כ-15, כ-15.0 או כ-"15.0", ו-`int("15.0")` נופל ב-ValueError
-# — ומפיל את **כל המסך**, לא רק את השדה.
+# — ומפיל את כל המסך, לא רק את השדה.
 for _v, _want in (("15.0", 15.0), (15.0, 15.0), (15, 15.0), ("15", 15.0)):
     ok(f"num מקבל {_v!r}", _cs0.num(_v, 0) == _want)
 ok("num נופל לברירת מחדל", _cs0.num("לא-מספר", 7) == 7.0)
@@ -466,7 +450,7 @@ check("מסך העוזר נבנה עם ערכי מחרוזת",
           {"stream_max_minutes": "15.0", "stream_echo_tail": "0.25"},
           channel_token=True, return_path=True))
 
-# **כתובת הסטרימינג מוצגת רק כשיש מה להדביק.** לימות אין ערוץ,
+# כתובת הסטרימינג מוצגת רק כשיש מה להדביק. לימות אין ערוץ,
 # ובמרכזייה עצמית החיבור מגיע מהדיאלפלן — הצגתה שולחת את המשתמש
 # לחפש שדה שאינו קיים.
 _e0 = types.SimpleNamespace(data={"token": "T"})
@@ -486,9 +470,8 @@ _given = set(_cs0.endpoint_urls(None, _e0, _tl))
 ok("התיאור והערכים תואמים", _holes <= _given)
 
 print("\n== כל פלטפורמה נטענת ==")
-# **פלטפורמה בלי `async_setup_entry` נכשלת בטעינה** ומשאירה את
-# הישויות שלה חסרות, עם שגיאה שמופיעה רק ביומן. זה קרה פעמיים
-# באיחוד — `notify` ואז `select` — ולכן זו בדיקה ולא זכירה.
+# פלטפורמה בלי `async_setup_entry` נכשלת בטעינה ומשאירה את
+# הישויות שלה חסרות, עם שגיאה שמופיעה רק ביומן.
 import importlib as _imp  # noqa: E402
 
 _PLATFORMS = ("sensor", "select", "notify", "assist_satellite")
@@ -503,7 +486,7 @@ for _plat in _PLATFORMS:
     if f"Platform.{_plat.upper()}" in _init_src2:
         ok(f"{_plat}: הקובץ קיים", (_core_dir / f"{_plat}.py").exists())
 
-# **חתימות שהטופס קורא להן.** קריאה עם ארגומנט שאינו בחתימה
+# חתימות שהטופס קורא להן. קריאה עם ארגומנט שאינו בחתימה
 # נופלת ב-TypeError בתוך הטופס, ולא בטעינה.
 import inspect as _insp2  # noqa: E402
 from custom_components.ha_ivr import config_shared as _cs  # noqa: E402
@@ -518,9 +501,8 @@ ok("stream_schema נבנית בפועל", _probe is not None)
 print("\n== כל שדה בטופס מתורגם ==")
 import ast as _ast  # noqa: E402
 import json as _json  # noqa: E402
-# **שדה בלי מחרוזת מוצג כמפתח הגולמי** — `technoline_api_key`
-# במקום "מפתח API של טכנוליין" — ואין שום שגיאה שמסבירה. זה
-# בדיוק מה שקרה כשמסכי ההגדרות אוחדו והמחרוזות שלהם לא עברו.
+# שדה בלי מחרוזת מוצג כמפתח הגולמי — `technoline_api_key`
+# במקום "מפתח API של טכנוליין" — ואין שום שגיאה שמסבירה.
 _form_fields = set()
 for _f in ["config_flow.py", "config_shared.py"] + [
         f"providers/{p}.py" for p in ("yemot", "technoline", "pbx", "sip")]:
@@ -568,7 +550,7 @@ for _lang in ("strings.json", "translations/he.json"):
        {"init", "menu_settings", "stream_settings"} <= _steps)
 
 print("\n== הטופס אינו תלוי ב-async_setup ==")
-# **HA קוראת ל-`async_setup` רק כשנטענת רשומה.** בטופס הראשון
+# HA קוראת ל-`async_setup` רק כשנטענת רשומה. בטופס הראשון
 # עוד אין אחת, ולכן רישום שחי שם בלבד משאיר את בורר הספק ריק —
 # בלי שום שגיאה שתסביר.
 from custom_components.ha_ivr import providers as _provs  # noqa: E402
@@ -596,10 +578,8 @@ for _s in _unguarded:
     print("      ללא רישום:", _s)
 
 print("\n== עץ לכל רשומה, לא לכל דומיין ==")
-# **ההנחה שהוסרה חייבת להישאר מוסרת.** `single_config_entry`
-# הוא דגל במניפסט, לא מבנה — ומי שיוסיף בעוד חצי שנה קריאה לפי
-# דומיין יראה הכל עובד, עד לרשומה השנייה. אז שני תפריטים
-# יתמזגו לאחד, ובלי שום שגיאה.
+# העץ נבנה מרשומה, לא מדומיין. קריאה לפי דומיין עובדת עד
+# לרשומה השנייה, ואז שני תפריטים מתמזגים לאחד בלי שום שגיאה.
 import inspect as _insp  # noqa: E402
 for _fn in (menu.build_config, menu.build_tree):
     _params = list(_insp.signature(_fn).parameters)
@@ -628,7 +608,7 @@ print("\n== שגיאות מתורגמות ==")
 import ast as _ast  # noqa: E402
 import re as _re4  # noqa: E402
 _HEB = _re4.compile("[\u0590-\u05ff]")
-# **מחרוזת בקוד יכולה להיות בשפה אחת בלבד.** שגיאה שמוצגת בממשק
+# מחרוזת בקוד יכולה להיות בשפה אחת בלבד. שגיאה שמוצגת בממשק
 # חייבת מפתח, כדי שתיאמר בעברית למי שממשקו עברית ובאנגלית לשאר.
 import json as _js2  # noqa: E402
 _core = ROOT / "custom_components" / "ha_ivr"
@@ -736,7 +716,7 @@ for _x in _no_step:
 ok("הבדיקה רואה את הטפסים", sum(len(v[2]) for v in _classes.values()) > 10)
 
 print("\n== אין פרטים מזהים בעץ ==")
-# **הריפו ציבורי.** מספר טלפון אמיתי, מפתח, טוקן או נתיב של
+# הריפו ציבורי. מספר טלפון אמיתי, מפתח, טוקן או נתיב של
 # התקנה מסוימת הם דברים שלא ניתן לקחת בחזרה אחרי דחיפה אחת.
 import re as _re3  # noqa: E402
 _LEAK = {
@@ -768,7 +748,7 @@ for _x in _found[:8]:
 print("\n== יומן באנגלית ==")
 import re as _re2  # noqa: E402
 _HEB = _re2.compile("[\u0590-\u05ff]")
-# **היומן נקרא על ידי מי שמדביק שגיאה ל-issue**, ולכן הוא
+# היומן נקרא על ידי מי שמדביק שגיאה ל-issue, ולכן הוא
 # באנגלית. מה שהמתקשר שומע ומה שהמשתמש קורא בממשק נשאר עברית —
 # זו ההפרדה של HA, וזה גם ההיגיון: קהל אחד קורא כל אחד מהם.
 import ast as _ast  # noqa: E402
@@ -791,19 +771,14 @@ ok("אין הודעת יומן בעברית", not _heb_logs)
 for _x in _heb_logs[:5]:
     print("     ", _x)
 
-# ומה ש**כן** חייב להישאר עברית: מה שהמתקשר שומע.
+# ומה שכן חייב להישאר עברית: מה שהמתקשר שומע.
 _spoken = (_core_dir / "translations_he.py").read_text("utf-8")
-ok("ההקראה נשארה עברית", bool(_HEB.search(_spoken)))
+ok("ההקראה בעברית", bool(_HEB.search(_spoken)))
 
-# **`deploy.sh` מחפש את שורת העלייה ביומן.** הדפוס התיישן כאן
-# פעמיים: הסריקה לאנגלית החליפה מילה שהוא חיפש, והאיחוד השאיר
-# אותו על `ha_ivr_core` בזמן שהיומן כותב `ha_ivr`. בשתי הפעמים
-# הוא המתין תשעים שניות והכריז על כישלון בזמן ש-HA עלתה תקין.
-#
-# **הבדיקה עצמה החמיצה את השנייה** — היא קילפה מהדפוס את
-# הקידומת שהתיישנה לפני ההשוואה, כלומר בדקה את מה שנשאר אחרי
-# שהחלק השבור הוסר. לכן היא מרכיבה היום את השורה שתיכתב ביומן
-# ומריצה את הדפוס עליה כרגקס, בדיוק כמו `grep`.
+# `deploy.sh` מחפש את שורת העלייה ביומן. דפוס שאינו תואם לה
+# ממתין עד תום הזמן ומכריז על כישלון בזמן ש-HA עלתה תקין. הבדיקה
+# מרכיבה את השורה שתיכתב ביומן ומריצה עליה את הדפוס כרגקס, כמו
+# `grep`.
 _boot = (_core_dir / "__init__.py").read_text("utf-8")
 _deploy = (ROOT / "deploy.sh").read_text("utf-8")
 _needle = _deploy.split('grep -m1 "')[1].split('"')[0]
@@ -812,10 +787,9 @@ _logged = _fmt.strip().strip('",').replace("%s", "0.0.0+abcdef12")
 ok("deploy.sh מחפש את מה שהיומן כותב", bool(_re2.search(_needle, _logged)))
 
 print("\n== היגיינת קוד ==")
-# שלוש הבדיקות נולדו מסקירה אחת שמצאה את שלושתן בפועל: שורת יומן
-# עם `%s` בלי ארגומנט (נכשלת ברגע הרישום עצמו — TypeError במקום
-# ההודעה), `_LOGGER` שהוגדר פעמיים באותו מודול, ומחרוזת תיעוד
-# יתומה באמצע קובץ — כולן צלקות של איחוד קבצים.
+# שלוש בדיקות: שורת יומן עם `%s` בלי ארגומנט (TypeError ברגע
+# הרישום במקום ההודעה), שם שמוגדר פעמיים באותו מודול, ומחרוזת
+# תיעוד יתומה באמצע קובץ.
 
 # --- מציין מיקום בלי ארגומנט ---
 _PLACEHOLDER = _re2.compile(r"%(?:\((\w+)\))?[-#0 +]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[diouxXeEfFgGcrsa]")
@@ -869,7 +843,7 @@ for _x in _dups[:5]:
     print("     ", _x)
 
 # --- מחרוזת תיעוד יתומה ---
-# בתוך מחלקה, מחרוזת **צמודה להשמה** היא תיעוד שדה — הסגנון של
+# בתוך מחלקה, מחרוזת צמודה להשמה היא תיעוד שדה — הסגנון של
 # `registry.py` ו-`tree.py`. כל מחרוזת חשופה אחרת באמצע קובץ היא
 # שריד עריכה.
 _orphans = []
@@ -946,12 +920,12 @@ for _pkg in ("ha_ivr",):
     _he = (_dir / "translations" / "he.json").read_text("utf-8")
     _en = (_dir / "translations" / "en.json").read_text("utf-8")
 
-    # **`strings.json` הוא מקור האמת של HA, והוא אנגלית.** שפות
+    # `strings.json` הוא מקור האמת של HA, והוא אנגלית. שפות
     # אחרות נגזרות ממנו. קובץ מקור בעברית הופך את הכיוון ומסמן
     # אינטגרציה שנכתבה מחוץ למוסכמה.
     ok(f"{_pkg}: strings.json באנגלית", not _HEB.search(_src))
     ok(f"{_pkg}: en.json תואם ל-strings.json", _src == _en)
-    # קהל היעד עברי, ולכן **כל** מפתח חייב תרגום — מפתח חסר
+    # קהל היעד עברי, ולכן כל מפתח חייב תרגום — מפתח חסר
     # מוצג כמזהה הגולמי בממשק.
     ok(f"{_pkg}: he.json מכסה כל מפתח",
        set(_keys(_json.loads(_src))) == set(_keys(_json.loads(_he))))
@@ -977,7 +951,7 @@ for _pkg in ("ha_ivr",):
 
 from custom_components.ha_ivr.providers import technoline as tl_out  # noqa: E402
 
-# **השירות שמפורסם חייב להיות השירות שקיים.** שדה ב-services.yaml
+# השירות שמפורסם חייב להיות השירות שקיים. שדה ב-services.yaml
 # שאינו בסכמה מופיע בבורר של הממשק, ומי שממלא אותו מקבל שגיאת
 # ולידציה בלי הסבר.
 # פענוח מצומצם ולא PyYAML: הבדיקות רצות על פייתון נקי בלי
@@ -997,19 +971,18 @@ _marks = {
 }
 ok("services.yaml תואם לסכמה", _declared == set(_marks))
 ok("message חובה", _marks.get("message") == "Required")
-# **חובה.** הרשימה הקבועה הוחלפה בישויות `notify`, ולכן אין
-# לאן ליפול; השירות הזה קיים למספר שמחושב בזמן ריצה.
+# חובה. לשירות אין רשימת ברירת מחדל: הוא מיועד למספר שמחושב
+# בזמן ריצה, ונמענים קבועים הם ישויות `notify`.
 ok("phones חובה", _marks.get("phones") == "Required")
-# תיאור שירות נקרא בממשק. ציטוט של הודעת שגיאה פנימית שייך
-# ל-CHANGELOG, לא לטופס שהמשתמש רואה.
+# תיאור שירות נקרא בממשק, ולכן אינו מצטט הודעת שגיאה פנימית.
 ok("התיאור אינו מצטט שגיאות מערכת",
    "extra keys" not in _svc_src)
 ok("phones מסומן חובה גם ב-yaml",
    "required: true" in _svc_src.split("phones:")[1].split("selector:")[0])
 
 print("\n== כל דרייבר עונה על הפרוטוקול ==")
-# מה שהליבה שואלת ספק עם ערוץ סטרימינג. חסר אחד מהם = ההסתעפות
-# חוזרת לליבה בפעם הבאה.
+# מה שהליבה שואלת ספק עם ערוץ סטרימינג. בלי אחד מהם הליבה נאלצת
+# להסתעף לפי ספק.
 for _name, _drv in (("technoline", technoline),):
     for _fn in ("detect", "clear_command", "hangup_command", "leave_command"):
         ok(f"{_name}.{_fn}", callable(getattr(_drv, _fn, None)))
@@ -1030,8 +1003,8 @@ for name, drv in DRIVERS:
     for attr in ("DRIVER_ID", "NAME", "SUPPORTS_GOTO", "SUPPORTS_STREAM",
                  "parse", "respond"):
         ok(f"{name}.{attr}", hasattr(drv, attr))
-    # **אין DOMAIN לספק.** הדומיין אחד, והספק מזוהה ב-DRIVER_ID
-    # ובשדה `provider` שברשומה. השארת DOMAIN הייתה מזמינה השוואה
+    # אין DOMAIN לספק. הדומיין אחד, והספק מזוהה ב-DRIVER_ID
+    # ובשדה `provider` שברשומה. DOMAIN על הדרייבר מזמין השוואה
     # שמתאימה לכל הרשומות.
     ok(f"{name} בלי DOMAIN משלו", not hasattr(drv, "DOMAIN"))
     ok(f"{name}.NAME לתצוגה", bool(getattr(drv, "NAME", "")))
@@ -1041,8 +1014,7 @@ for _, drv in DRIVERS:
     registry.register(drv)
 ok("כולם רשומים",
    registry.registered() == ["pbx", "sip", "technoline", "yemot"])
-# המרשם עונה על מה שהיו רשימות קשיחות ב-const: מי קיים, למי יש
-# סטרימינג, ואיך קוראים לו.
+# המרשם הוא המקור היחיד: מי קיים, למי יש סטרימינג, ואיך קוראים לו.
 ok("שאילתת הסטרימינג על המרשם",
    {d.DRIVER_ID for d in registry.with_stream()}
    == {"pbx", "sip", "technoline"})
@@ -1096,11 +1068,9 @@ hass = fake_ha.FakeHass(
     states={"climate.a": fake_ha.FakeState("cool", friendly_name="מזגן",
                                            unit_of_measurement="°C")},
 )
-# **הספק יושב ב-`data`, לא בדומיין.** מאז שהעץ מזוהה ברשומה,
-# `_handle` מסננת את הרשומות לפי `data["provider"]` — והבדיקה
-# נשארה קובעת `entry.domain`, שדה שנקודת הקצה אינה קוראת. כל
-# חמש הבקשות כאן חזרו 503 "אין רשומה" ועברו, כי `check` בודקת
-# רק שלא נזרקה חריגה. לכן נבדק כאן מהיום גם הקוד שחוזר.
+# הספק יושב ב-`data`, לא בדומיין. `_handle` מסננת את הרשומות
+# לפי `data["provider"]`. `check` בודקת רק שלא נזרקה חריגה, ולכן
+# נבדק גם הקוד שחוזר.
 entry = fake_ha.FakeEntry(
     data={"token": "T", "provider": "yemot"},
     options={"allowed_ips": [], "allowed_phones": []},
@@ -1129,9 +1099,8 @@ from custom_components.ha_ivr.providers import yemot as ym_out  # noqa: E402
 
 ok("clean_phones", clean_phones("050-1234567,tzl:1") == "0501234567,tzl:1")
 
-# תשובת ימות נבדקת בהשוואה ולא בהכלה. `NOT_OK` מכיל `OK`, ולכן
-# הבדיקה הקודמת הכריזה "שיחה יוצאת נשלחה" על שיחה שנדחתה — אותו
-# סוג באג בדיוק כמו ביטוי היציאה שנתפס בתוך מילה ארוכה יותר.
+# תשובת ימות נבדקת בהשוואה ולא בהכלה: `NOT_OK` מכיל `OK`, והכלה
+# מכריזה "נשלחה" על שיחה שנדחתה.
 from custom_components.ha_ivr.providers.yemot import _check_accepted  # noqa: E402
 
 
@@ -1203,14 +1172,11 @@ ok("מזהה ערוץ רק אצל מי שמכריז עליו",
    "stream_channel_token" in _tl and "stream_channel_token" not in _plain)
 ok("נתיב חזרה רק אצל מי שמכריז עליו",
    "stream_return_path" in _tl and "stream_return_path" not in _plain)
-ok("אין עוד בחירת קצב דגימה", "stream_rate" not in (_tl | _plain))
+ok("אין בחירת קצב דגימה בטופס", "stream_rate" not in (_tl | _plain))
 ok("השדות המשותפים בשניהם",
    {"stream_exit", "stream_echo_tail", "stream_tones"} <= (_tl & _plain))
-# חמישה שדות ירדו ב-0.28.0. שלושה מהם עברו לישויות, ושניים לא
-# הגיעו לצינור מעולם: `async_accept_pipeline_from_satellite` אינה
-# מעבירה `noise_suppression_level` ו-`auto_gain_dbfs` כלל. שדה
-# שאין לו משמעות גרוע משדה שלא קיים.
-ok("השדות שירדו אינם בטופס",
+# הטופס מציג רק שדות שמגיעים לצינור. הצינור והרגישות הם ישויות.
+ok("הטופס אינו מציג שדות שאינם מגיעים לצינור",
    not ({"stream_pipeline", "stream_engine", "stream_vad",
          "stream_noise", "stream_gain", "stream_max_calls"} & (_tl | _plain)))
 
@@ -1222,7 +1188,7 @@ check("listen_tone", lambda: audio.listen_tone(8000))
 check("thinking_tone", lambda: audio.thinking_tone(8000))
 check("error_tone", lambda: audio.error_tone(8000))
 check("strip_wav", lambda: audio.strip_wav(b"nope"))
-# **מה שחזר בפועל, לא מה שביקשנו.** `ATTR_PREFERRED_*` הן
+# מה שחזר בפועל, לא מה שביקשנו. `ATTR_PREFERRED_*` הן
 # העדפות ומנוע רשאי להתעלם מהן; הערוצים הם המסוכן — `strip_wav`
 # מחזיר את הגוף כמו שהוא ו-`resample` מתייחס אליו כמונו, כלומר
 # סטריאו מתנגן במהירות כפולה בלי שום שגיאה.
@@ -1254,7 +1220,7 @@ ok("strip_wav על הקראה מזרימה חותך בית יתום",
 ok("wav_data_start מוצא קצב והיסט", audio.wav_data_start(_shdr) == (44100, 44))
 ok("wav_data_start מחכה לכותרת שלמה", audio.wav_data_start(_shdr[:30]) is None)
 ok("wav_data_start מזהה שאינו WAV", audio.wav_data_start(b"ID3" + b"\x00" * 20) == (0, -1))
-ok("strip_wav על קובץ רגיל לא השתנה",
+ok("strip_wav על קובץ רגיל מחזיר את גוף ה-data",
    audio.strip_wav(_hdr) == (b"\x00" * 8, 16000))
 
 # הכפלה עם מסנן: אורך כפול, רציפות בין מסגרות, ושקט נשאר שקט
@@ -1285,7 +1251,7 @@ def _ep_run(probs, silence=1.2):
 
 
 _talk = [0.9] * 100
-# הפסקה של חצי שנייה באמצע משפט — כאן ה-VAD של הצינור חתך מתקשרים
+# הפסקה של חצי שנייה באמצע משפט היא נשימה, לא סוף פקודה
 ok("הפסקה של 0.55 ש׳ באמצע משפט אינה סוף",
    _ep_run(_talk + [0.1] * 55 + _talk) is None)
 # הסתברות מהבהבת לאורך דיבור רציף: שקט מצטבר, אבל אף פעם לא רצוף
@@ -1369,18 +1335,17 @@ ok("ערוץ הסטרימינג רק לספקים שתומכים",
    yemot.SUPPORTS_STREAM is False
    and technoline.SUPPORTS_STREAM is True)
 
-# notify נבדק ונשלל בשיחה חיה 19.8.26: הספק אישר `clear` תוך
-# 140 מ"ש ולא ענה ל-notify כלל. ההמתנה עלתה 5.2 שניות בתשובה
-# הראשונה של כל שיחה, ולכן הפקודה הוסרה.
+# אין פקודת notify: הספק אינו עונה לה, וההמתנה לתשובה מעכבת את
+# התשובה הראשונה בכל שיחה.
 _sat_src = (_core_dir / "satellite.py").read_text("utf-8")
 _stream_src = (_core_dir / "stream.py").read_text("utf-8")
 # ההמתנה היא הערכה לפי אורך ה-PCM; לספק אין דרך לומר "סיימתי".
-ok("notify הוסר לגמרי",
+ok("אין פקודת notify",
    '"action": "notify"' not in _stream_src
    and '"action": "notify"' not in _sat_src)
 
-# הסוקט אינו מכיר עוד את הצינור. זה מה שמפריד בין התחבורה למנוע,
-# ובלעדיו שתי המחלקות מתחילות לזלוג אחת לשנייה.
+# הסוקט אינו מכיר את הצינור. זה מה שמפריד בין התחבורה למנוע,
+# ובלעדיו שתי המחלקות זולגות אחת לשנייה.
 ok("התחבורה אינה מריצה צינור",
    "async_pipeline_from_audio_stream" not in _stream_src
    and "PipelineEventType" not in _stream_src)
@@ -1416,25 +1381,21 @@ for _line in _lines:
     _line.hass = hass
 
 ok("שני קווים", len(_lines) == 2)
-# מזהה הקו הראשון חייב להישאר כפי שהיה ב-0.27.0. שינוי שלו היה
-# יוצר ישות חדשה ומשאיר את הקיימת יתומה במרשם, כלא זמינה.
-ok("מזהה הקו הראשון לא השתנה", _sat.unique_id == "e1_satellite")
+# מזהה הקו הראשון קבוע. שינוי שלו יוצר ישות חדשה ומשאיר את
+# הקיימת יתומה במרשם, כלא זמינה.
+ok("מזהה הקו הראשון קבוע", _sat.unique_id == "e1_satellite")
 ok("לקו השני מזהה משלו", _lines[1].unique_id == "e1_satellite_2")
 ok("שמות נבדלים", _sat.name != _lines[1].name)
-# ANNOUNCE אינו פעולה של קו אלא של חשבון — הוא מחייג דרך הספק
-# ואינו נוגע בסוקט. שני קווים עם היכולת היו שתי דרכים זהות
-# לאותו דבר.
-# **ANNOUNCE ירד מהישות.** לשירות של HA אין שדה נמענים, ולכן
-# הוא יכול היה לומר רק "לרשימה הקבועה" — והרשימה הזו הוחלפה
-# בישויות `notify`. שני משטחים במקום שלושה.
+# ANNOUNCE אינו פעולה של קו אלא של חשבון: הוא מחייג דרך הספק
+# ואינו נוגע בסוקט. לשירות של HA אין שדה נמענים, ולכן הנמענים הם
+# ישויות `notify` והישות אינה חושפת את היכולת.
 ok("הישות אינה חושפת ANNOUNCE",
    not getattr(_sat, "supported_features", 0))
 
 ok("לוויין פנוי בהתחלה", not _sat.busy)
 
 # פורמט ההקראה. בלי בקשה מפורשת הצינור מחזיר mp3, `strip_wav`
-# לא מוצא PCM, והמתקשר שומע צליל תקלה במקום תשובה — בדיוק מה
-# שקרה בשיחת הלוויין הראשונה, 19.8.26.
+# לא מוצא PCM, והמתקשר שומע צליל תקלה במקום תשובה.
 ok("מבקשים WAV", _sat.tts_options["preferred_format"] == "wav")
 ok("מונו 16 ביט",
    _sat.tts_options["preferred_sample_channels"] == 1
@@ -1446,8 +1407,7 @@ ok("בלי שיחה — 16 קילוהרץ",
 _a, _b = _FakeSession(), _FakeSession()
 ok("קשירה ראשונה מצליחה", _sat.attach(_a, 8000))
 ok("קשירה שנייה לאותו קו נדחית", not _sat.attach(_b))
-# זה הרווח של הלוויין על ההרצה הישירה: ההקראה חוזרת בקצב של
-# הספק, ו-resample אינו נוגע בה.
+# ההקראה מתבקשת בקצב של הספק, כך ש-resample אינו נוגע בה.
 ok("הקצב מגיע מהספק ולא קבוע",
    _sat.tts_options["preferred_sample_rate"] == 8000)
 ok("הקו השני פנוי לשיחה השנייה", _lines[1].attach(_b, 8000))
@@ -1475,9 +1435,8 @@ check("אירוע בלי שיחה אינו מפיל",
 _sat.on_chunk(b"\x00" * 320)
 ok("אודיו בלי שיחה אינו מריץ צינור", _sat._run_task is None)
 
-# הצינור ורגישות ה-VAD נקראים מישויות, לא מהטופס. זה מה שהיה
-# שבור בשקט ב-0.27.0: `_resolve_pipeline` קורא מ-`pipeline_entity_id`
-# ולא מההגדרות, ולכן בחירת הצינור בטופס פשוט לא הגיעה לצינור.
+# הצינור ורגישות ה-VAD נקראים מישויות, לא מהטופס:
+# `_resolve_pipeline` קורא מ-`pipeline_entity_id` ולא מההגדרות.
 from homeassistant.helpers import entity_registry as _er  # noqa: E402
 
 _er.async_get(hass).entities[
@@ -1502,11 +1461,10 @@ ok("מזהי הבוררים הם מה שהלוויין מחפש",
    {s._attr_unique_id for s in selects(hass, _entry)}
    == {"e1-pipeline", "e1-vad_sensitivity"})
 
-# --- שלושת הבאגים שנמדדו ביומן ב-20.8.26 ---
+# --- מזהה שיחה, יציאה ופריקה ---
 
-# מזהה שיחה דולף בין מתקשרים. הישות חיה לאורך כל חיי הרשומה,
-# ולכן בלי איפוס בקשירה המתקשר הבא ממשיך את השיחה של הקודם —
-# שתי שיחות טלפון נפרדות רצו תחת אותו conversation_id.
+# מזהה השיחה מתאפס בקשירה. הישות חיה לאורך כל חיי הרשומה, ולכן
+# בלי איפוס המתקשר הבא ממשיך את השיחה של הקודם.
 _c = _FakeSession()
 _sat.attach(_c, 8000)
 _sat._conversation_id = "01M0DZ3TMFW3GV13GS6MP15F85"
@@ -1516,8 +1474,8 @@ ok("מתקשר חדש מקבל מזהה שיחה חדש", _sat._conversation_id 
 _sat.detach(_sat._session)
 
 _sat_src = (_core_dir / "satellite.py").read_text("utf-8")
-# היציאה לתפריט חייבת לעצור את הצינור. נמדד: מילישנייה אחרי
-# ההחלטה נורה intent-start, והמודל ענה תשובה שלמה שנזרקה.
+# היציאה לתפריט עוצרת את הצינור. בלי זה המודל עונה תשובה שלמה
+# שנזרקת.
 ok("יציאה מבטלת את הצינור",
    "await self._cancel_running_pipeline()" in _sat_src)
 ok("אירוע בזמן יציאה נזרק", "if self._leaving:" in _sat_src)
@@ -1571,7 +1529,7 @@ _arun(_no_vad(_sat, _empty_stream()))
 _arun(_base_accept(_sat, _empty_stream()))
 ok("העותק מריץ את הצינור בלי VAD, עם שאר ההגדרות כמו שהן",
    fake_ha.ACCEPTED[0] == fake_ha.AudioSettings(is_vad_enabled=False, silence_seconds=0.7))
-ok("המתודה של HA עצמה לא השתנתה", fake_ha.ACCEPTED[1].is_vad_enabled)
+ok("העותק אינו משנה את המתודה של HA", fake_ha.ACCEPTED[1].is_vad_enabled)
 
 
 async def _other_shape(self, audio_stream):
@@ -1652,13 +1610,12 @@ check("סיכום הרמה אינו מפיל", _sat._report_level)
 ok("הסיכום מאפס לתור הבא", _sat._level_count == 0)
 
 print("\n== התראה קולית מהלוויין ==")
-# הכל מול pbx.tlivr.com/campaignApiDocs.html ומול מה שנמדד ב-20.8.26.
+# לפי pbx.tlivr.com/campaignApiDocs.html.
 from custom_components.ha_ivr.providers import technoline as tl_out  # noqa: E402
 from custom_components.ha_ivr import announce as announce_store  # noqa: E402
 
-# **המסלול שנבחר.** audioText נופל במנוע ההקראה שלהם (20)
-# ו-audioFile אינו נקרא (30) — מה שעובד הוא הפעלת שלוחה, שמחברת
-# את הנמען לערוץ הסטרימינג שלנו. אומת בשיחה חיה, קמפיין 119899.
+# ההתראה מפעילה שלוחה, שמחברת את הנמען לערוץ הסטרימינג שלנו.
+# audioText נכשל במנוע ההקראה של הספק, ו-audioFile אינו נקרא.
 _ann_src = (_core_dir / "providers" / "technoline.py").read_text("utf-8")
 ok("ההתראה מפעילה שלוחה", '"messagesType": "extensionActivation"' in _ann_src)
 ok("audioText אינו נשלח בהתראה", '"audioText"' not in _ann_src.split("async def async_announce")[1])
@@ -1667,14 +1624,13 @@ ok("audioFile אינו נשלח בהתראה", '"audioFile"' not in _ann_src.spl
 # כבר פגה, והשיחה החוזרת הייתה מחברת את הנמען לעוזר בלי הקשר.
 ok("ניסיון חיוג אחד", '"dialRetries": 1' in _ann_src)
 
-# **הנמען מגיע מישות, לא משדה.** `notify.send_message` הוא
+# הנמען מגיע מישות, לא משדה. `notify.send_message` הוא
 # המשטח של HA לשליחת הודעה, וכל מה שנבנה סביב התראות — קבוצות,
 # `alert`, בוררים בבלופרינטים — מגיע דרכו. שירות בדומיין משלנו
 # בלתי נראה לכולם.
-# **פלטפורמה חייבת לשבת בחבילת הספק.** HA מייבאת
-# `<domain>.notify`, ומודול שיושב רק בליבה נכשל ב-
-# `ModuleNotFoundError` — והרשומה כולה אינה נטענת.
-# **`initiate_flow` הוא מה שכתוב על הכפתור.** בלעדיו HA מציגה
+# הפלטפורמה יושבת בחבילת הדומיין. HA מייבאת `<domain>.notify`,
+# ובלי המודול הרשומה כולה אינה נטענת.
+# `initiate_flow` הוא מה שכתוב על הכפתור. בלעדיו HA מציגה
 # כפתור "+" ריק, ואין שום שגיאה שמסבירה למה. כל סוג תת-רשומה
 # חייב אותו, ובשתי השפות.
 import json as _js  # noqa: E402
@@ -1700,8 +1656,8 @@ ok("הפלטפורמות נגזרות מהיכולות",
 ok("נמען רק למי שיודע לחייג",
    'getattr(driver, "async_notify", None) is not None' in _init_src)
 
-# `has_entity_name` מדביק את שם הישות לשם המכשיר. נמען ששמו
-# "מנחם" בשניהם ייצר `notify.mnkhm_mnkhm`.
+# `has_entity_name` מדביק את שם הישות לשם המכשיר. אותו שם בשניהם
+# מייצר מזהה כפול.
 _notify_src = (_core_dir / "notify.py").read_text("utf-8")
 ok("ישות הנמען היא המכשיר עצמו", "self._attr_name = None" in _notify_src)
 
@@ -1710,8 +1666,8 @@ ok("טכנוליין יודע לחייג לנמען", callable(technoline.async_
 # לימות אין ערוץ סטרימינג, ולכן ההתראה שלו עוברת ב-API שלו —
 # אותו משטח, מסלול אחר.
 ok("גם ימות, דרך ה-API שלו", callable(yemot.async_notify))
-# הרשימה הקבועה הוחלפה בישויות, ולכן אין לאן ליפול.
-ok("אין עוד רשימת נמענים קבועה",
+# הנמענים הם ישויות; לדרייבר אין רשימה קבועה.
+ok("אין רשימת נמענים קבועה",
    not hasattr(technoline, "announce_phones"))
 
 # --- send_call לספק שמחייג בעצמו (המרכזייה), וטראנק לזיהוי אחר ---
@@ -1923,7 +1879,7 @@ ok("הטראנקים נקראים מהגשר",
    _with_sess(_s1, lambda: pbx.async_trunks(None, _opts)) == ["main", "backup"])
 ok("הרשימה נשאלת בנתיב /trunks של אותו שרת",
    _s1.urls == ["http://pbx:5000/trunks"])
-ok("גשר ישן בלי /trunks — אין רשימה",
+ok("גשר בלי /trunks — אין רשימה",
    _with_sess(_TrunkSess(get_status=404),
               lambda: pbx.async_trunks(None, _opts)) is None)
 ok("בלי כתובת — אין רשימה",
@@ -1997,12 +1953,12 @@ ok("מספר אחר אינו מתאים", not _p.matches("0501111111"))
 ok("שיחה ממספר אחר אינה תופסת",
    announce_store.claim(_hass3, "e1", "0501111111") is None)
 ok("ההתראה עדיין ממתינה", announce_store.claim(_hass3, "e1", "0501234567") is _p)
-# **נתפסת פעם אחת בלבד.** שיחה שנייה מאותו מספר מקבלת את העוזר,
+# נתפסת פעם אחת בלבד. שיחה שנייה מאותו מספר מקבלת את העוזר,
 # ולא השמעה חוזרת של אותה הודעה.
 ok("נתפסת פעם אחת בלבד",
    announce_store.claim(_hass3, "e1", "0501234567") is None)
 
-# **שתי התראות חיות יחד.** סלוט יחיד היה מאבד את הראשונה: הנמען
+# שתי התראות חיות יחד. סלוט יחיד היה מאבד את הראשונה: הנמען
 # שלה היה מקבל את העוזר הקולי במקום את ההודעה, והשירות היה
 # מדווח "לא נענתה" גם אם ענו.
 _a = announce_store.store(_hass3, "e1", b"a", 8000, "ראשונה", ["0501111111"])
@@ -2012,7 +1968,7 @@ ok("השנייה אינה דורסת את הראשונה",
 ok("והשנייה עדיין שם",
    announce_store.claim(_hass3, "e1", "0502222222") is _b)
 
-# תור FIFO גם לאותו מספר: דריסה היא מה שהתור בא לתקן.
+# תור FIFO גם לאותו מספר: התראה מאוחרת אינה דורסת מוקדמת.
 _x = announce_store.store(_hass3, "e1", b"x", 8000, "מוקדמת", ["0503333333"])
 _y = announce_store.store(_hass3, "e1", b"y", 8000, "מאוחרת", ["0503333333"])
 ok("הראשונה בתור נתפסת ראשונה",
@@ -2020,9 +1976,8 @@ ok("הראשונה בתור נתפסת ראשונה",
 ok("ואחריה השנייה",
    announce_store.claim(_hass3, "e1", "0503333333") is _y)
 
-# **התראה לשני נמענים נתפסת פעמיים.** נמדד בקו: השני הגיע שנייה
-# אחרי הראשון, ההתראה כבר נעלמה מהתור, והוא שמע את צליל ה"דבר
-# עכשיו" של העוזר במקום את ההודעה.
+# התראה לשני נמענים נתפסת פעמיים. אחרת השני מוצא תור ריק
+# ושומע את צליל ה"דבר עכשיו" של העוזר במקום את ההודעה.
 _two = announce_store.store(_hass3, "e1", b"t", 8000, "לשניים",
                             ["0501111111", "0502222222"])
 ok("שני נמענים נספרים", _two.total == 2)
@@ -2073,7 +2028,7 @@ _old = announce_store.store(_hass3, "e1", b"", 8000, "", ["0501234567"], ttl=-1)
 ok("התראה שפגה אינה נתפסת",
    _old.expired and announce_store.claim(_hass3, "e1", "0501234567") is None)
 
-# תקרה: ספק שאינו מחייג היה מצבר התראה לכל אוטומציה שרצה.
+# תקרה: ספק שאינו מחייג מצבר התראה לכל אוטומציה שרצה.
 # הישנה משתחררת בשגיאה ולא נתקעת עד שתפוג.
 _first = announce_store.store(_hass3, "e2", b"1", 8000, "1", ["0501111111"])
 for _i in range(announce_store.MAX_PENDING):
@@ -2086,7 +2041,7 @@ ok("הישנה שהוסרה משוחררת עם שגיאה",
 
 ok("רשומה בלי התראה ממתינה", announce_store.claim(_hass3, "e9", "0501234567") is None)
 
-print("\n== רגרסיות של תיקוני דרג 1 ==")
+print("\n== שתיקה, ביטויי יציאה, נקודה וחתימת הבנייה ==")
 
 entry.domain = "ha_ivr"
 entry.data = {**entry.data, "provider": "yemot"}
@@ -2104,14 +2059,14 @@ def _body(driver: str, query: dict) -> str:
     return getattr(resp, "text", "") or ""
 
 
-# 1.1 — שתיקה בשורש. `is_new_call` נשאר True בשורש לנצח, ולכן
-# מונה החזרות לא נבדק שם כלל והתפריט חזר עד שהמתקשר ניתק.
+# שתיקה בשורש: מונה החזרות נבדק גם שם, אחרת התפריט חוזר עד
+# שהמתקשר מנתק.
 ok("root silence reaches a hangup", "hangup" in _body("yemot", {"s4_": ""}))
 ok("first root replay is not a hangup", "hangup" not in _body("yemot", {"s1_": ""}))
 ok("deep silence still hangs up", "hangup" in _body("yemot", {"s6_1": ""}))
 ok("a real keypress is never a hangup", "hangup" not in _body("yemot", {"s4_": "1"}))
 
-# 1.3 — ביטוי יציאה חייב להסתיים בגבול מילה, אבל לא להתחיל בו:
+# ביטוי יציאה חייב להסתיים בגבול מילה, אבל לא להתחיל בו:
 # בעברית אותיות השימוש נדבקות למילה שאחריהן.
 class _ExitProbe:
     _options = {"stream_exit": "חזור לתפריט, תפריט ראשי, להתראות, ביי"}
@@ -2122,18 +2077,18 @@ ok("plain exit phrase", _exit("חזור לתפריט"))
 ok("exit phrase with punctuation", _exit("חזור לתפריט."))
 ok("exit phrase at end of sentence", _exit("בסדר גמור, ביי"))
 ok("hebrew prefix still matches", _exit("תחזיר אותי לתפריט ראשי"))
-# נצפה בשיחה חיה 19.8.26: המתקשר אמר "דוקטור בייבי" ולא יצא.
+# ביטוי יציאה אינו נתפס בתוך מילה ארוכה ממנו.
 ok("בייבי is not ביי", not _exit("דוקטור בייבי"))
 ok("ביישוב is not ביי", not _exit("תדליק את האור בביישוב"))
 ok("unrelated speech passes", not _exit("כמה מעלות בחוץ"))
 ok("empty speech is safe", not _exit(""))
 
-# 1.2 — הנקודה נעלמת תמיד, אבל נאמרת רק בין ספרות.
+# הנקודה נעלמת תמיד, אבל נאמרת רק בין ספרות.
 ok("sentence period is silent", "נקודה" not in yemot.sanitize("שלום. איך אפשר לעזור"))
 ok("decimal point is spoken", "נקודה" in yemot.sanitize("21.5 מעלות"))
 ok("no period survives either way", "." not in yemot.sanitize("גרסה 2.1.4. סוף."))
 
-# 1.7 — זהות הקוד שרץ, כדי שאבחון לא ייעשה מול העותק הלא נכון.
+# זהות הקוד שרץ, כדי שאבחון לא ייעשה מול העותק הלא נכון.
 import custom_components.ha_ivr as core  # noqa: E402
 
 _stamp = core.build_stamp()
@@ -2298,8 +2253,8 @@ def _pbx_press(path, digit):
     return _json.loads(getattr(resp, "text", "") or "{}")
 
 
-# הכניסה לצומת האיסוף. זה היה הבאג: הצומת אינו תפריט, ולכן נפל
-# למסלול העלה והפעיל את השירות בלי הערך שטרם הוקש.
+# הכניסה לצומת האיסוף. הצומת אינו תפריט, אבל גם אינו עלה: השירות
+# אינו מופעל לפני שהערך הוקש.
 _enter = _pbx_press("1", "4")
 ok("כניסה לצומת איסוף אינה מפעילה את השירות", not _hs3.services.calls)
 ok("אלא מבקשת את הספרה הראשונה", _enter.get("path") == "1/4")
@@ -2437,7 +2392,7 @@ ok("כל הבית פחות מרחב מוחרג",
    ["light.a", "light.b", "light.c"])
 ok("ריק — כל הבית", len(_smart.match_entities(_gh, "light", {})) == 4)
 
-# --- רשומות מלפני 1.9.0 ---
+# --- רשומות שנשמרו בשדות `target_area`, `target_floor`, `target_label` ---
 ok("מרחב בשדה הישן מומר ליעד",
    _smart.stored_target({"target_area": "mtbh", "target_floor": "", "target_label": ""})
    == {"area_id": ["mtbh"]})
@@ -2647,9 +2602,9 @@ ok("והוא מוצע כתת-תפריט לתלייה", "1" in menu.submenu_paths
 
 
 # ======================================================================
-print("\n== איחוד סוגי הפריטים ==")
+print("\n== סוגי הפריטים והמרת סוגים שמורים ==")
 # ======================================================================
-# מכשיר עם תוכנית הוא "תפריט" — אותו עץ כמו ישות חכמה ישנה.
+# מכשיר עם תוכנית הוא תפריט: הענף שלו נבנה מהתוכנית.
 _es.subentries = {"sm": types.SimpleNamespace(
     subentry_type="menu_item", subentry_id="sm", title="1",
     data={"menu_path": "1", "label": "", "entity_id": "climate.s",
@@ -2668,7 +2623,7 @@ ok("ישות חכמה מומרת למכשיר ושומרת את התוכנית",
 _m2 = menu.merged_type(_ae.subentries["area"])
 ok("תפריט אזור מומר לתת-תפריט",
    _m2 == ("submenu", {"menu_path": "1", "label": "סלון", "intro": ""}))
-ok("סוג שלא אוחד אינו מומר",
+ok("קבוצת מכשירים אינה מומרת",
    menu.merged_type(_ae.subentries["g1"]) is None)
 _mig = (ROOT / "custom_components" / "ha_ivr" / "__init__.py").read_text("utf-8")
 ok("ההמרה שומרת את מזהה תת-הרשומה", "subentry_id=subentry.subentry_id" in _mig)
@@ -2677,7 +2632,7 @@ from custom_components.ha_ivr.policy import domain_is_groupable  # noqa: E402
 ok("משימת בינה ומצלמה אינן מוצעות כקבוצה",
    not domain_is_groupable("ai_task") and not domain_is_groupable("camera"))
 ok("אורות כן", domain_is_groupable("light"))
-ok("אין עוד כפתור לישות חכמה ולתפריט אזור",
+ok("אין כפתור הוספה לישות חכמה ולתפריט אזור",
    "SUBENTRY_TYPE_SMART:" not in _cf and "SUBENTRY_TYPE_AREA:" not in _cf)
 
 
