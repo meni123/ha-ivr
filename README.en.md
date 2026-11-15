@@ -40,15 +40,44 @@ with a separate menu tree, token and entities.
 
 ## What it looks like
 
+**The keypad** is a page in the Home Assistant sidebar that draws a
+phone keypad. Each key is what the caller gets when they press it,
+and what they hear is shown beside it. The interface is in Hebrew.
+
 <p align="center">
-  <img src="docs/integration.png" width="720" alt="The integration card">
+  <img src="docs/panel.png" width="720" alt="The keypad">
 </p>
 
-The menu is built from the UI. Pick an entity and a position in the
-tree; the next screen picks the action:
+Click an empty key and choose what it does:
 
 <p align="center">
-  <img src="docs/menu-item.png" width="440" alt="Add menu item form">
+  <img src="docs/panel-add.png" width="720" alt="What happens on a key press">
+</p>
+
+**Device** — pick a device and tick what the caller may do with it.
+When an action has several values, such as HVAC mode or fan speed, a
+second step asks which of them to offer. A key can also set one fixed
+value: "AC to 24", "light to 30 percent".
+
+<p align="center">
+  <img src="docs/panel-device.png" width="720" alt="Adding a device">
+</p>
+
+**Whole room** — one room, several rooms together, a floor or a
+label. Choose which kinds of devices, which devices, and what each
+kind may do. "Add now" skips the choices and takes everything. Only
+actions every device supports are offered, and a device that joins
+the room enters the menu by itself.
+
+<p align="center">
+  <img src="docs/panel-room-devices.png" width="720" alt="Which devices">
+</p>
+
+A key opens on click. Inside it you rename, drag to another key and
+remove:
+
+<p align="center">
+  <img src="docs/panel-inside.png" width="720" alt="Inside a device key">
 </p>
 
 ---
@@ -84,14 +113,16 @@ restart.
 
 ---
 
-### Step 2 · Configure the reverse proxy — mandatory
+### Step 2 · Configure the reverse proxy
+
+**Needed when the provider calls into your server** — Yemot
+HaMashiach and Technoline. Skip it for a direct SIP line or a
+self-hosted PBX.
 
 Your server is not directly on the internet but behind a gateway.
 Without this, Home Assistant sees the gateway's address instead of
 the provider's, **and blocks the provider itself.** The symptom is a
 call that drops with no log line at all.
-
-**As of 2026.8** this moved into the UI:
 
 *Settings → System → Network → HTTP server*
 
@@ -99,20 +130,6 @@ Enable **Trust X-Forwarded-For** and add `127.0.0.1` and `::1` to the
 proxy list. The two entries are the same local address in two
 notations, and both are required. If the gateway runs on another
 machine, add its address.
-
-Upgrading to 2026.8 imports an existing `http:` block into the UI
-automatically, and raises a repair issue asking you to remove it from
-`configuration.yaml`.
-
-**On older versions** — in `configuration.yaml`:
-
-```yaml
-http:
-  use_x_forwarded_for: true
-  trusted_proxies:
-    - 127.0.0.1
-    - ::1
-```
 
 ---
 
@@ -195,7 +212,16 @@ each other.
 
 ### Step 5 · Build the menu
 
-On the integration card, the `+` button offers:
+**On the keypad** — "תפריט טלפוני" in the sidebar. Click an empty key
+and choose what it does, as shown in
+[What it looks like](#what-it-looks-like).
+
+**Or on the integration card**, with Home Assistant's own forms.
+Alert recipients are added there too:
+
+<p align="center">
+  <img src="docs/integration.png" width="720" alt="The integration card">
+</p>
 
 | Type | What it does |
 |---|---|
