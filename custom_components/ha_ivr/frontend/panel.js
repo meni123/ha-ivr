@@ -48,6 +48,12 @@ const DOMAIN_ICONS = {
   automation: "mdi:robot-outline",
 };
 
+// יחידות ש-Home Assistant מדווח עליהן באנגלית.
+const UNITS = {
+  seconds: "שניות", second: "שניות", s: "שניות",
+  minutes: "דקות", minute: "דקות", min: "דקות", hours: "שעות",
+};
+
 // הסדר שבו סוגי המכשירים מופיעים בבורר: מה שמפעילים קודם.
 const DOMAIN_ORDER = [
   "light", "switch", "climate", "cover", "fan", "water_heater", "media_player",
@@ -805,6 +811,7 @@ class HaIvrPanel extends HTMLElement {
       const fields = action.fields.map((f) => this._fieldHtml(f)).join("");
       return `${back}
         <h2>${badge}${esc(action.label)}</h2>
+        <p class="muted">ממלאים רק את מה שהמקש צריך לקבוע. שדה ריק נשאר כמו שהוא במכשיר.</p>
         <form data-form="fixed">
           ${fields}
           <label class="field">שם בטלפון (לא חובה)
@@ -986,7 +993,8 @@ class HaIvrPanel extends HTMLElement {
 
   _fieldHtml(field, value) {
     const name = esc(field.name);
-    const star = field.required ? "" : " (לא חובה)";
+    // רוב השדות רשות, ולכן מסומן רק מה שחובה.
+    const star = field.required ? " (חובה)" : "";
     const given = value === undefined || value === null ? "" : String(value);
     if (field.type === "boolean") {
       return `<label class="check"><input type="checkbox" name="${name}"${value ? " checked" : ""}>
@@ -999,8 +1007,10 @@ class HaIvrPanel extends HTMLElement {
         <select name="${name}"><option value=""></option>${options}</select></label>`;
     }
     if (field.type === "number") {
+      // כל מספר בכיוון משלו, כדי שסימן המינוס והסדר לא יתהפכו.
+      const unit = UNITS[field.unit] || field.unit || "";
       const range = field.min !== null && field.max !== null && field.max < 1e6
-        ? ` (${field.min}–${field.max}${field.unit ? ` ${esc(field.unit)}` : ""})` : "";
+        ? ` (<bdi>${field.min}</bdi> עד <bdi>${field.max}</bdi>${unit ? ` ${esc(unit)}` : ""})` : "";
       const attrs = [
         field.min !== null ? `min="${field.min}"` : "",
         field.max !== null && field.max < 1e6 ? `max="${field.max}"` : "",
@@ -1034,7 +1044,7 @@ class HaIvrPanel extends HTMLElement {
       const found = mode.fixed;
       return `${this._backButton("close")}
         <h2>${esc(found.action.label)}</h2>
-        <p class="muted">${esc(found.name)}</p>
+        <p class="muted">${esc(found.name)}. שדה ריק נשאר כמו שהוא במכשיר.</p>
         <form data-form="edit-values">
           ${found.action.fields.map((f) => this._fieldHtml(f, found.values[f.name])).join("")}
           <div class="actions"><button class="btn">שמירה</button></div>

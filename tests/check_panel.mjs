@@ -117,7 +117,7 @@ ok("מוצע גם מקש עם ערך קבוע", html().includes('data-act="add-f
 await click("add-fixed");
 ok("פעולות עם ערך", last().op === "actions" && html().includes("<b>הדלקה</b>") && html().includes("בהירות · אפקט · הבהוב"));
 await click("add-values", { index: "0" });
-ok("שדות הפעולה", html().includes('type="number" name="brightness_pct"') && html().includes('min="0"') && html().includes('max="100"') && html().includes("(0–100 %)") && html().includes('<option value="rainbow">קשת</option>') && html().includes('type="checkbox" name="flash"'));
+ok("שדות הפעולה", html().includes('type="number" name="brightness_pct"') && html().includes('min="0"') && html().includes('max="100"') && html().includes("(<bdi>0</bdi> עד <bdi>100</bdi> %)") && !html().includes("לא חובה)\n        <input type=\"number\"") && html().includes('<option value="rainbow">קשת</option>') && html().includes('type="checkbox" name="flash"'));
 await submit("fixed", { brightness_pct: "30", effect: "", _name: " אור עמום " });
 ok("ערך קבוע נשלח, ורק מה שמולא", last().op === "add" && last().args.what === "action" && last().args.entity_id === "light.a" && last().args.action === "turn_on" && JSON.stringify(last().args.data) === '{"brightness_pct":"30"}' && last().args.name === "אור עמום");
 await click("empty", { digit: "8" });
