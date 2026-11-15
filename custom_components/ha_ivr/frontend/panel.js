@@ -216,8 +216,13 @@ input[type="text"], input[type="number"], select {
   border: 1px solid var(--divider-color); border-radius: 10px; outline: none;
 }
 input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: var(--primary-color); }
-details { margin-top: 12px; }
-summary { cursor: pointer; color: var(--primary-color); font-size: 14px; padding: 4px 0; }
+h3.withbulk { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bulk { display: inline-flex; gap: 2px; flex: none; }
+.link {
+  border: 0; background: none; color: var(--primary-color); font: inherit; font-size: 12.5px;
+  font-weight: 400; cursor: pointer; padding: 3px 7px; border-radius: 6px;
+}
+.link:hover { background: var(--secondary-background-color); }
 .inline { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
 .inline label.field { flex: 1; margin-bottom: 0; }
 .check { display: flex; align-items: center; gap: 10px; padding: 7px 4px; cursor: pointer; border-radius: 8px; }
@@ -737,20 +742,39 @@ class HaIvrPanel extends HTMLElement {
     }
 
     if (mode.step === "caps") {
+      // כשחוזרים מהשלב הבא, הסימונים נשארים כפי שהיו.
+      const start = mode.idents
+        || mode.found.capabilities.filter((c) => c.checked).map((c) => c.ident);
       const caps = mode.found.capabilities.map((c) => `
         <label class="check"><input type="checkbox" name="cap" value="${esc(c.ident)}"
-          ${c.checked ? "checked" : ""}><span>${esc(c.label)}</span></label>`).join("");
+          ${start.includes(c.ident) ? "checked" : ""}><span>${esc(c.label)}</span></label>`).join("");
       return `${back}
         <h2>${badge}${esc(mode.found.name)}</h2>
         <form data-form="device">
-          <h3>מה המתקשר יוכל לעשות</h3>
+          <h3 class="withbulk"><span>מה המתקשר יוכל לעשות</span>${this._bulk("cap")}</h3>
           ${caps}
           <label class="field" style="margin-top:12px">שם בטלפון (לא חובה)
-            <input type="text" name="name" placeholder="${esc(mode.found.name)}"></label>
-          <div class="actions"><button class="btn">הוספה למקש ${esc(mode.digit)}</button></div>
+            <input type="text" name="name" value="${esc(mode.label || "")}"
+              placeholder="${esc(mode.found.name)}"></label>
+          <div class="actions"><button class="btn" data-caps-btn>${esc(this._capsButton(start))}</button></div>
         </form>
         ${mode.found.fixed ? `<div class="actions"><button class="btn flat" data-act="add-fixed">
           או מקש שקובע ערך מסוים, למשל 24 מעלות</button></div>` : ""}`;
+    }
+
+    if (mode.step === "options") {
+      const sections = this._choices(mode.idents).map((c) => `
+        <h3 class="withbulk"><span>${esc(c.name)}</span>${this._bulk(`opt:${c.ident}`)}</h3>
+        ${c.options.map((o) => `
+          <label class="check"><input type="checkbox" name="opt:${esc(c.ident)}"
+            value="${esc(o.value)}" checked><span>${esc(o.label)}</span></label>`).join("")}`).join("");
+      return `${back}
+        <h2>${badge}${esc(mode.found.name)}</h2>
+        <p class="muted">אילו ערכים להציע למתקשר. מסירים סימון ממה שאין בו צורך.</p>
+        <form data-form="options">
+          <div class="list">${sections}</div>
+          <div class="actions"><button class="btn">הוספה למקש ${esc(mode.digit)}</button></div>
+        </form>`;
     }
 
     if (mode.step === "fixed") {
@@ -810,21 +834,59 @@ class HaIvrPanel extends HTMLElement {
     if (mode.step === "kinds") {
       const room = mode.room;
       const kinds = room.kinds.map((k) => `
-        <label class="check"><input type="checkbox" name="kind" value="${esc(k.domain)}" checked>
+        <label class="check"><input type="checkbox" name="kind" value="${esc(k.domain)}"
+          ${!mode.domains || mode.domains.includes(k.domain) ? "checked" : ""}>
           <span>${esc(k.name)}<small>(${Number(k.count)})</small></span></label>`).join("");
-      const members = room.members.map((m) => `
-        <label class="check"><input type="checkbox" name="exclude" value="${esc(m.entity_id)}">
-          <span>${esc(m.name)}</span></label>`).join("");
+      if (!kinds) {
+        return `${back}
+          <h2>${badge}${esc(room.name)}</h2>
+          <p class="muted">אין כאן מכשירים שאפשר להפעיל בטלפון.</p>`;
+      }
       return `${back}
         <h2>${badge}${esc(room.name)}</h2>
         <form data-form="room">
-          <h3>מה לכלול</h3>
-          ${kinds || '<p class="muted">אין כאן מכשירים שאפשר להפעיל בטלפון.</p>'}
+          <h3 class="withbulk"><span>מה לכלול</span>${this._bulk("kind")}</h3>
+          ${kinds}
           ${level.can_nest ? "" : '<p class="muted">בעומק הזה אפשר לבחור סוג אחד בלבד.</p>'}
-          ${members ? `<details><summary>להשאיר מכשירים בחוץ</summary>
-            <div class="list">${members}</div></details>` : ""}
+          <div class="actions">
+            <button class="btn" data-go="next">המשך</button>
+            <button class="btn flat" data-go="add">הוספה מיד, עם הכול</button>
+          </div>
+          <p class="muted" style="margin-top:10px">בהמשך בוחרים אילו מכשירים ואילו פעולות. «הוספה מיד» מכניסה את כולם, ואפשר להסיר אחר כך מתוך המקש.</p>
+        </form>`;
+    }
+
+    if (mode.step === "members") {
+      const room = mode.room;
+      const out = mode.exclude || [];
+      const sections = room.kinds.filter((k) => mode.domains.includes(k.domain)).map((k) => `
+        <h3 class="withbulk"><span>${esc(k.name)}</span>${this._bulk(`member:${k.domain}`)}</h3>
+        ${room.members.filter((m) => m.domain === k.domain).map((m) => `
+          <label class="check"><input type="checkbox" name="member:${esc(k.domain)}"
+            value="${esc(m.entity_id)}" ${out.includes(m.entity_id) ? "" : "checked"}>
+            <span>${esc(m.name)}</span></label>`).join("")}`).join("");
+      return `${back}
+        <h2>${badge}אילו מכשירים?</h2>
+        <p class="muted">מסירים סימון ממכשיר שלא רוצים לכלול. מכשיר חדש שיתווסף למקום הזה יצטרף מעצמו.</p>
+        <form data-form="members">
+          <div class="list">${sections}</div>
+          <div class="actions"><button class="btn">המשך</button></div>
+        </form>`;
+    }
+
+    if (mode.step === "functions") {
+      const sections = mode.functions.map((k) => `
+        <h3 class="withbulk"><span>${esc(k.name)}</span>${this._bulk(`cap:${k.domain}`)}</h3>
+        ${k.capabilities.map((c) => `
+          <label class="check"><input type="checkbox" name="cap:${esc(k.domain)}"
+            value="${esc(c.ident)}" checked><span>${esc(c.label)}</span></label>`).join("")}`).join("");
+      return `${back}
+        <h2>${badge}מה המתקשר יוכל לעשות?</h2>
+        <form data-form="functions">
+          <div class="list">${sections
+            || '<p class="muted">אין פעולה שכל המכשירים שנבחרו יודעים לעשות.</p>'}</div>
           <label class="field" style="margin-top:12px">שם בטלפון (לא חובה)
-            <input type="text" name="name" placeholder="${esc(room.name)}"></label>
+            <input type="text" name="name" placeholder="${esc(mode.room.name)}"></label>
           <div class="actions"><button class="btn">הוספה למקש ${esc(mode.digit)}</button></div>
         </form>`;
     }
@@ -880,6 +942,34 @@ class HaIvrPanel extends HTMLElement {
       <div class="choices">${choices.join("")}</div>`;
   }
 
+  // "סימון הכול / ביטול הכול" לקבוצת תיבות סימון אחת.
+  _bulk(name) {
+    return `<span class="bulk">
+      <button type="button" class="link" data-act="check-all" data-name="${esc(name)}" data-on="1">סימון הכול</button>
+      <button type="button" class="link" data-act="check-all" data-name="${esc(name)}">ביטול הכול</button></span>`;
+  }
+
+  // היכולות מתוך מה שסומן שיש בהן כמה ערכים לבחור מתוכם.
+  _choices(idents) {
+    return this._mode.found.capabilities.filter(
+      (c) => idents.includes(c.ident) && (c.options || []).length > 1,
+    );
+  }
+
+  _capsButton(idents) {
+    return this._choices(idents).length ? "המשך" : `הוספה למקש ${this._mode.digit}`;
+  }
+
+  // הכפתור אומר מה יקרה: עוד שלב של בחירת ערכים, או הוספה.
+  _syncCapsButton() {
+    const root = this.shadowRoot;
+    const button = root.querySelector("[data-caps-btn]");
+    if (!button || !root.querySelectorAll) return;
+    const idents = [...root.querySelectorAll('input[name="cap"]')]
+      .filter((box) => box.checked).map((box) => box.value);
+    button.textContent = this._capsButton(idents);
+  }
+
   _fieldHtml(field) {
     const name = esc(field.name);
     const star = field.required ? "" : " (לא חובה)";
@@ -919,6 +1009,7 @@ class HaIvrPanel extends HTMLElement {
       <h2>תפריט מהחדרים בבית</h2>
       <p class="muted">כל חדר שתסמנו יקבל מקש, ובתוכו מה שאפשר להפעיל בו. יש ${free} מקשים פנויים.</p>
       <form data-form="build">
+        ${rooms ? `<h3 class="withbulk"><span>חדרים</span>${this._bulk("room")}</h3>` : ""}
         <div class="list">${rooms || '<p class="muted">לא נמצאו חדרים עם מכשירים שאפשר להפעיל.</p>'}</div>
         <div class="actions"><button class="btn">בנייה</button></div>
       </form>`;
@@ -1073,8 +1164,9 @@ class HaIvrPanel extends HTMLElement {
       }
       case "add-back": {
         const before = {
-          caps: "device", fixed: "caps", values: "fixed",
+          caps: "device", options: "caps", fixed: "caps", values: "fixed",
           places: "room", kinds: mode.places ? "places" : "room",
+          members: "kinds", functions: "members",
         }[mode.step] || "what";
         this._setMode({ ...mode, step: before, places: before === "room" ? null : mode.places });
         return;
@@ -1097,7 +1189,7 @@ class HaIvrPanel extends HTMLElement {
         return;
       case "add-device": {
         const found = await this._call("capabilities", { args: { entity_id: data.id } });
-        if (found) this._setMode({ ...mode, step: "caps", found });
+        if (found) this._setMode({ ...mode, step: "caps", found, idents: null, label: "" });
         return;
       }
       case "add-room": {
@@ -1105,7 +1197,15 @@ class HaIvrPanel extends HTMLElement {
         const room = await this._call("place", {
           args: { target: picked.area_id ? { area_id: [picked.area_id] } : {} },
         });
-        if (room) this._setMode({ ...mode, step: "kinds", room, places: null });
+        if (room) this._setMode({ ...mode, step: "kinds", room, places: null, domains: null, exclude: null });
+        return;
+      }
+      case "check-all": {
+        const root = this.shadowRoot;
+        const boxes = root.querySelectorAll
+          ? root.querySelectorAll(`input[type="checkbox"][name="${data.name}"]`) : [];
+        for (const box of boxes) box.checked = Boolean(data.on);
+        this._syncCapsButton();
         return;
       }
       case "add-places": {
@@ -1196,7 +1296,26 @@ class HaIvrPanel extends HTMLElement {
           this._say("סמנו לפחות פעולה אחת.");
           return;
         }
+        if (this._choices(idents).length) {
+          this._setMode({ ...mode, step: "options", idents, label: text("name") });
+          return;
+        }
         await this._add("device", { entity_id: mode.found.entity_id, idents, name: text("name") });
+        return;
+      }
+      case "options": {
+        const options = {};
+        for (const c of this._choices(mode.idents)) {
+          const values = data.getAll(`opt:${c.ident}`);
+          if (!values.length) {
+            this._say(`סמנו לפחות ערך אחד ב«${c.name}».`);
+            return;
+          }
+          options[c.ident] = values;
+        }
+        await this._add("device", {
+          entity_id: mode.found.entity_id, idents: mode.idents, options, name: mode.label,
+        });
         return;
       }
       case "room": {
@@ -1209,8 +1328,51 @@ class HaIvrPanel extends HTMLElement {
           this._say("בעומק הזה אפשר לבחור סוג אחד בלבד.");
           return;
         }
+        if (ev.submitter && ev.submitter.dataset.go === "add") {
+          await this._add("room", { target: mode.room.target, domains, name: "" });
+          return;
+        }
+        this._setMode({ ...mode, step: "members", domains });
+        return;
+      }
+      case "members": {
+        const exclude = [];
+        const kept = [];
+        for (const domain of mode.domains) {
+          const all = mode.room.members.filter((m) => m.domain === domain);
+          const checked = new Set(data.getAll(`member:${domain}`));
+          // סוג שלא נשאר בו אף מכשיר פשוט אינו נכנס.
+          if (!all.some((m) => checked.has(m.entity_id))) continue;
+          kept.push(domain);
+          for (const m of all) if (!checked.has(m.entity_id)) exclude.push(m.entity_id);
+        }
+        if (!kept.length) {
+          this._say("סמנו לפחות מכשיר אחד.");
+          return;
+        }
+        const found = await this._call("place_functions", {
+          args: { target: mode.room.target, exclude, domains: kept },
+        });
+        if (found) this._setMode({ ...mode, step: "functions", exclude, functions: found.kinds });
+        return;
+      }
+      case "functions": {
+        const idents = {};
+        for (const kind of mode.functions) {
+          const picked = data.getAll(`cap:${kind.domain}`);
+          if (picked.length) idents[kind.domain] = picked;
+        }
+        const domains = Object.keys(idents);
+        if (!domains.length) {
+          this._say("סמנו לפחות פעולה אחת.");
+          return;
+        }
+        if (domains.length > 1 && !level.can_nest) {
+          this._say("בעומק הזה אפשר לבחור סוג אחד בלבד.");
+          return;
+        }
         await this._add("room", {
-          target: mode.room.target, exclude: data.getAll("exclude"), domains, name: text("name"),
+          target: mode.room.target, exclude: mode.exclude, domains, idents, name: text("name"),
         });
         return;
       }
@@ -1225,7 +1387,7 @@ class HaIvrPanel extends HTMLElement {
           return;
         }
         const room = await this._call("place", { args: { target } });
-        if (room) this._setMode({ ...mode, step: "kinds", room });
+        if (room) this._setMode({ ...mode, step: "kinds", room, domains: null, exclude: null });
         return;
       }
       case "fixed": {
@@ -1264,6 +1426,10 @@ class HaIvrPanel extends HTMLElement {
   }
 
   _onInput(ev) {
+    if (ev.target.name === "cap") {
+      this._syncCapsButton();
+      return;
+    }
     if (!ev.target.matches || !ev.target.matches("[data-search]")) return;
     this._mode.query = ev.target.value;
     const list = this.shadowRoot.getElementById("devices");

@@ -64,12 +64,17 @@ const hass = {
     if (m.op === "entries") return { entries: [{ entry_id: "e", title: "קו", goto: true, extensions: true, goto_hint: "רמז", assistant: true, assistant_target: m.noTarget ? "" : "ha-assist", alerts: true }, { entry_id: "f", title: "קו ב" }], blocked: ["lock"] };
     if (m.op === "rooms") return { rooms };
     if (m.op === "places") return { floors: [{ id: "f1", name: "קומה א" }], areas: [{ id: "kit", name: "מטבח" }, { id: "liv", name: "סלון" }], labels: [] };
-    if (m.op === "place") return { name: "מטבח", target: m.args.target, kinds: rooms[0].kinds, members: [{ entity_id: "light.a", name: "מנורה", domain: "light" }, { entity_id: "switch.q", name: "<קומקום>", domain: "switch" }] };
+    if (m.op === "place") return { name: "מטבח", target: m.args.target, kinds: rooms[0].kinds, members: [{ entity_id: "light.a", name: "מנורה", domain: "light" }, { entity_id: "switch.q", name: "<קומקום>", domain: "switch" }, { entity_id: "switch.r", name: "תנור", domain: "switch" }] };
+    if (m.op === "place_functions") return { kinds: [
+      { domain: "light", name: "התאורה", capabilities: [{ ident: "turn_on", label: "הדלקה" }, { ident: "turn_off", label: "כיבוי" }] },
+      { domain: "switch", name: "המתג", capabilities: [{ ident: "toggle", label: "החלפת מצב" }] }] };
     if (m.op === "actions") return { entity_id: m.args.entity_id, name: "מנורה", actions: [{ action: "turn_on", label: "הדלקה", fields: [
       { name: "brightness_pct", label: "בהירות", type: "number", required: false, min: 0, max: 100, step: 1, unit: "%" },
       { name: "effect", label: "אפקט", type: "select", required: false, options: [{ value: "rainbow", label: "קשת" }] },
       { name: "flash", label: "הבהוב", type: "boolean", required: false }] }] };
-    if (m.op === "capabilities") return { entity_id: m.args.entity_id, name: "מנורה", fixed: true, capabilities: [{ ident: "turn_on", label: "הדלקה", checked: true }] };
+    if (m.op === "capabilities") return { entity_id: m.args.entity_id, name: "מנורה", fixed: true, capabilities: [
+      { ident: "turn_on", label: "הדלקה", name: "הדלקה", checked: true, options: [] },
+      { ident: "set_fan_mode", label: "מצב מאוורר (2 אפשרויות)", name: "מצב מאוורר", checked: !m.plain, options: [{ value: "low", label: "נמוך" }, { value: "high", label: "<גבוה>" }] }] };
     if (m.op === "level") return levels[m.path];
     if (m.fail) throw { message: "נכשל" };
     return levels[m.view] || levels[""];
@@ -97,7 +102,11 @@ ok("בורר: רק מה שמפעילים", html().includes("מנורה") && !htm
 listeners.input({ target: { matches: () => true, value: "sensor" } });
 ok("חיפוש מוצא חיישן", el._devicesHtml("sensor").includes("sensor.t") && !el._devicesHtml("lock").includes("lock.d"));
 await click("add-device", { id: "light.a" });
-ok("יכולות", html().includes("מה המתקשר יוכל לעשות") && html().includes("הוספה למקש 8"));
+ok("יכולות, עם סימון הכול וביטול הכול", html().includes("מה המתקשר יוכל לעשות") && html().includes("סימון הכול") && html().includes("ביטול הכול") && html().includes('data-name="cap"'));
+ok("יש בחירה עם ערכים — הכפתור אומר המשך", html().includes("data-caps-btn>המשך<"));
+await click("check-all", { name: "cap", on: "1" });
+ok("סימון הכול אינו שובר את המסך", html().includes("מה המתקשר יוכל לעשות"));
+ok("בלי בחירה עם ערכים — הכפתור מוסיף מיד", el._capsButton(["turn_on"]) === "הוספה למקש 8");
 ok("מוצע גם מקש עם ערך קבוע", html().includes('data-act="add-fixed"'));
 await click("add-fixed");
 ok("פעולות עם ערך", last().op === "actions" && html().includes("<b>הדלקה</b>") && html().includes("בהירות · אפקט · הבהוב"));
@@ -113,14 +122,48 @@ await click("add-back");
 ok("חזרה מפעולות עם ערך למכשיר", html().includes("מה המתקשר יוכל לעשות"));
 await submit("device", { cap: ["turn_on"], name: " אור " });
 ok("מכשיר נשלח", last().op === "add" && last().path === "8" && last().args.what === "device" && last().args.entity_id === "light.a" && last().args.name === "אור" && last().view === "");
+await click("empty", { digit: "8" });
+await click("add-step", { step: "device" });
+await click("add-device", { id: "light.a" });
+await submit("device", { cap: ["turn_on", "set_fan_mode"], name: "מאוורר" });
+ok("שלב שני: אילו ערכים להציע", html().includes("אילו ערכים להציע") && html().includes("מצב מאוורר") && html().includes("נמוך") && html().includes("&lt;גבוה&gt;") && html().includes('data-name="opt:set_fan_mode"') && !html().includes("<h3 class=\"withbulk\"><span>הדלקה"));
+const before = sent.length;
+await submit("options", {});
+ok("בלי אף ערך אין הוספה", sent.length === before && html().includes("אילו ערכים להציע"));
+await click("add-back");
+ok("חזרה שומרת את מה שסומן ואת השם", html().includes('value="set_fan_mode"\n          checked') && html().includes('value="מאוורר"'));
+await submit("device", { cap: ["turn_on", "set_fan_mode"], name: "מאוורר" });
+await submit("options", { "opt:set_fan_mode": ["high"] });
+ok("הערכים שנבחרו נשלחים עם המכשיר", last().args.what === "device" && last().args.idents.length === 2 && JSON.stringify(last().args.options) === '{"set_fan_mode":["high"]}' && last().args.name === "מאוורר");
 await click("empty", { digit: "9" });
 await click("add-step", { step: "room" });
 ok("חדרים", html().includes("איזה חדר?") && html().includes("כל הבית"));
 ok("מוצע גם לצרף כמה מקומות", html().includes("כמה מקומות יחד"));
 await click("add-room", { index: "0" });
-ok("חדר: סוגים ומכשירים להשאיר בחוץ", last().op === "place" && last().args.target.area_id[0] === "kit" && html().includes("להשאיר מכשירים בחוץ") && html().includes("&lt;קומקום&gt;"));
-await submit("room", { kind: ["light", "switch"], exclude: ["switch.q"], name: "" });
-ok("חדר נשלח עם ההחרגה", last().args.what === "room" && last().args.target.area_id[0] === "kit" && last().args.domains.length === 2 && last().args.exclude[0] === "switch.q");
+ok("חדר: מה לכלול, המשך או הוספה מיד", last().op === "place" && last().args.target.area_id[0] === "kit" && html().includes("מה לכלול") && html().includes('data-go="next"') && html().includes("הוספה מיד, עם הכול") && html().includes('data-name="kind"'));
+await listeners.submit({ preventDefault() {}, submitter: { dataset: { go: "add" } }, target: { dataset: { form: "room" }, fields: { kind: ["light", "switch"] } } });
+ok("הוספה מיד מכניסה את הסוגים שסומנו, בלי החרגות", last().args.what === "room" && last().args.target.area_id[0] === "kit" && last().args.domains.length === 2 && last().args.exclude === undefined && last().args.idents === undefined);
+await click("empty", { digit: "9" });
+await click("add-step", { step: "room" });
+await click("add-room", { index: "0" });
+await submit("room", { kind: ["light", "switch"] });
+ok("שלב המכשירים: לפי סוג, כולם מסומנים", html().includes("אילו מכשירים?") && html().includes("&lt;קומקום&gt;") && html().includes('data-name="member:switch"') && !html().includes("להשאיר מכשירים בחוץ"));
+await submit("members", {});
+ok("בלי אף מכשיר אין המשך", html().includes("אילו מכשירים?"));
+await submit("members", { "member:light": ["light.a"], "member:switch": ["switch.q"] });
+ok("מה שלא סומן נשלח כהחרגה", last().op === "place_functions" && JSON.stringify(last().args.exclude) === '["switch.r"]' && last().args.domains.length === 2);
+ok("שלב הפעולות: לפי סוג", html().includes("מה המתקשר יוכל לעשות?") && html().includes("החלפת מצב") && html().includes('data-name="cap:light"'));
+await click("add-back");
+ok("חזרה למכשירים שומרת את מה שהוסר", html().includes('value="switch.r" >') || html().includes('value="switch.r" \n'));
+await submit("members", { "member:light": ["light.a"], "member:switch": ["switch.q"] });
+await submit("functions", { "cap:light": ["turn_on"], name: " מטבח קטן " });
+ok("חדר נשלח עם המכשירים והפעולות שנבחרו", last().args.what === "room" && last().args.target.area_id[0] === "kit" && JSON.stringify(last().args.domains) === '["light"]' && JSON.stringify(last().args.idents) === '{"light":["turn_on"]}' && JSON.stringify(last().args.exclude) === '["switch.r"]' && last().args.name === "מטבח קטן");
+await click("empty", { digit: "9" });
+await click("add-step", { step: "room" });
+await click("add-room", { index: "0" });
+await submit("room", { kind: ["light", "switch"] });
+await submit("members", { "member:light": ["light.a"] });
+ok("סוג שלא נשאר בו מכשיר יורד, ואינו החרגה", JSON.stringify(last().args.domains) === '["light"]' && last().args.exclude.length === 0);
 await click("empty", { digit: "9" });
 await click("add-step", { step: "room" });
 await click("add-places");

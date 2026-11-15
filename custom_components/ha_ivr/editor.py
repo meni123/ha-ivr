@@ -453,6 +453,29 @@ def _cap_label(capability) -> str:
     return f"{capability.label} ({detail})" if detail else capability.label
 
 
+def _cap_choice(capability) -> dict:
+    """יכולת כפי שבוחרים אותה בהוספה, עם הערכים שאפשר להציע בה."""
+    return {
+        "ident": capability.ident,
+        "label": _cap_label(capability),
+        "name": capability.label,
+        "options": [
+            {"value": value, "label": capability.option_label(value)}
+            for value in capability.options
+        ] if capability.kind == smart_mod.KIND_CHOICE else [],
+    }
+
+
+def _picked(raw: object) -> dict[str, list[str]]:
+    """בחירות שנשלחו מהלוח כמיפוי של מזהה לרשימה."""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(key): [str(v) for v in values]
+        for key, values in raw.items() if isinstance(values, (list, tuple))
+    }
+
+
 async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = "") -> dict:
     """רמה אחת: המקשים, מה שהמתקשר שומע, ומה אפשר להוסיף."""
     parts = _parts(path)
@@ -532,8 +555,7 @@ async def async_capabilities(hass: HomeAssistant, entity_id: str) -> dict:
         "name": _entity_name(hass, entity_id),
         "capabilities": [
             {
-                "ident": c.ident,
-                "label": _cap_label(c),
+                **_cap_choice(c),
                 "checked": (c is active[0]) if single else index < len(MENU_DIGITS),
             }
             for index, c in enumerate(found)
@@ -773,6 +795,26 @@ async def async_place(hass: HomeAssistant, args: dict) -> dict:
     }
 
 
+async def async_place_functions(hass: HomeAssistant, args: dict) -> dict:
+    """מה אפשר לעשות בכל סוג במקום — מה שמשותף למכשירים שנשארו בו."""
+    target = _place_target(args)
+    wanted = args.get("domains")
+    kinds = []
+    for domain, _count in await smart_mod.async_domains_in(hass, target):
+        if wanted is not None and domain not in set(wanted):
+            continue
+        if domain_needs_confirmation(domain):
+            continue
+        found = await smart_mod.async_discover_group(hass, domain, target)
+        if found:
+            kinds.append({
+                "domain": domain,
+                "name": DOMAIN_NAMES.get(domain, domain),
+                "capabilities": [_cap_choice(c) for c in found[: len(MENU_DIGITS)]],
+            })
+    return {"kinds": kinds}
+
+
 # ----------------------------------------------------------------------
 # כתיבה
 # ----------------------------------------------------------------------
@@ -862,8 +904,14 @@ def add_place_menu(
     return made
 
 
-async def _room_plans(hass: HomeAssistant, target: dict, wanted=None) -> dict[str, list]:
-    """תוכנית לכל סוג מכשיר במקום, מגילוי חי."""
+async def _room_plans(
+    hass: HomeAssistant, target: dict, wanted=None, idents: dict | None = None
+) -> dict[str, list]:
+    """תוכנית לכל סוג מכשיר במקום, מגילוי חי.
+
+    `idents` מצמצם סוג למה שנבחר בו; סוג שאינו שם מקבל את כל מה שמשותף
+    לחברים שלו.
+    """
     plans: dict[str, list] = {}
     for domain, _members in await smart_mod.async_domains_in(hass, target):
         if wanted is not None and domain not in set(wanted):
@@ -871,7 +919,9 @@ async def _room_plans(hass: HomeAssistant, target: dict, wanted=None) -> dict[st
         if domain_needs_confirmation(domain):
             continue
         found = await smart_mod.async_discover_group(hass, domain, target)
-        plan = smart_mod.build_plan(found, [c.ident for c in found][: len(MENU_DIGITS)])
+        keep = set(idents[domain]) if idents and domain in idents else None
+        chosen = [c.ident for c in found if keep is None or c.ident in keep]
+        plan = smart_mod.build_plan(found, chosen[: len(MENU_DIGITS)])
         if plan:
             plans[domain] = plan
     return plans
@@ -974,7 +1024,9 @@ async def async_add(
             data[CONF_ACTION] = only.action
             data[CONF_ACTION_DATA] = {}
         else:
-            data[CONF_PLAN] = smart_mod.build_plan(found, chosen)
+            data[CONF_PLAN] = smart_mod.build_plan(
+                found, chosen, _picked(args.get("options")) or None
+            )
         _create(
             hass, entry, SUBENTRY_TYPE_ITEM,
             f"{slot} — {name or _entity_name(hass, entity_id)}", data,
@@ -1012,7 +1064,9 @@ async def async_add(
 
     if what == "room":
         target = _place_target(args)
-        plans = await _room_plans(hass, target, args.get("domains"))
+        plans = await _room_plans(
+            hass, target, args.get("domains"), _picked(args.get("idents")) or None
+        )
         if not plans:
             raise EditorError("empty_room", "אין כאן מכשירים שאפשר להפעיל בטלפון")
         _place_room(hass, entry, _free_slot(hass, entry, path), name, target, plans)

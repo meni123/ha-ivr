@@ -3219,6 +3219,39 @@ ok("ומי שהוחרג אינו בקבוצה",
    _klevel("", _kx)["keys"]["4"]["detail"] == "מכשיר אחד")
 ok("מקום ריק הוא כל הבית",
    editor._place_target({"target": {}, "exclude": []}) == {})
+
+# --- בחירה שלב אחרי שלב: ערכים למכשיר, פעולות למקום ---
+_kcaps = _krun(editor.async_capabilities(_kh, "climate.s"))["capabilities"]
+_kchoice = next(c for c in _kcaps if c["options"])
+ok("יכולת של בחירה מגיעה עם הערכים שלה ועם שם נקי",
+   [o["value"] for o in _kchoice["options"]] == ["low", "high", "auto"]
+   and _kchoice["name"] and "(" not in _kchoice["name"]
+   and all(o["label"] for o in _kchoice["options"]))
+ok("יכולת שאינה בחירה מגיעה בלי ערכים",
+   any(not c["options"] for c in _kcaps))
+_kadd("7", "device", entry=_kx, entity_id="climate.s",
+      idents=[c["ident"] for c in _kcaps],
+      options={_kchoice["ident"]: ["auto", "high"], "לא קיים": ["x"]})
+_kstored = next(e for e in _ksub("7", _kx).data["plan"]
+                if e["ident"] == _kchoice["ident"])
+ok("רק הערכים שנבחרו נכנסים, בסדר של המכשיר",
+   _kstored["options"] == ["high", "auto"])
+ok("ומה שהוסר רשום, כדי שלא יחזור מעצמו",
+   "low" in (_kstored.get("excluded") or []))
+_kfuncs = _krun(editor.async_place_functions(
+    _kh, {"target": {"area_id": ["kit"]}, "domains": ["switch"]}))["kinds"]
+ok("פעולות לכל סוג במקום, רק לסוגים שהתבקשו",
+   [k["domain"] for k in _kfuncs] == ["switch"]
+   and len(_kfuncs[0]["capabilities"]) > 1
+   and all(c["ident"] and c["label"] for c in _kfuncs[0]["capabilities"]))
+_kone = _kfuncs[0]["capabilities"][0]["ident"]
+_kadd("8", "room", entry=_kx, target={"area_id": ["kit"]},
+      domains=["switch"], idents={"switch": [_kone]})
+ok("רק הפעולות שנבחרו נכנסות למקש של המקום",
+   [e["ident"] for e in _ksub("8", _kx).data["plan"]] == [_kone])
+_kadd("9", "room", entry=_kx, target={"area_id": ["kit"]}, domains=["switch"])
+ok("בלי בחירה — כל מה שמשותף למכשירים",
+   len(_ksub("9", _kx).data["plan"]) == len(_kfuncs[0]["capabilities"]))
 _kfloors.async_get, _klabels.async_get = _kreal_floors, _kreal_labels
 
 _kb = fake_ha.FakeEntry()

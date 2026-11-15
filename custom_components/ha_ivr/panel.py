@@ -100,6 +100,8 @@ async def async_run(hass: HomeAssistant, msg: dict) -> Any:
         return editor.async_places(hass)
     if op == "place":
         return await editor.async_place(hass, args)
+    if op == "place_functions":
+        return await editor.async_place_functions(hass, args)
 
     if op == "add":
         what = str(args.pop("what", ""))
