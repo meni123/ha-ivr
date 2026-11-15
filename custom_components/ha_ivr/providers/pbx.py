@@ -35,7 +35,7 @@ import voluptuous as vol
 
 from .. import history
 from ..model import (
-    Action, CallContext, GoTo, Prompt, Say, Terminal, spell_long_digits,
+    Action, CallContext, GoTo, Prompt, Say, spell_long_digits,
 )
 from ..outbound import OutboundError
 

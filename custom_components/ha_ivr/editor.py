@@ -19,7 +19,12 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import logging
+import secrets
+import time
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
@@ -341,6 +346,7 @@ class _View:
 
         if spot.kind == "implicit":
             return {**out, "kind": "submenu", "name": f"תפריט {path}",
+                    "count": self.filled(parts),
                     "detail": _count(self.filled(parts), "מקש", "מקשים")}
 
         if spot.kind == "option":
@@ -358,6 +364,10 @@ class _View:
                 "ident": str(raw.get("ident", "")),
                 "name": _cap_name(raw),
                 "label": _cap_name(raw),
+                "count": len(_options(self.hass, spot.sub, raw))
+                if kind == smart_mod.KIND_CHOICE else 0,
+                "min": raw.get("min"),
+                "max": raw.get("max"),
                 "detail": _cap_detail(
                     kind,
                     len(_options(self.hass, spot.sub, raw))
@@ -377,6 +387,7 @@ class _View:
 
         if kind == SUBENTRY_TYPE_SUBMENU:
             return {**out, "kind": "submenu", "name": label or f"תפריט {path}",
+                    "count": self.filled(parts),
                     "detail": _count(self.filled(parts), "מקש", "מקשים")}
 
         if kind in (SUBENTRY_TYPE_ITEM, SUBENTRY_TYPE_SMART):
@@ -390,6 +401,7 @@ class _View:
             )
             if kind == SUBENTRY_TYPE_SMART:
                 return {**out, "kind": "device", "name": fallback,
+                        "count": len(_plan(subentry)),
                         "detail": _count(len(_plan(subentry)), "פעולה", "פעולות", feminine=True)}
             stored = data.get(CONF_ACTION_DATA)
             does = translate_action(str(data.get(CONF_ACTION, "") or ""))
@@ -408,6 +420,7 @@ class _View:
             )
             return {**out, "kind": "group", "name": fallback,
                     "domain": target["domain"], "missing": count == 0,
+                    "count": count,
                     "detail": _count(count, "מכשיר", "מכשירים")}
 
         if kind in (SUBENTRY_TYPE_GOTO, SUBENTRY_TYPE_ASSISTANT):
@@ -420,6 +433,24 @@ class _View:
                     "silent": node is None or not self.flags["goto"]}
 
         return {**out, "kind": "alerts", "name": fallback}
+
+
+def _targets(view: _View) -> list[dict]:
+    """כל התפריטים בקו, ליעד של "העברה ל…". הראשי ראשון, אחריו לפי נתיב."""
+    found = [{"path": "", "name": ""}]
+    paths = set()
+    for path in view.layout.owners:
+        parts = tuple(path.split("/"))
+        for depth in range(1, len(parts) + 1):
+            paths.add(parts[:depth])
+    for parts in sorted(paths):
+        if len(parts) >= MENU_MAX_DEPTH:
+            continue
+        if _level_kind(view.spot(parts)) != "menu":
+            continue
+        key = view.key(parts)
+        found.append({"path": _join(parts), "name": key["name"] if key else ""})
+    return found
 
 
 def _count(number: int, one: str, many: str, *, feminine: bool = False) -> str:
@@ -547,11 +578,8 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
     if level == "plan":
         used = {str(e.get("ident", "")) for e in _plan(spot.sub)}
         found = _shown(await _capabilities(hass, spot.sub), view.flags["streaming"])
-        # מה שהתגלה ואינו בתוכנית הוא "חדש": לא נוסף מעצמו, רק מוצע.
-        addable = [
-            {**_cap_choice(c), "new": True}
-            for c in found if c.ident not in used
-        ]
+        # מה שהתגלה ואינו בתוכנית: לא נוסף מעצמו, רק מוצע.
+        addable = [_cap_choice(c) for c in found if c.ident not in used]
         # מה שבתוכנית ואינו מתגלה עוד: המקש נשאר, ומסומן "לא זמין".
         live = {c.ident for c in found}
         for digit, key in keys.items():
@@ -571,6 +599,8 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
     return {
         "entry_id": entry.entry_id,
         "path": _join(parts),
+        "revision": revision(entry),
+        "targets": _targets(view),
         "kind": level,
         "streaming": view.flags["streaming"],
         "self": view.key(parts),
@@ -982,6 +1012,97 @@ def _retitle(title: object, path: str) -> str:
     return f"{path} — {str(title).split('— ', 1)[-1]}"
 
 
+# ----------------------------------------------------------------------
+# צילום, שחזור וביטול
+# ----------------------------------------------------------------------
+
+UNDO_SECONDS = 60
+_UNDO: dict[str, dict] = {}
+
+
+def _snapshot(entry: ConfigEntry) -> dict:
+    """כל מה שהעורך כותב: תת-הרשומות של העץ ומשפט הפתיחה של הראשי."""
+    return {
+        "intro": str(entry.options.get(CONF_INTRO, "") or ""),
+        "subs": {
+            s.subentry_id: (
+                s.subentry_type, str(s.title), copy.deepcopy(dict(s.data))
+            )
+            for s in entry.subentries.values()
+            if subentry_kind(s) in _TREE_KINDS
+        },
+    }
+
+
+def revision(entry: ConfigEntry) -> str:
+    """טביעת אצבע של העץ. משתנה בכל כתיבה, גם כזו שלא עברה בלוח."""
+    raw = json.dumps(_snapshot(entry), sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
+def _restore(hass: HomeAssistant, entry: ConfigEntry, before: dict) -> None:
+    """החזרת העץ לצילום: מה שנוסף יוצא, מה שהוסר חוזר, מה שהשתנה מתוקן."""
+    now = _snapshot(entry)
+    for ident in now["subs"].keys() - before["subs"].keys():
+        hass.config_entries.async_remove_subentry(entry, ident)
+    for ident, (kind, title, data) in before["subs"].items():
+        current = entry.subentries.get(ident)
+        if current is None:
+            _create(hass, entry, kind, title, copy.deepcopy(data))
+        elif now["subs"].get(ident) != (kind, title, data):
+            _write(hass, entry, current, copy.deepcopy(data), title)
+    if now["intro"] != before["intro"]:
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, CONF_INTRO: before["intro"]}
+        )
+
+
+async def async_atomic(hass: HomeAssistant, entry: ConfigEntry, work) -> None:
+    """שינוי שכולו נשמר או שלא נשמר ממנו דבר."""
+    before = _snapshot(entry)
+    try:
+        await work()
+    except Exception:
+        _restore(hass, entry, before)
+        raise
+
+
+def _prune_undo() -> None:
+    now = time.monotonic()
+    for token in [t for t, u in _UNDO.items() if u["expires"] <= now]:
+        del _UNDO[token]
+
+
+def remember_undo(entry: ConfigEntry, before: dict) -> str:
+    """אסימון לביטול השינוי האחרון. תקף רק כל עוד העץ לא השתנה מאז."""
+    _prune_undo()
+    token = secrets.token_urlsafe(12)
+    _UNDO[token] = {
+        "entry_id": entry.entry_id,
+        "before": before,
+        "revision": revision(entry),
+        "expires": time.monotonic() + UNDO_SECONDS,
+    }
+    return token
+
+
+def undo(hass: HomeAssistant, entry: ConfigEntry, token: str) -> None:
+    """ביטול. אחרי כל כתיבה אחרת אין ביטול: הוא היה דורס אותה."""
+    _prune_undo()
+    saved = _UNDO.pop(str(token or ""), None)
+    if saved is None or saved["entry_id"] != entry.entry_id:
+        raise EditorError("undo_expired", "כבר אי אפשר לבטל")
+    if saved["revision"] != revision(entry):
+        raise EditorError("undo_stale", "אי אפשר לבטל: התפריט השתנה מאז")
+    _restore(hass, entry, saved["before"])
+
+
+def clear_undo(entry_id: str) -> None:
+    """פריקת רשומה: האסימונים שלה כבר לא שייכים לשום דבר."""
+    for token in [t for t, u in _UNDO.items() if u["entry_id"] == entry_id]:
+        del _UNDO[token]
+
+
 def _check_entity(hass: HomeAssistant, entity_id: str) -> None:
     domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
     if not domain or hass.states.get(entity_id) is None:
@@ -1001,6 +1122,20 @@ def _free_slot(hass: HomeAssistant, entry: ConfigEntry, path: object) -> tuple[s
     if _spot(hass, layout, parts).kind != "empty":
         raise EditorError("taken", f"מקש {parts[-1]} כבר תפוס")
     return parts
+
+
+def free_slot_in(hass: HomeAssistant, entry: ConfigEntry, menu: object) -> str:
+    """המקש הפנוי הראשון בתפריט, כנתיב מלא."""
+    parts = _parts(menu)
+    if len(parts) >= MENU_MAX_DEPTH:
+        raise EditorError("too_deep", "התפריט עמוק מדי למקום הזה")
+    layout = _layout(entry)
+    if _level_kind(_spot(hass, layout, parts)) != "menu":
+        raise EditorError("not_a_menu", "אי אפשר להעביר לכאן")
+    for digit in MENU_DIGITS:
+        if _spot(hass, layout, (*parts, digit)).kind == "empty":
+            return _join((*parts, digit))
+    raise EditorError("full", "אין מקש פנוי")
 
 
 def add_place_menu(

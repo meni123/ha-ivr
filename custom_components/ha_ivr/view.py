@@ -12,9 +12,8 @@ from dataclasses import replace
 from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     DOMAIN,
@@ -53,8 +52,6 @@ NAME_EACH_UP_TO = 3
 TODO_MAX_SPOKEN = 10
 TODO_ITEM_CHARS = 100
 TODO_TOTAL_CHARS = 320
-
-_STATES = speech.STATE_WORDS
 
 # יחידות שכבר נרשמו ביומן כלא מתורגמות. פעם אחת לכל יחידה,
 # אחרת כל הקראת חיישן מייצרת שורה.

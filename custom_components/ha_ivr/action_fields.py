@@ -26,7 +26,7 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.helpers.service import async_get_all_descriptions
 
-from .capabilities import OPTION_ATTRIBUTES, entity_info, entity_options, field_applies
+from .capabilities import entity_info, entity_options, field_applies
 from .translations_he import translate_action, translate_field, translate_option
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,11 +36,6 @@ IGNORED_FIELDS = frozenset({"entity_id", "device_id", "area_id", "target", "labe
 
 # סוגי בוררים שניתן להציג בטופס הגדרה בצורה אמינה.
 SUPPORTED_SELECTORS = frozenset({"number", "select", "text", "boolean"})
-
-# שדות שהאפשרויות שלהם נקבעות לפי הישות עצמה ולא לפי תיאור גנרי.
-# מזגן אחד תומך בקירור בלבד ואחר גם בחימום, ולכן קריאת המאפיין
-# מהישות מדויקת יותר מכל רשימה קבועה.
-ENTITY_OPTION_ATTRIBUTES: dict[str, str] = OPTION_ATTRIBUTES
 
 # שדות שהטווח שלהם נקבע לפי הישות ולא לפי התיאור הגנרי. תיאור
 # `climate.set_temperature` מכריז על 0 עד 250 — הטווח התיאורטי של

@@ -348,7 +348,7 @@ if _HA:
                 await stop(server)
 
     async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-        from . import dictation, history, security  # noqa: PLC0415
+        from . import dictation, editor, history, security  # noqa: PLC0415
         from .view import reset_warnings  # noqa: PLC0415
 
         reset_warnings()
@@ -366,6 +366,7 @@ if _HA:
         # ומוני החסימה של קודים. אחרי פריקה לא נשאר טיימר שלה.
         dictation.clear(hass, entry.entry_id)
         security.clear(hass, entry.entry_id)
+        editor.clear_undo(entry.entry_id)
 
         # הרשומה האחרונה: גם המאזינים המשותפים יורדים, וההיסטוריה
         # מתנקה כדי שאבחון לא יציג שיחות של הגדרה שכבר אינה.

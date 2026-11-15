@@ -3323,9 +3323,88 @@ _krun(panel.async_register(_kh, "1.0+abc"))
 _kp = fake_ha.PANELS[-1]
 ok("הלוח נרשם למנהלים בלבד, עם חותמת הבנייה",
    _kp["require_admin"] and _kp["webcomponent_name"] == "ha-ivr-panel"
-   and _kp["module_url"].endswith("panel.js?v=1.0%2Babc"))
+   and _kp["module_url"] == "/ha_ivr_static/1.0-abc/panel.js")
 ok("והעמוד קיים",
    (ROOT / "custom_components" / "ha_ivr" / "frontend" / "panel.js").is_file())
+
+# --- הלוח החדש: החלפה אטומית, עדכון אחד, וביטול ---
+def _kop(op, path="", view="", **args):
+    return _krun(panel.async_run(_kh, {
+        "op": op, "entry_id": "entry1", "path": path, "view": view,
+        "args": args}))
+
+
+_r = _kop("remove", "6") if _kop("level")["keys"]["6"] else None
+_kop("remove", "7") if _kop("level")["keys"]["7"] else None
+_r = _kop("add", "6", what="submenu", name="מטבח")
+_rev = _r["revision"]
+ok("הרמה מחזירה טביעת אצבע ורשימת תפריטים",
+   len(_rev) == 16 and {"path": "6", "name": "מטבח"} in _r["targets"]
+   and _r["targets"][0] == {"path": "", "name": ""})
+ok("ומספר מקשים מובנה, לא רק טקסט", _r["keys"]["6"]["count"] == 0)
+
+_r = _kop("update", "6", name="מטבח גדול", intro="ברוכים הבאים")
+ok("שם ופתיח נשמרים בעדכון אחד",
+   _r["keys"]["6"]["name"] == "מטבח גדול" and _r["revision"] != _rev)
+ok("הפתיח של תת-התפריט נשמר",
+   _kop("level", "6")["intro"] == "ברוכים הבאים")
+
+_before = _kop("level")
+ok("עדכון שנכשל באמצע אינו משאיר דבר",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "update", "entry_id": "entry1", "path": "6",
+       "args": {"intro": "חדש", "target": "123"}})) == "not_found"
+   and _kop("level", "6")["intro"] == "ברוכים הבאים"
+   and _kop("level")["revision"] == _before["revision"])
+
+ok("החלפה שנכשלת משאירה את המקש",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "add", "entry_id": "entry1", "path": "6",
+       "args": {"what": "submenu", "name": "", "replace": True}})) == "name_required"
+   and _kop("level")["keys"]["6"]["name"] == "מטבח גדול")
+_r = _kop("add", "6", what="submenu", name="סלון", replace=True)
+ok("והחלפה שמצליחה מחליפה במקום", _r["keys"]["6"]["name"] == "סלון")
+
+_r = _kop("remove", "6")
+_tok = _r.get("undo", "")
+ok("הסרה מחזירה אסימון ביטול", bool(_tok) and _r["keys"]["6"] is None)
+_r = _kop("undo", token=_tok)
+ok("והביטול מחזיר את המקש", _r["keys"]["6"]["name"] == "סלון")
+ok("אסימון משמש פעם אחת",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_expired")
+
+_tok = _kop("remove", "6")["undo"]
+_kop("add", "7", what="submenu", name="גינה")
+ok("אחרי כתיבה אחרת אין ביטול — הוא היה דורס אותה",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_stale"
+   and _kop("level")["keys"]["7"]["name"] == "גינה")
+
+_tok = _kop("remove", "7")["undo"]
+editor.clear_undo("entry1")
+ok("פריקה מוחקת את האסימונים",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_expired")
+
+_tok = _kop("add", "7", what="submenu", name="גינה") and _kop("remove", "7")["undo"]
+editor._UNDO[_tok]["expires"] = 0
+ok("ואסימון שפג אינו מבטל",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_expired")
+
+_kfree = [d for d, k in _kop("level")["keys"].items() if k is None]
+_kop("add", _kfree[0], what="submenu", name="יעד")
+_kop("add", _kfree[1], what="submenu", name="נודד")
+_r = _kop("move", _kfree[1], to=_kfree[0], into=True)
+ok("העברה לתפריט אחר נוחתת על המקש הפנוי הראשון בו",
+   _kop("level", _kfree[0])["keys"]["1"]["name"] == "נודד"
+   and _r["keys"][_kfree[1]] is None)
+_kop("remove", _kfree[0])
 
 # --- טעינה מחדש אחת לרצף של כתיבות ---
 _kh.data = {"ha_ivr": {}}

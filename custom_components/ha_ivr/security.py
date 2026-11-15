@@ -115,12 +115,6 @@ def record_success(hass: HomeAssistant, entry_id: str, call_id: str) -> None:
     _guard(hass, entry_id).calls.pop(call_id, None)
 
 
-def end_call(hass: HomeAssistant, entry_id: str, call_id: str) -> None:
-    store = hass.data.get(_DATA_KEY) or {}
-    if (guard := store.get(entry_id)) is not None:
-        guard.calls.pop(call_id, None)
-
-
 def clear(hass: HomeAssistant, entry_id: str) -> None:
     (hass.data.get(_DATA_KEY) or {}).pop(entry_id, None)
 

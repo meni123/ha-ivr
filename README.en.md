@@ -42,19 +42,23 @@ with a separate menu tree, token and entities.
 
 **The keypad** is a page in the Home Assistant sidebar that draws a
 phone keypad. Each key is what the caller gets when they press it,
-and what they hear is shown beside it. The interface is in Hebrew.
+and what they hear is shown beside it. The interface follows the
+Home Assistant language (Hebrew or English), and the menu location is
+kept in the URL, so the browser's Back button goes up a level.
 
 <p align="center">
   <img src="docs/panel.png" width="720" alt="The keypad">
 </p>
 
-Click an empty key and choose what it does:
+Click an empty key and choose what it does. The editor opens in the
+column beside the keypad, or from the bottom on a phone:
 
 <p align="center">
   <img src="docs/panel-add.png" width="720" alt="What happens on a key press">
 </p>
 
-**Device** — pick a device and tick what the caller may do with it.
+**Device** — find it the way the Home Assistant picker does: by
+name, device, area or label. Then tick what the caller may do with it.
 When an action has several values, such as HVAC mode or fan speed, a
 second step asks which of them to offer. A key can also set one fixed
 value: "AC to 24", "light to 30 percent".
@@ -63,9 +67,9 @@ value: "AC to 24", "light to 30 percent".
   <img src="docs/panel-device.png" width="720" alt="Adding a device">
 </p>
 
-**Whole room** — one room, several rooms together, a floor or a
-label. Choose which kinds of devices, which devices, and what each
-kind may do. "Add now" skips the choices and takes everything. Only
+**Room or area** — one room, several rooms together, a floor or a
+label. Choose which kinds and which devices, then what each kind may
+do. "Add everything" skips the last step. Only
 actions every device supports are offered, and a device that joins
 the room enters the menu by itself.
 
@@ -73,8 +77,10 @@ the room enters the menu by itself.
   <img src="docs/panel-room-devices.png" width="720" alt="Which devices">
 </p>
 
-A key opens on click. Inside it you rename, drag to another key and
-remove:
+A key opens on click, and the ⋮ button in its corner opens the
+editor. There you change its name and value, and the ⋮ menu moves it
+to another key or menu, replaces the device or removes it. A removal
+can be undone from the notification at the bottom:
 
 <p align="center">
   <img src="docs/panel-inside.png" width="720" alt="Inside a device key">
