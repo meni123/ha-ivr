@@ -2,7 +2,7 @@
 
 # IVR — תפריט טלפוני ועוזר קולי ל-Home Assistant
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![פתיחה ב-Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=meni123&repository=ha-ivr&category=integration)
 [![בדיקות](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml/badge.svg)](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%2B-41BDF5.svg)](https://www.home-assistant.io)
 [![רישיון](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -103,12 +103,16 @@ AudioSocket (PCM גולמי, בלי קודק). ראו [docs/pbx.md](docs/pbx.md)
 
 ### שלב 1 · התקנת האינטגרציה
 
-**דרך HACS (מומלץ)**
+**דרך ה-Marketplace של Home Assistant (מומלץ)**
 
-1. ב-HACS, תפריט שלוש הנקודות ← `Custom repositories`
-2. הדביקו `https://github.com/meni123/ha-ivr`, קטגוריה `Integration`, ולחצו `Add`
-3. חפשו `IVR` והתקינו
-4. **הפעילו מחדש את Home Assistant** — הפעלה מלאה, לא טעינת הגדרות
+1. לחצו [**כאן**](https://my.home-assistant.io/redirect/marketplace_repository/?owner=meni123&repository=ha-ivr&category=integration) — העמוד של IVR נפתח ב-Marketplace של ה-Home
+   Assistant שלכם
+2. הורידו את האינטגרציה. IVR אינו בקטלוג המובנה, ולכן ה-Marketplace
+   מבקש חיבור ל-GitHub אם עוד לא חיברתם
+3. **הפעילו מחדש את Home Assistant** — הפעלה מלאה, לא טעינת הגדרות
+
+בלי הקישור: ב-Marketplace, `Custom repositories`, מדביקים
+`https://github.com/meni123/ha-ivr` בקטגוריה `Integration`.
 
 **ידנית**
 

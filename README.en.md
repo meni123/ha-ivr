@@ -1,6 +1,6 @@
 # IVR — Phone Menu and Voice Assistant for Home Assistant
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![Open in the Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=meni123&repository=ha-ivr&category=integration)
 [![Tests](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml/badge.svg)](https://github.com/meni123/ha-ivr/actions/workflows/validate.yml)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%2B-41BDF5.svg)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -98,12 +98,16 @@ remove:
 
 ### Step 1 · Install the integration
 
-**Via HACS (recommended)**
+**Via the Home Assistant Marketplace (recommended)**
 
-1. In HACS, three-dot menu → `Custom repositories`
-2. Paste `https://github.com/meni123/ha-ivr`, category `Integration`, click `Add`
-3. Search for `IVR` and install
-4. **Restart Home Assistant** — a full restart, not a config reload
+1. Click [**here**](https://my.home-assistant.io/redirect/marketplace_repository/?owner=meni123&repository=ha-ivr&category=integration) — the IVR page opens in the Marketplace of
+   your Home Assistant
+2. Download the integration. IVR is not in the built-in catalog, so
+   the Marketplace asks to connect GitHub if you have not done so
+3. **Restart Home Assistant** — a full restart, not a config reload
+
+Without the link: in the Marketplace, `Custom repositories`, paste
+`https://github.com/meni123/ha-ivr` with category `Integration`.
 
 **Manually**
 
