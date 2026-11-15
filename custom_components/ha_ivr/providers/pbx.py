@@ -77,7 +77,7 @@ SUPPORTS_CALLER_ID = True
 SUPPORTS_RETRIES = True
 
 # פורט ברירת המחדל שעליו `audiosocket.py` מאזין. ההאזנה על loopback
-# כברירת מחדל — HA ו-Asterisk על אותה קופסה — ומשתנה ב`הגדרות התפריט`
+# כברירת מחדל — HA ו-Asterisk על אותה קופסה — ומשתנה ב"הגדרות הקו"
 # למרכזייה במארח אחר.
 AUDIOSOCKET_DEFAULT_HOST = "127.0.0.1"
 AUDIOSOCKET_DEFAULT_PORT = 9010

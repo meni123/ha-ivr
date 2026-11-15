@@ -124,7 +124,14 @@
           "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
           "yemot_token": "Needed only for the voice alert service. The menu itself does not use it.",
           "sip_server": "The address the provider gave for the line, for example sip.example.com.",
-          "sip_port": "5060 unless the provider says otherwise. UDP only."
+          "sip_port": "5060 unless the provider says otherwise. UDP only.",
+          "intro": "What the caller hears first, before the list of keys. Optional.",
+          "sip_username": "The line's username at the provider. Usually a number.",
+          "pbx_alert_url": "The address of the alert service installed on the PBX, for example http://192.168.1.5:5000/ha. Needed only for alert calls.",
+          "pbx_trunk": "The trunk the PBX dials alerts through.",
+          "pbx_alert_secret": "The secret set when the alert service was installed on the PBX.",
+          "pbx_audiosocket_host": "The address Home Assistant listens on for the PBX, for the voice assistant. 0.0.0.0 when the PBX is on another machine.",
+          "pbx_audiosocket_port": "9010 unless changed in the PBX dialplan."
         }
       }
     },
@@ -187,7 +194,14 @@
           "technoline_announce_hours": "Automatically hold calls between 23:00 and 08:00. Off by default — a home alert blocked at night misses exactly what it exists for.",
           "yemot_token": "Needed only for the voice alert service. The menu itself does not use it.",
           "sip_server": "The address the provider gave for the line, for example sip.example.com.",
-          "sip_port": "5060 unless the provider says otherwise. UDP only."
+          "sip_port": "5060 unless the provider says otherwise. UDP only.",
+          "intro": "What the caller hears first, before the list of keys. Optional.",
+          "sip_username": "The line's username at the provider. Usually a number.",
+          "pbx_alert_url": "The address of the alert service installed on the PBX, for example http://192.168.1.5:5000/ha. Needed only for alert calls.",
+          "pbx_trunk": "The trunk the PBX dials alerts through.",
+          "pbx_alert_secret": "The secret set when the alert service was installed on the PBX.",
+          "pbx_audiosocket_host": "The address Home Assistant listens on for the PBX, for the voice assistant. 0.0.0.0 when the PBX is on another machine.",
+          "pbx_audiosocket_port": "9010 unless changed in the PBX dialplan."
         },
         "title": "Line settings"
       },
@@ -204,10 +218,12 @@
         },
         "data_description": {
           "stream_exit": "Comma separated. A phrase must end on a word boundary, so that \"bye\" is not matched inside \"byebye\".",
-          "stream_exit_keys": "Keys that close the assistant. On Technoline it has not yet been verified that the PBX forwards key presses to the streaming channel.",
+          "stream_exit_keys": "Keys that close the assistant and return to the menu. Not every provider forwards key presses to the audio channel.",
           "stream_return_path": "A path in the extension tree, such as / or /2 — not an extension ID.",
           "stream_tones": "A short tone before the microphone opens, and one while the answer is being processed. Without them the caller cannot tell when to speak.",
-          "stream_rate": "The streaming URL is not configured at Vonage — it is sent inside the NCCO during the call. Make sure the Event URL does not point at the Answer URL, or every status event is handled as a new call."
+          "stream_rate": "The streaming URL is not configured at Vonage — it is sent inside the NCCO during the call. Make sure the Event URL does not point at the Answer URL, or every status event is handled as a new call.",
+          "stream_max_minutes": "A call with the assistant that reaches this length is closed. 0 — no limit.",
+          "stream_echo_tail": "How long to wait after the assistant stops speaking before listening again. Raise it if the assistant hears itself."
         },
         "title": "Voice assistant"
       },
