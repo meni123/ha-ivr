@@ -15,7 +15,8 @@ body:
       options:
         - Yemot HaMashiach
         - Technoline
-        - Vonage
+        - Self-hosted PBX
+        - Direct SIP line
     validations:
       required: true
 

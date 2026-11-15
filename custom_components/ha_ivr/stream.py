@@ -544,12 +544,6 @@ def _find_digit(payload: dict) -> str | None:
     ערוץ הבקרה של טכנוליין אינו מתועד, ולכן נבדקים שמות השדות
     המקובלים. מסגרת שאינה מזוהה נרשמת במלואה.
     """
-    # Vonage: {"event":"websocket:dtmf","digit":"5","duration":260}
-    if str(payload.get("event", "")).lower().endswith(":dtmf"):
-        value = payload.get("digit")
-        if isinstance(value, (str, int)) and str(value).strip():
-            return str(value).strip()[:1]
-
     if str(payload.get("type", "")).lower() in ("dtmf", "key", "keypress", "digit"):
         for field in ("digit", "key", "value", "data", "dtmf"):
             value = payload.get(field)

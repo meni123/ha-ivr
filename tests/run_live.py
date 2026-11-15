@@ -63,7 +63,7 @@ for module in (
     f"{CORE}.announce", f"{CORE}.audio", f"{CORE}.net", f"{CORE}.select",
     f"{CORE}.editor", f"{CORE}.panel",
     f"{CORE}.providers.yemot", f"{CORE}.providers.technoline",
-    f"{CORE}.providers.vonage", f"{CORE}.providers",
+    f"{CORE}.providers",
 ):
     check(f"import {module}", lambda m=module: __import__(m, fromlist=["_"]))
 
@@ -72,12 +72,10 @@ from custom_components.ha_ivr.model import (  # noqa: E402
     GoTo, Prompt, Say, Terminal,
 )
 from custom_components.ha_ivr.providers import technoline  # noqa: E402
-from custom_components.ha_ivr.providers import vonage  # noqa: E402
 from custom_components.ha_ivr.providers import yemot  # noqa: E402
 from custom_components.ha_ivr.providers import pbx  # noqa: E402
 
-DRIVERS = (("yemot", yemot), ("technoline", technoline), ("vonage", vonage),
-           ("pbx", pbx))
+DRIVERS = (("yemot", yemot), ("technoline", technoline), ("pbx", pbx))
 
 print("\n== הגבול: הליבה אינה מייבאת אף ספק ==")
 # הגבול נמדד בייבוא ולא באזכור. הערה שמסבירה למה החלטה התקבלה
@@ -89,7 +87,7 @@ for _f in sorted(_core_dir.glob("*.py")):
     for _line in _f.read_text("utf-8").splitlines():
         _st = _line.strip()
         if (_st.startswith("import ") or _st.startswith("from ")) and any(
-            f"ha_ivr_{p}" in _st for p in ("yemot", "technoline", "vonage")
+            f"ha_ivr_{p}" in _st for p in ("yemot", "technoline")
         ):
             _bad.append(f"{_f.name}: {_st}")
 ok("הליבה אינה מייבאת חבילת ספק", not _bad)
@@ -110,7 +108,7 @@ for _f in sorted(_core_dir.glob("*.py")):
         _st = _line.strip()
         if _st.startswith("#") or _st.startswith('"""') or _st.startswith("|"):
             continue
-        for _p in ("technoline", "vonage", "yemot"):
+        for _p in ("technoline", "yemot"):
             if _p in _st:
                 _leaks.append(f"{_f.name}:{_num}  {_st[:60]}")
 ok("הליבה אינה מכירה ספק בשם", not _leaks)
@@ -273,7 +271,7 @@ ok("hacs.json קיים", bool(_hacs.get("name")))
 # שם הגילוי באמת קורה, ולכן שמות הספקים שייכים לשם.
 ok("שם קצר בכרטיס", _mani["name"] == "IVR")
 ok("שמות הספקים בחנות",
-   all(p in _hacs["name"] for p in ("Yemot", "Technoline", "Vonage")))
+   all(p in _hacs["name"] for p in ("Yemot", "Technoline", "SIP")))
 # גרסת המינימום חייבת לכסות את פלטפורמת ה-notify (2024.6).
 ok("גרסת HA מוצהרת", "homeassistant" in _hacs)
 # **HACS דורשת `brand/icon.png` במפורש**, ובלעדיו הכרטיס מציג
@@ -368,7 +366,7 @@ for _r, _needle in (("README.md", "הצהרת אחריות"), ("README.en.md", "
 
 print("\n== הטופס אינו מציע מה שאינו קיים ==")
 from custom_components.ha_ivr.providers import (  # noqa: E402
-    pbx as _pbx, technoline as _tl, vonage as _vg, yemot as _ym,
+    pbx as _pbx, sip as _sipd, technoline as _tl, yemot as _ym,
 )
 # **"עוזר קולי" הוצע כתווית ברירת מחדל לכל ספק**, כולל לימות
 # שאין לו ערוץ סטרימינג כלל — כלומר הטופס הציע שם למשהו שאינו
@@ -380,7 +378,7 @@ ok("אין תווית ברירת מחדל למעבר",
 # **משמעות היעד שונה בין הספקים.** מזהה שלוחה אצל אחד, ולא
 # בשימוש כלל אצל אחר. תיאור קבוע היה נכון לאחד ושגוי לשאר.
 # מי ששואל על יעד חייב להסביר מהו; מי שאינו שואל אינו נושא רמז מת.
-for _d5 in (_ym, _tl, _vg, _pbx):
+for _d5 in (_ym, _tl, _sipd, _pbx):
     _asks5 = not getattr(_d5, "GOTO_ONLY_ASSIST", False)
     ok(f"{_d5.DRIVER_ID}: רמז ליעד רק למי ששואל עליו",
        bool(getattr(_d5, "GOTO_TARGET_HINT", "")) == _asks5)
@@ -415,7 +413,7 @@ if _ci.exists():
 print("\n== מבחן הספק הרביעי ==")
 from custom_components.ha_ivr.diagnostics import _capabilities, _redact_keys  # noqa: E402
 from custom_components.ha_ivr.providers import (  # noqa: E402
-    pbx as _pbx, technoline as _tl, vonage as _vg, yemot as _ym,
+    pbx as _pbx, sip as _sipd, technoline as _tl, yemot as _ym,
 )
 
 # **הדגלים על הדרייבר, לא שם הספק בטופס.** שלוש השוואות מחרוזת
@@ -426,10 +424,9 @@ ok("האבחון מציג את דגלי הדרייבר",
 _flow4 = (_core_dir / "config_flow.py").read_text("utf-8")
 ok("הטופס שואל את הדרייבר",
    'getattr(driver, "NEEDS_CHANNEL_TOKEN"' in _flow4
-   and 'getattr(driver, "NEEDS_RATE"' in _flow4)
+   and 'getattr(driver, "NEEDS_RETURN_PATH"' in _flow4)
 ok("טכנוליין מכריז על מה שהוא צריך",
    _tl.NEEDS_CHANNEL_TOKEN and _tl.NEEDS_RETURN_PATH)
-ok("Vonage מכריז על הקצב", _vg.NEEDS_RATE)
 ok("ימות אינו מכריז על ערוץ",
    not getattr(_ym, "NEEDS_CHANNEL_TOKEN", False))
 
@@ -454,7 +451,7 @@ import re as _re3  # noqa: E402
 import types  # noqa: E402
 from custom_components.ha_ivr import config_shared as _cs0  # noqa: E402
 from custom_components.ha_ivr.providers import (  # noqa: E402
-    pbx as _pbx, technoline as _tl, vonage as _vg, yemot as _ym,
+    pbx as _pbx, sip as _sipd, technoline as _tl, yemot as _ym,
 )
 
 # **ערך מספרי מההגדרות עובר סיבוב דרך JSON.** אותו שדה חוזר
@@ -467,18 +464,18 @@ ok("num על ריק", _cs0.num(None, 7) == 7.0)
 check("מסך העוזר נבנה עם ערכי מחרוזת",
       lambda: _cs0.stream_schema(
           {"stream_max_minutes": "15.0", "stream_echo_tail": "0.25"},
-          channel_token=True, return_path=True, rate=True))
+          channel_token=True, return_path=True))
 
 # **כתובת הסטרימינג מוצגת רק כשיש מה להדביק.** לימות אין ערוץ,
-# ואצל Vonage הכתובת נשלחת ב-NCCO בזמן השיחה — הצגתה שולחת
-# את המשתמש לחפש שדה שאינו קיים.
+# ובמרכזייה עצמית החיבור מגיע מהדיאלפלן — הצגתה שולחת את המשתמש
+# לחפש שדה שאינו קיים.
 _e0 = types.SimpleNamespace(data={"token": "T"})
 ok("ימות: בלי כתובת סטרימינג",
    not _cs0.endpoint_urls(None, _e0, _ym)["stream_url"])
 ok("טכנוליין: עם כתובת סטרימינג",
    bool(_cs0.endpoint_urls(None, _e0, _tl)["stream_url"]))
-ok("Vonage: בלי כתובת סטרימינג",
-   not _cs0.endpoint_urls(None, _e0, _vg)["stream_url"])
+ok("מרכזייה עצמית: בלי כתובת סטרימינג",
+   not _cs0.endpoint_urls(None, _e0, _pbx)["stream_url"])
 
 # כל מה שהטופס מכניס כ-placeholder חייב להופיע בתיאור, ולהפך.
 _desc = _json.loads(
@@ -515,7 +512,7 @@ _flow_txt = (_core_dir / "config_flow.py").read_text("utf-8")
 for _fn in ("stream_schema", "endpoint_urls", "ip_errors"):
     _sig = _insp2.signature(getattr(_cs, _fn))
     ok(f"{_fn}: נקראת מהטופס", f"{_fn}(" in _flow_txt)
-_probe = _cs.stream_schema({}, channel_token=True, return_path=True, rate=True)
+_probe = _cs.stream_schema({}, channel_token=True, return_path=True)
 ok("stream_schema נבנית בפועל", _probe is not None)
 
 print("\n== כל שדה בטופס מתורגם ==")
@@ -526,7 +523,7 @@ import json as _json  # noqa: E402
 # בדיוק מה שקרה כשמסכי ההגדרות אוחדו והמחרוזות שלהם לא עברו.
 _form_fields = set()
 for _f in ["config_flow.py", "config_shared.py"] + [
-        f"providers/{p}.py" for p in ("yemot", "technoline", "vonage")]:
+        f"providers/{p}.py" for p in ("yemot", "technoline", "pbx", "sip")]:
     _s = (_core_dir / _f).read_text("utf-8")
     for _n in _ast.walk(_ast.parse(_s)):
         if not isinstance(_n, _ast.Call) or not _n.args:
@@ -580,10 +577,10 @@ registry._DRIVERS.clear()
 ok("המרשם ריק לפני הרישום", not registry.registered())
 _provs.ensure_registered()
 ok("ensure_registered ממלא את המרשם",
-   set(registry.registered()) == {"pbx", "sip", "technoline", "vonage", "yemot"})
+   set(registry.registered()) == {"pbx", "sip", "technoline", "yemot"})
 _provs.ensure_registered()
 ok("קריאה חוזרת אינה מכפילה",
-   len(registry.registered()) == 5)
+   len(registry.registered()) == 4)
 
 _flow_src2 = (_core_dir / "config_flow.py").read_text("utf-8")
 _steps = [s for s in ("async_step_user", "async_step_settings",
@@ -1013,25 +1010,20 @@ ok("phones מסומן חובה גם ב-yaml",
 print("\n== כל דרייבר עונה על הפרוטוקול ==")
 # מה שהליבה שואלת ספק עם ערוץ סטרימינג. חסר אחד מהם = ההסתעפות
 # חוזרת לליבה בפעם הבאה.
-for _name, _drv in (("technoline", technoline), ("vonage", vonage)):
+for _name, _drv in (("technoline", technoline),):
     for _fn in ("detect", "clear_command", "hangup_command", "leave_command"):
         ok(f"{_name}.{_fn}", callable(getattr(_drv, _fn, None)))
 
 ok("טכנוליין מזהה את מסגרת הפתיחה שלו",
    (technoline.detect({"type": "start", "callId": "c1", "caller": "050",
                        "format": "pcm16;rate=8000;ch=1"}) or {}).get("rate") == 8000)
-ok("Vonage מזהה את שלו",
-   (vonage.detect({"content-type": "audio/l16;rate=16000"}) or {}).get("rate") == 16000)
-ok("כל אחד דוחה את המסגרת של השני",
-   technoline.detect({"content-type": "audio/l16;rate=16000"}) is None
-   and vonage.detect({"type": "start"}) is None)
+ok("ודוחה מסגרת שאינה שלו",
+   technoline.detect({"content-type": "audio/l16;rate=16000"}) is None)
 # `target` הוא נתיב בעץ ולא מזהה שלוחה — שני דברים שונים באותה
 # מערכת. בלי נתיב אין מה לשלוח, והליבה סוגרת את הסוקט.
 ok("העברה רק כשיש נתיב",
    technoline.leave_command("/2") == {"type": "transfer_extension", "target": "/2"}
    and technoline.leave_command("") is None)
-ok("ל-Vonage אין העברה ואין ניתוק בערוץ",
-   vonage.leave_command("/") is None and vonage.hangup_command() is None)
 
 
 for name, drv in DRIVERS:
@@ -1048,15 +1040,15 @@ print("\n== מרשם הדרייברים ==")
 for _, drv in DRIVERS:
     registry.register(drv)
 ok("כולם רשומים",
-   registry.registered() == ["pbx", "sip", "technoline", "vonage", "yemot"])
+   registry.registered() == ["pbx", "sip", "technoline", "yemot"])
 # המרשם עונה על מה שהיו רשימות קשיחות ב-const: מי קיים, למי יש
 # סטרימינג, ואיך קוראים לו.
 ok("שאילתת הסטרימינג על המרשם",
    {d.DRIVER_ID for d in registry.with_stream()}
-   == {"pbx", "sip", "technoline", "vonage"})
+   == {"pbx", "sip", "technoline"})
 ok("שאילתה על כל הדרייברים",
    {d.DRIVER_ID for d in registry.all_drivers()}
-   == {"pbx", "sip", "technoline", "vonage", "yemot"})
+   == {"pbx", "sip", "technoline", "yemot"})
 ok("שליפה לפי מזהה", registry.get("yemot") is yemot)
 ok("מזהה לא מוכר מחזיר None", registry.get("nope") is None)
 
@@ -1083,7 +1075,6 @@ check("נתיב מקונן נשאר כמו שהוא",
 print("\n== פענוח בקשות נכנסות, חתימה אחידה ==")
 check("yemot.parse", lambda: yemot.parse({"ApiCallId": "c", "s2_1": "7"}, {}))
 check("technoline.parse", lambda: technoline.parse({"PBXcallId": "c", "s2_1": "7"}, {}))
-check("vonage.parse", lambda: vonage.parse({"p": "s2_1"}, {"dtmf": {"digits": "7"}}))
 check("pbx.parse", lambda: pbx.parse({}, {"path": "1", "digit": "2", "step": "2"}))
 for name, drv in DRIVERS:
     ctx = drv.parse({}, {})
@@ -1117,7 +1108,7 @@ entry = fake_ha.FakeEntry(
 hass.config_entries = fake_ha.FakeConfigEntries([entry])
 v = view.IvrView(hass)
 
-for driver in ("yemot", "technoline", "vonage"):
+for driver in ("yemot", "technoline"):
     entry.data["provider"] = driver
     _resp = check(f"IvrView.get({driver})",
                   lambda d=driver: v.get(fake_ha.FakeRequest(), d, "T"))
@@ -1207,24 +1198,21 @@ def _fields(**flags):
 
 
 _tl = _fields(channel_token=True, return_path=True)
-_vg = _fields(rate=True)
-ok("מזהה ערוץ רק בטכנוליין",
-   "stream_channel_token" in _tl and "stream_channel_token" not in _vg)
-ok("נתיב חזרה רק בטכנוליין",
-   "stream_return_path" in _tl and "stream_return_path" not in _vg)
-# השדה נקרא `stream_rate` — שם ניטרלי, כי הבחירה
-# בקצב אינה תכונה של Vonage אלא של מי שמאפשר לבחור.
-ok("קצב דגימה רק אצל מי שצריך אותו",
-   "stream_rate" in _vg and "stream_rate" not in _tl)
+_plain = _fields()
+ok("מזהה ערוץ רק אצל מי שמכריז עליו",
+   "stream_channel_token" in _tl and "stream_channel_token" not in _plain)
+ok("נתיב חזרה רק אצל מי שמכריז עליו",
+   "stream_return_path" in _tl and "stream_return_path" not in _plain)
+ok("אין עוד בחירת קצב דגימה", "stream_rate" not in (_tl | _plain))
 ok("השדות המשותפים בשניהם",
-   {"stream_exit", "stream_echo_tail", "stream_tones"} <= (_tl & _vg))
+   {"stream_exit", "stream_echo_tail", "stream_tones"} <= (_tl & _plain))
 # חמישה שדות ירדו ב-0.28.0. שלושה מהם עברו לישויות, ושניים לא
 # הגיעו לצינור מעולם: `async_accept_pipeline_from_satellite` אינה
 # מעבירה `noise_suppression_level` ו-`auto_gain_dbfs` כלל. שדה
 # שאין לו משמעות גרוע משדה שלא קיים.
 ok("השדות שירדו אינם בטופס",
    not ({"stream_pipeline", "stream_engine", "stream_vad",
-         "stream_noise", "stream_gain", "stream_max_calls"} & (_tl | _vg)))
+         "stream_noise", "stream_gain", "stream_max_calls"} & (_tl | _plain)))
 
 print("\n== אודיו ==")
 from custom_components.ha_ivr import audio  # noqa: E402
@@ -1379,11 +1367,10 @@ check("_find_digit", lambda: stream._find_digit({"event": "websocket:dtmf",
 check("StreamView init", lambda: stream.StreamView(hass))
 ok("ערוץ הסטרימינג רק לספקים שתומכים",
    yemot.SUPPORTS_STREAM is False
-   and technoline.SUPPORTS_STREAM is True
-   and vonage.SUPPORTS_STREAM is True)
+   and technoline.SUPPORTS_STREAM is True)
 
-# notify נבדק ונשלל בשיחה חיה 19.8.26: Vonage אישרה `clear` תוך
-# 140 מ"ש ולא ענתה ל-notify כלל. ההמתנה עלתה 5.2 שניות בתשובה
+# notify נבדק ונשלל בשיחה חיה 19.8.26: הספק אישר `clear` תוך
+# 140 מ"ש ולא ענה ל-notify כלל. ההמתנה עלתה 5.2 שניות בתשובה
 # הראשונה של כל שיחה, ולכן הפקודה הוסרה.
 _sat_src = (_core_dir / "satellite.py").read_text("utf-8")
 _stream_src = (_core_dir / "stream.py").read_text("utf-8")
@@ -1704,7 +1691,7 @@ for _pkg in ("ha_ivr",):
     ok(f"{_pkg}: מצהיר על פלטפורמת notify", "Platform.NOTIFY" in _init)
     ok(f"{_pkg}: יש לו notify.py",
        (ROOT / "custom_components" / _pkg / "notify.py").exists())
-# ל-Vonage אין מסלול יוצא, ולכן גם לא פלטפורמה שלא תיצור דבר.
+# ספק בלי מסלול יוצא אינו מקבל פלטפורמה שלא תיצור דבר.
 # הפלטפורמות נגזרות מהיכולות, ולא מרשימה קשיחה לכל ספק.
 _init_src = (_core_dir / "__init__.py").read_text("utf-8")
 ok("הפלטפורמות נגזרות מהיכולות",
@@ -1723,9 +1710,6 @@ ok("טכנוליין יודע לחייג לנמען", callable(technoline.async_
 # לימות אין ערוץ סטרימינג, ולכן ההתראה שלו עוברת ב-API שלו —
 # אותו משטח, מסלול אחר.
 ok("גם ימות, דרך ה-API שלו", callable(yemot.async_notify))
-# ל-Vonage אין מסלול יוצא, ולכן אין לו ישויות נמען — עדיף
-# מישות שנראית תקינה ונכשלת בשיחה.
-ok("Vonage אינו חושף התראה", not hasattr(vonage, "async_notify"))
 # הרשימה הקבועה הוחלפה בישויות, ולכן אין לאן ליפול.
 ok("אין עוד רשימת נמענים קבועה",
    not hasattr(technoline, "announce_phones"))
@@ -1740,7 +1724,7 @@ ok("המרכזייה מציעה בחירת טראנק יוצא",
    getattr(pbx, "SUPPORTS_TRUNK", False))
 ok("ספק בלי טראנקים אינו מצהיר עליו",
    not any(getattr(d, "SUPPORTS_TRUNK", False)
-           for d in (yemot, technoline, vonage)))
+           for d in (yemot, technoline)))
 ok("send_call מקבל שדה טראנק אופציונלי",
    "trunk" in {str(k) for k in _core_mod._send_call_schema().schema})
 # ישות הנמען מעבירה את הטראנק שלה, וטופס הנמען מציג את השדה רק
@@ -1796,7 +1780,7 @@ check("בלי טראנק — ברירת המחדל של הרשומה",
 ok("המרכזייה מציעה מספר מציג", getattr(pbx, "SUPPORTS_CALLER_ID", False))
 ok("ספק בלי מספר מציג אינו מצהיר עליו",
    not any(getattr(d, "SUPPORTS_CALLER_ID", False)
-           for d in (yemot, technoline, vonage)))
+           for d in (yemot, technoline)))
 ok("send_call מקבל מספר מציג",
    "caller_id" in {str(k) for k in _core_mod._send_call_schema().schema})
 ok("ישות הנמען מעבירה מספר מציג", "caller_id=self._caller_id" in _notify_src)
@@ -1846,7 +1830,7 @@ check("בלי מספר מציג — השדה לא נשלח (זיהוי הטרא�
 ok("המרכזייה מציעה ניסיונות חוזרים", getattr(pbx, "SUPPORTS_RETRIES", False))
 ok("ספק שאינו חוזר ומחייג אינו מצהיר עליו",
    not any(getattr(d, "SUPPORTS_RETRIES", False)
-           for d in (yemot, technoline, vonage)))
+           for d in (yemot, technoline)))
 ok("send_call מקבל ניסיונות חוזרים",
    "retries" in {str(k) for k in _core_mod._send_call_schema().schema})
 ok("ישות הנמען מעבירה ניסיונות חוזרים", "retries=self._retries" in _notify_src)
@@ -2980,7 +2964,7 @@ ok("התראות אחרונות",
    and _ksub("8").title == "8 — התראות אחרונות")
 
 _kv = fake_ha.FakeEntry()
-_kv.entry_id, _kv.data = "v", {"token": "T", "provider": "vonage"}
+_kv.entry_id, _kv.data = "v", {"token": "T", "provider": "sip"}
 _ky = fake_ha.FakeEntry()
 _ky.entry_id, _ky.data = "y", {"token": "T", "provider": "yemot"}
 _kh.config_entries._entries = [_ke, _kv, _ky]
@@ -3015,9 +2999,8 @@ def _kbuttons(entry):
 
 ok("מרכזייה: עוזר קולי וגם מעבר לשלוחה",
    {"assistant", "goto"} <= _kbuttons(_ke))
-ok("קו ישיר ו-Vonage: עוזר קולי בלבד",
-   all("assistant" in _kbuttons(e) and "goto" not in _kbuttons(e)
-       for e in (_ks, _kv)))
+ok("קו ישיר: עוזר קולי בלבד",
+   "assistant" in _kbuttons(_ks) and "goto" not in _kbuttons(_ks))
 ok("ספק בלי הזרמה: מעבר לשלוחה בלבד",
    "goto" in _kbuttons(_ky) and "assistant" not in _kbuttons(_ky))
 

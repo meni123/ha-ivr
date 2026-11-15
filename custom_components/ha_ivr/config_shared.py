@@ -54,7 +54,6 @@ from .const import (
     CONF_TRUNK,
     CONF_CALLER_ID,
     CONF_RETRIES,
-    CONF_STREAM_RATE,
     CONF_PHONE,
     CONF_ACTION,
     CONF_ACTION_DATA,
@@ -215,7 +214,6 @@ def stream_schema(
     *,
     channel_token: bool = False,
     return_path: bool = False,
-    rate: bool = False,
 ) -> vol.Schema:
     """הגדרות העוזר הקולי בערוץ הסטרימינג.
 
@@ -226,18 +224,15 @@ def stream_schema(
     `select` של הרשומה, כי זה המקום היחיד שממנו הצינור קורא
     אותם. כאן נשארו הצלילים, היציאה, ההד והתקרות.
 
-    שלושת הדגלים מסננים לפי ספק. רוב השדות משותפים, אבל שלושה
-    שייכים לספק אחד בלבד:
+    שני הדגלים מסננים לפי ספק. רוב השדות משותפים, אבל שניים
+    שייכים רק לספק שהשיחה עוברת אצלו בין שלוחות:
 
-    | שדה | שייך ל | נקרא ב |
-    |---|---|---|
-    | `stream_channel_token` | טכנוליין | `_on_start`, מול מסגרת הפתיחה |
-    | `stream_return_path` | טכנוליין | `leave`, ב-`transfer_extension` |
-    | `stream_rate` | מי שבוחר קצב | בניית התשובה |
+    | שדה | נקרא ב |
+    |---|---|
+    | `stream_channel_token` | `_on_start`, מול מסגרת הפתיחה |
+    | `stream_return_path` | `leave`, ב-`transfer_extension` |
 
-    לפני הסינון שלושתם הוצגו לשני הספקים, ומשתמש שהגדיר Vonage
-    נשאל למזהה ערוץ שאין לו מאיפה לקחת — הוא נוצר אצל טכנוליין
-    ונשלח רק במסגרת ה-`start` שלהם.
+    ספק שאין לו אותם אינו נשאל עליהם: אין לו מאיפה לקחת מזהה ערוץ.
     """
     schema: dict[Any, Any] = {
         vol.Optional(
@@ -305,22 +300,6 @@ def stream_schema(
                 },
             )
         ] = str
-    if rate:
-        schema[
-            vol.Required(
-                CONF_STREAM_RATE,
-                default=str(current.get(CONF_STREAM_RATE, 16000) or 16000),
-            )
-        ] = SelectSelector(
-            SelectSelectorConfig(
-                options=[
-                    SelectOptionDict(value="16000", label="16 קילוהרץ (מומלץ)"),
-                    SelectOptionDict(value="8000", label="8 קילוהרץ"),
-                ],
-                mode=SelectSelectorMode.DROPDOWN,
-                sort=False,
-            )
-        )
     return vol.Schema(schema)
 
 def _friendly(hass, entity_id: str) -> str:

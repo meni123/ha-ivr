@@ -18,15 +18,20 @@ No internet on the phone, no app, no VPN.
 
 ## What you get, by provider
 
-| | Yemot HaMashiach | Technoline | Vonage |
-|---|:---:|:---:|:---:|
-| **DTMF menu** — a keypress acts and speaks | ✅ | ✅ | ✅ |
-| **Voice assistant** — free conversation with Assist | ❌ | ✅ | ✅ |
-| **Voice alerts** — the house dials you | ✅ | ✅ | ❌ |
+| | Yemot HaMashiach | Technoline | Direct SIP line | Self-hosted PBX |
+|---|:---:|:---:|:---:|:---:|
+| **DTMF menu** — a keypress acts and speaks | ✅ | ✅ | ✅ | ✅ |
+| **Voice assistant** — free conversation with Assist | ❌ | ✅ | ✅ | ✅ |
+| **Voice alerts** — the house dials you | ✅ | ✅ | ✅ | ✅ |
 
-The gaps are not missing work — they are what each provider offers.
-Yemot has no streaming channel, so there is no way to carry a live
-conversation. Vonage's outbound path is not implemented yet.
+The gap is not missing work — it is what the provider offers. Yemot
+has no streaming channel, so there is no way to carry a live
+conversation.
+
+**Direct SIP line** is the shortest route: enter the server, username
+and password of an ordinary SIP line, and Home Assistant registers to
+it itself and answers its calls. No PBX, no external address, and
+nothing to configure at the provider. UDP and G.711, no encryption.
 
 **Several providers can run side by side.** Each gets its own card,
 with a separate menu tree, token and entities.
@@ -53,9 +58,9 @@ tree; the next screen picks the action:
 | Requirement | Detail |
 |---|---|
 | Home Assistant | 2026.11 or newer |
-| External HTTPS address | The provider calls **into** your server. Cloudflare tunnel, Nginx, DuckDNS — any solution |
+| External HTTPS address | The provider calls **into** your server. Cloudflare tunnel, Nginx, DuckDNS — any solution. Not needed for a direct SIP line or a self-hosted PBX |
 | TLS | Mandatory. The token travels inside the URL |
-| A provider account | Yemot HaMashiach, Technoline or Vonage |
+| A provider account | Yemot HaMashiach or Technoline — or an ordinary SIP line from any provider |
 | Voice assistant only | A configured Assist pipeline with speech-to-text and text-to-speech |
 
 ---
@@ -174,15 +179,17 @@ api_end_goto=hangup
    The same token as in the URL. **Without this header the connection
    is rejected with 401** and the assistant will not answer.
 
-#### Vonage
+#### Direct SIP line
 
-In the application's Answer URL — the URL from the screen. **Nothing
-to configure for streaming**: the channel address and the
-authorization header are sent automatically inside the NCCO during
-the call.
+**Nothing to configure at the provider.** The server, username and
+password the provider gave for the line are entered when adding the
+entry, and Home Assistant registers to it itself. Wrong details are
+stopped in the form.
 
-Make sure the Event URL does **not** point at the same address as the
-Answer URL, or every status event will be treated as a new call.
+Several lines can be added — one entry per account. For an account
+that is already registered on a PBX or another phone, create a
+separate SIP user: two registrations of one account steal calls from
+each other.
 
 ---
 
@@ -195,7 +202,8 @@ On the integration card, the `+` button offers:
 | **Device** | One device: its own menu with everything it can do, or one action on the key press |
 | **Device group** | Several devices in a place you choose, with exclusions: one item for one kind, a submenu for several kinds |
 | **Submenu** | A key that opens another level. Nests up to four levels; moving it moves what is under it |
-| **Go to** | Hands the call to another extension at the provider — the voice assistant, for example |
+| **Voice assistant** | A key that connects the caller to the voice assistant |
+| **Transfer to extension** | Hands the call to another extension at the provider |
 | **Alerts extension** | Reads the caller the alerts that were sent to them |
 | **Alert recipient** | A phone number that becomes a `notify` entity. Not part of the menu |
 
@@ -316,9 +324,8 @@ this section before enabling it.
 
 - Filtering by the real connection address, resistant to header spoofing
 - A strong random token, compared in constant time against timing attacks
-- `Bearer` authentication required on the streaming channel from every
-  provider — configured on the extension for Technoline, sent
-  automatically in the NCCO for Vonage
+- `Bearer` authentication required on the streaming channel —
+  configured on the extension for Technoline
 - The token identifies the **entry** — a request for one provider is never resolved against another's token
 - An action allow-list, checked before any other stage
 - Caller-number filtering — the strongest layer available
@@ -399,7 +406,6 @@ and in `CHANGELOG.md`:
 
 - **Fields 7–10 of Yemot's `read`** — the mapping is unconfirmed, and
   the code deliberately does not guess it
-- **Vonage has no outbound path**, so it has no recipient entities
 - **VAD sometimes misses the start of speech** — investigated, not solved
 
 ---
@@ -434,9 +440,9 @@ In particular, and without limiting the above:
   developed, supported or endorsed by the Open Home Foundation or
   Nabu Casa, and the developer is not affiliated with them. It is a
   third-party custom integration
-- **This is not an official product of Yemot HaMashiach, Technoline
-  or Vonage**, is not supported or endorsed by them, and the
-  developer is not affiliated with any of them
+- **This is not an official product of Yemot HaMashiach or
+  Technoline**, is not supported or endorsed by them, and the
+  developer is not affiliated with either of them
 - The user is responsible for complying with their chosen provider's
   terms of service
 

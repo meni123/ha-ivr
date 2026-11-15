@@ -139,7 +139,6 @@ DEFAULT_EXIT_PHRASES: Final = "חזור לתפריט, תפריט ראשי, חז�
 DEFAULT_EXIT_KEYS: Final = "#"
 
 # קצב הדגימה המבוקש, אצל ספק שמאפשר לבחור.
-CONF_STREAM_RATE: Final = "stream_rate"
 
 # נתיב ה-IVR שאליו מועבר המתקשר ביציאה מהעוזר.
 # `transfer_extension` מקבל נתיב בעץ השלוחות ("/2", "/sales") ולא

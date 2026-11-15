@@ -346,6 +346,5 @@ class IvrOptionsFlow(OptionsFlow):
                 # שספק חדש לא יחייב עריכה כאן.
                 channel_token=getattr(driver, "NEEDS_CHANNEL_TOKEN", False),
                 return_path=getattr(driver, "NEEDS_RETURN_PATH", False),
-                rate=getattr(driver, "NEEDS_RATE", False),
             ),
         )

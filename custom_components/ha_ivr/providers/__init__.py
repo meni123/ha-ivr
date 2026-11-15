@@ -1,14 +1,14 @@
 """הספקים.
 
 מודול אחד לספק. הליבה אינה מכירה אף אחד מהם בשם אלא שואלת את
-המרשם, ולכן ספק רביעי הוא קובץ נוסף כאן ושורה ב-`PROVIDERS`.
+המרשם, ולכן ספק נוסף הוא קובץ נוסף כאן ושורה ב-`PROVIDERS`.
 """
 
 from __future__ import annotations
 
-from . import pbx, sip, technoline, vonage, yemot
+from . import pbx, sip, technoline, yemot
 
-PROVIDERS = (yemot, technoline, vonage, pbx, sip)
+PROVIDERS = (yemot, technoline, pbx, sip)
 
 
 def ensure_registered() -> None:

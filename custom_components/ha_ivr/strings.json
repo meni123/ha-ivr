@@ -213,15 +213,13 @@
           "stream_exit_keys": "Exit keys",
           "stream_return_path": "Return path on exit",
           "stream_max_minutes": "Maximum call length",
-          "stream_echo_tail": "Echo tail",
-          "stream_rate": "Sample rate"
+          "stream_echo_tail": "Echo tail"
         },
         "data_description": {
           "stream_exit": "Comma separated. A phrase must end on a word boundary, so that \"bye\" is not matched inside \"byebye\".",
           "stream_exit_keys": "Keys that close the assistant and return to the menu. Not every provider forwards key presses to the audio channel.",
           "stream_return_path": "A path in the extension tree, such as / or /2 — not an extension ID.",
           "stream_tones": "A short tone before the microphone opens, and one while the answer is being processed. Without them the caller cannot tell when to speak.",
-          "stream_rate": "The streaming URL is not configured at Vonage — it is sent inside the NCCO during the call. Make sure the Event URL does not point at the Answer URL, or every status event is handled as a new call.",
           "stream_max_minutes": "A call with the assistant that reaches this length is closed. 0 — no limit.",
           "stream_echo_tail": "How long to wait after the assistant stops speaking before listening again. Raise it if the assistant hears itself."
         },
