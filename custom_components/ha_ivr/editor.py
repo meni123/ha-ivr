@@ -57,8 +57,16 @@ from .const import (
     SUBENTRY_TYPE_SUBMENU,
     subentry_kind,
 )
-from .policy import domain_is_blocked, domain_needs_confirmation
-from .translations_he import translate_action, translate_option
+from .action_fields import (
+    action_is_usable,
+    async_action_fields,
+    async_action_name,
+    entity_number_range,
+    field_is_supported,
+    field_label,
+)
+from .policy import available_actions, domain_is_blocked, domain_needs_confirmation
+from .translations_he import translate_action, translate_field, translate_option
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -378,7 +386,15 @@ class _View:
             if kind == SUBENTRY_TYPE_SMART:
                 return {**out, "kind": "device", "name": fallback,
                         "detail": _count(len(_plan(subentry)), "פעולה", "פעולות", feminine=True)}
-            return {**out, "kind": "action", "name": fallback, "detail": device}
+            stored = data.get(CONF_ACTION_DATA)
+            does = translate_action(str(data.get(CONF_ACTION, "") or ""))
+            if isinstance(stored, dict) and stored:
+                does = f"{does}: " + ", ".join(
+                    f"{translate_field(str(k))} {translate_option(str(v))}"
+                    for k, v in stored.items()
+                )
+            return {**out, "kind": "action", "name": fallback, "detail": device,
+                    "does": does}
 
         if kind == SUBENTRY_TYPE_GROUP:
             target = _group_target(subentry)
@@ -521,7 +537,135 @@ async def async_capabilities(hass: HomeAssistant, entity_id: str) -> dict:
             }
             for index, c in enumerate(found)
         ],
+        # מקש עם ערך קבוע מוצע רק למכשיר שיש לו פעולה כזו.
+        "fixed": bool(await _fixed_actions(hass, entity_id)),
     }
+
+
+# ----------------------------------------------------------------------
+# מקש עם ערך קבוע: "מזגן ל-24", "אור ל-30 אחוז"
+# ----------------------------------------------------------------------
+
+
+def _action_field(hass: HomeAssistant, entity_id: str, name: str, spec: dict) -> dict:
+    """שדה אחד של פעולה, כפי שהלוח מצייר אותו."""
+    selector = spec.get("selector") or {}
+    out: dict[str, Any] = {
+        "name": name,
+        "label": field_label(name, spec),
+        "required": bool(spec.get("required")),
+    }
+    if "number" in selector:
+        config = selector["number"] or {}
+        low, high = entity_number_range(hass, entity_id, name, config)
+        step = config.get("step")
+        out.update(
+            type="number", min=low, max=high,
+            step=float(step) if step not in (None, "any") else None,
+            unit=str(config.get("unit_of_measurement") or ""),
+        )
+    elif "select" in selector:
+        options = []
+        for option in (selector["select"] or {}).get("options", []):
+            value = str(option.get("value", "")) if isinstance(option, dict) else str(option)
+            label = option.get("label") if isinstance(option, dict) else None
+            options.append({"value": value, "label": str(label or translate_option(value))})
+        out.update(type="select", options=options)
+    elif "boolean" in selector:
+        out["type"] = "boolean"
+    else:
+        out["type"] = "text"
+    return out
+
+
+async def _fixed_actions(hass: HomeAssistant, entity_id: str) -> list[dict]:
+    """הפעולות של המכשיר שמקבלות ערך, עם השדות של כל אחת.
+
+    פעולה בלי שדות אינה כאן: היא כבר מוצעת כיכולת רגילה של המכשיר.
+    """
+    domain = entity_id.split(".", 1)[0]
+    found = []
+    for action in available_actions(hass, domain):
+        fields = await async_action_fields(hass, domain, action, entity_id)
+        if not action_is_usable(fields):
+            continue
+        shown = [
+            _action_field(hass, entity_id, name, spec)
+            for name, spec in fields.items()
+            if field_is_supported(spec)
+        ]
+        if shown:
+            found.append({
+                "action": action,
+                "label": await async_action_name(hass, domain, action),
+                "fields": shown,
+            })
+    return found
+
+
+async def async_actions(hass: HomeAssistant, entity_id: str) -> dict:
+    """מה אפשר לשים על מקש כפעולה אחת עם ערך שנקבע מראש."""
+    _check_entity(hass, entity_id)
+    return {
+        "entity_id": entity_id,
+        "name": _entity_name(hass, entity_id),
+        "actions": await _fixed_actions(hass, entity_id),
+    }
+
+
+def _action_values(fields: list[dict], raw: object) -> dict:
+    """הערכים שנשלחו מהלוח, אחרי בדיקה מול השדות של הפעולה."""
+    given = raw if isinstance(raw, dict) else {}
+    values: dict[str, Any] = {}
+    for spec in fields:
+        value = given.get(spec["name"])
+        if value is None or value == "":
+            if spec["required"]:
+                raise EditorError("value_required", f"חסר ערך: {spec['label']}")
+            continue
+        if spec["type"] == "number":
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                raise EditorError(
+                    "bad_value", f"{spec['label']}: צריך מספר"
+                ) from None
+            low, high = spec.get("min"), spec.get("max")
+            if (low is not None and number < low) or (high is not None and number > high):
+                raise EditorError(
+                    "bad_value", f"{spec['label']}: בין {low:g} ל-{high:g}"
+                    if low is not None and high is not None
+                    else f"{spec['label']}: הערך מחוץ לטווח"
+                )
+            values[spec["name"]] = int(number) if number.is_integer() else number
+        elif spec["type"] == "select":
+            if str(value) not in {o["value"] for o in spec["options"]}:
+                raise EditorError("bad_value", f"{spec['label']}: ערך שאינו ברשימה")
+            values[spec["name"]] = str(value)
+        elif spec["type"] == "boolean":
+            values[spec["name"]] = value in (True, "true", "on", "1", 1)
+        else:
+            values[spec["name"]] = str(value).strip()
+    if not values:
+        raise EditorError("value_required", "צריך לקבוע לפחות ערך אחד")
+    return values
+
+
+def _values_text(fields: list[dict], values: dict) -> str:
+    """"טמפרטורה 24" — הערכים כפי שקוראים אותם."""
+    parts = []
+    for spec in fields:
+        if spec["name"] not in values:
+            continue
+        value = values[spec["name"]]
+        if spec["type"] == "select":
+            value = next(
+                (o["label"] for o in spec["options"] if o["value"] == value), value
+            )
+        elif spec["type"] == "boolean":
+            value = "כן" if value else "לא"
+        parts.append(f"{spec['label']} {value}")
+    return ", ".join(parts)
 
 
 async def async_rooms(hass: HomeAssistant) -> list[dict]:
@@ -558,6 +702,65 @@ async def async_rooms(hass: HomeAssistant) -> list[dict]:
 
 def _area_target(area_id: str) -> dict:
     return {"area_id": [area_id]} if area_id else {}
+
+
+def _place_target(args: dict) -> dict:
+    """המקום שנשלח מהלוח: חדר אחד, או בחירה של כמה מקומות עם החרגות."""
+    if "target" not in args:
+        return _area_target(str(args.get("area_id", "") or ""))
+    chosen = args.get("target")
+    chosen = dict(chosen) if isinstance(chosen, dict) else {}
+    excluded = [str(e) for e in args.get("exclude") or [] if e]
+    if excluded:
+        chosen[smart_mod.TARGET_EXCLUDE] = {"entity_id": excluded}
+    return smart_mod.clean_target(chosen)
+
+
+def _named(items) -> list[dict]:
+    return [
+        {"id": str(item_id), "name": str(name)}
+        for item_id, name in sorted(items, key=lambda pair: str(pair[1]))
+    ]
+
+
+def async_places(hass: HomeAssistant) -> dict:
+    """מה אפשר לצרף למקום אחד: קומות, חדרים ותוויות."""
+    from homeassistant.helpers import area_registry as ar  # noqa: PLC0415
+    from homeassistant.helpers import floor_registry as fr  # noqa: PLC0415
+    from homeassistant.helpers import label_registry as lr  # noqa: PLC0415
+
+    return {
+        "floors": _named(
+            (f.floor_id, f.name) for f in fr.async_get(hass).async_list_floors()
+        ),
+        "areas": _named((a.id, a.name) for a in ar.async_get(hass).async_list_areas()),
+        "labels": _named(
+            (label.label_id, label.name)
+            for label in lr.async_get(hass).async_list_labels()
+        ),
+    }
+
+
+async def async_place(hass: HomeAssistant, args: dict) -> dict:
+    """מה יש במקום שנבחר: הסוגים, והמכשירים שאפשר להשאיר בחוץ."""
+    target = _place_target(args)
+    kinds = [
+        (d, n) for d, n in await smart_mod.async_domains_in(hass, target)
+        if not domain_needs_confirmation(d)
+    ]
+    members = [
+        {"entity_id": entity_id, "name": _entity_name(hass, entity_id), "domain": domain}
+        for domain, _count in kinds
+        for entity_id in smart_mod.match_entities(hass, domain, target)
+    ]
+    return {
+        "name": menu_mod.place_name(hass, target) or "כל הבית",
+        "target": {k: v for k, v in target.items() if k != smart_mod.TARGET_EXCLUDE},
+        "kinds": [
+            {"domain": d, "name": DOMAIN_NAMES.get(d, d), "count": n} for d, n in kinds
+        ],
+        "members": sorted(members, key=lambda m: (m["domain"], m["name"])),
+    }
 
 
 # ----------------------------------------------------------------------
@@ -768,8 +971,37 @@ async def async_add(
         )
         return
 
+    if what == "action":
+        entity_id = str(args.get("entity_id", "") or "")
+        _check_entity(hass, entity_id)
+        action = str(args.get("action", "") or "")
+        chosen = next(
+            (a for a in await _fixed_actions(hass, entity_id) if a["action"] == action),
+            None,
+        )
+        if chosen is None:
+            raise EditorError("unsupported", "המכשיר אינו תומך בפעולה הזו")
+        values = _action_values(chosen["fields"], args.get("data"))
+        slot = _join(_free_slot(hass, entry, path))
+        # בלי שם, המתקשר היה שומע רק את שם המכשיר — ולא מה המקש עושה.
+        spoken = name or (
+            f"{_entity_name(hass, entity_id)}, {_values_text(chosen['fields'], values)}"
+        )
+        _create(
+            hass, entry, SUBENTRY_TYPE_ITEM, f"{slot} — {spoken}",
+            {
+                CONF_TARGET_ENTITY: entity_id,
+                CONF_MENU_PATH: slot,
+                CONF_LABEL: spoken,
+                CONF_CONFIRM_RISKY: False,
+                CONF_ACTION: action,
+                CONF_ACTION_DATA: values,
+            },
+        )
+        return
+
     if what == "room":
-        target = _area_target(str(args.get("area_id", "") or ""))
+        target = _place_target(args)
         plans = await _room_plans(hass, target, args.get("domains"))
         if not plans:
             raise EditorError("empty_room", "אין כאן מכשירים שאפשר להפעיל בטלפון")

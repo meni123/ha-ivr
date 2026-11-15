@@ -92,8 +92,14 @@ async def async_run(hass: HomeAssistant, msg: dict) -> Any:
         return await _level(hass, entry, path)
     if op == "capabilities":
         return await editor.async_capabilities(hass, str(args.get("entity_id", "")))
+    if op == "actions":
+        return await editor.async_actions(hass, str(args.get("entity_id", "")))
     if op == "rooms":
         return {"rooms": await editor.async_rooms(hass)}
+    if op == "places":
+        return editor.async_places(hass)
+    if op == "place":
+        return await editor.async_place(hass, args)
 
     if op == "add":
         what = str(args.pop("what", ""))

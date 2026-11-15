@@ -3080,6 +3080,120 @@ ok("חדר בלי מכשירים נדחה",
    _kerr(lambda: editor.async_add(_kh, _ke, "4", "room", area_id="none"))
    == "empty_room")
 
+# --- מקש עם ערך קבוע ---
+from custom_components.ha_ivr import action_fields as _kaf  # noqa: E402
+
+
+async def _kdesc(hass):
+    return {"light": {
+        "turn_on": {"name": "Turn on", "fields": {
+            "brightness_pct": {"selector": {"number": {
+                "min": 0, "max": 100, "unit_of_measurement": "%"}}},
+            # בחירה שהאפשרויות שלה תלויות במכשיר, והמכשיר אינו מדווח עליהן
+            "effect": {"selector": {"select": {"options": []}}},
+            # סוג שדה שאין לו ציור בלוח
+            "rgb_color": {"selector": {"color_rgb": None}},
+            "advanced": {"fields": {
+                "transition": {"selector": {"number": {"min": 0, "max": 300}}}}},
+        }},
+        "turn_off": {"name": "Turn off", "fields": {}},
+    }}
+
+
+_kreal_desc = _kaf.async_get_all_descriptions
+_kaf.async_get_all_descriptions = _kdesc
+_kx = fake_ha.FakeEntry()
+_kx.entry_id, _kx.data = "x2", {"token": "T", "provider": "pbx"}
+
+_kacts = _krun(editor.async_actions(_kh, "light.a"))
+ok("פעולות עם ערך: רק מה שמקבל ערך, ורק שדות שאפשר לצייר",
+   [a["action"] for a in _kacts["actions"]] == ["turn_on"]
+   and [f["name"] for f in _kacts["actions"][0]["fields"]]
+   == ["brightness_pct", "transition"])
+_kbright = _kacts["actions"][0]["fields"][0]
+ok("שדה מספר מגיע עם הטווח והיחידה",
+   (_kbright["type"], _kbright["min"], _kbright["max"], _kbright["unit"])
+   == ("number", 0.0, 100.0, "%") and not _kbright["required"])
+ok("מכשיר מדווח אם יש לו פעולות כאלה",
+   _krun(editor.async_capabilities(_kh, "light.a"))["fixed"] is True
+   and _krun(editor.async_capabilities(_kh, "button.b"))["fixed"] is False)
+
+_kadd("1", "action", entry=_kx, entity_id="light.a", action="turn_on",
+      data={"brightness_pct": "30", "transition": ""})
+_kfixed = _ksub("1", _kx)
+ok("הערך נשמר כמספר, ושדה ריק אינו נשמר",
+   _kfixed.subentry_type == "menu_item"
+   and _kfixed.data["action"] == "turn_on"
+   and _kfixed.data["action_data"] == {"brightness_pct": 30})
+ok("בלי שם, המקש נקרא לפי מה שהוא עושה",
+   _kfixed.data["label"].startswith("מנורה, ")
+   and _kfixed.data["label"].endswith(" 30")
+   and any(_kfixed.data["label"] in line for line in _klevel("", _kx)["heard"]))
+ok("והלוח מציג מה המקש עושה",
+   _klevel("", _kx)["keys"]["1"]["kind"] == "action"
+   and "30" in _klevel("", _kx)["keys"]["1"]["does"])
+_kadd("2", "action", entry=_kx, entity_id="light.a", action="turn_on",
+      data={"transition": 2.5}, name="אור איטי")
+ok("שם שניתן גובר, וערך לא שלם נשמר כמות שהוא",
+   _ksub("2", _kx).data["label"] == "אור איטי"
+   and _ksub("2", _kx).data["action_data"] == {"transition": 2.5})
+
+
+def _kfix(**args):
+    return _kerr(lambda: editor.async_add(
+        _kh, _kx, "3", "action", entity_id="light.a", **args))
+
+
+ok("ערך מחוץ לטווח נדחה",
+   _kfix(action="turn_on", data={"brightness_pct": "130"}) == "bad_value")
+ok("מה שאינו מספר נדחה",
+   _kfix(action="turn_on", data={"brightness_pct": "הרבה"}) == "bad_value")
+ok("בלי אף ערך אין מקש",
+   _kfix(action="turn_on", data={}) == "value_required")
+ok("פעולה שאינה מקבלת ערך אינה מוצעת כאן",
+   _kfix(action="turn_off", data={"x": 1}) == "unsupported"
+   and _ksub("3", _kx) is None)
+_kaf.async_get_all_descriptions = _kreal_desc
+
+# --- כמה מקומות יחד, עם החרגות ---
+_kfloors = sys.modules["homeassistant.helpers.floor_registry"]
+_klabels = sys.modules["homeassistant.helpers.label_registry"]
+_kreal_floors, _kreal_labels = _kfloors.async_get, _klabels.async_get
+_kfloor = types.SimpleNamespace(floor_id="f1", name="קומה א")
+_kfloors.async_get = lambda hass: types.SimpleNamespace(
+    async_list_floors=lambda: [_kfloor],
+    async_get_floor=lambda floor_id: _kfloor if floor_id == "f1" else None,
+)
+_klabels.async_get = lambda hass: types.SimpleNamespace(
+    async_list_labels=lambda: [], async_get_label=lambda label_id: None,
+)
+fake_ha.TARGETS[("floor_id", "f1")] = ["light.a"]
+ok("מה שאפשר לצרף: קומות, חדרים ותוויות",
+   editor.async_places(_kh) == {
+       "floors": [{"id": "f1", "name": "קומה א"}],
+       "areas": [{"id": "kit", "name": "מטבח"}],
+       "labels": []})
+_kplace = _krun(editor.async_place(
+    _kh, {"target": {"area_id": ["kit"], "floor_id": ["f1"]}}))
+ok("מקום מכמה חלקים: השם, הסוגים, ומי בפנים",
+   _kplace["name"] == "מטבח וקומה א"
+   and {k["domain"]: k["count"] for k in _kplace["kinds"]}
+   == {"light": 2, "switch": 2}
+   and [m["entity_id"] for m in _kplace["members"]]
+   == ["light.k", "light.a", "switch.k1", "switch.k2"])
+_kadd("4", "room", entry=_kx, target={"area_id": ["kit"], "floor_id": ["f1"]},
+      exclude=["switch.k2"], domains=["switch"], name="מתגים")
+ok("ההחרגה נשמרת עם המקום",
+   _ksub("4", _kx).data["target"] == {
+       "area_id": ["kit"], "floor_id": ["f1"],
+       "exclude": {"entity_id": ["switch.k2"]}}
+   and _ksub("4", _kx).data["label"] == "מתגים")
+ok("ומי שהוחרג אינו בקבוצה",
+   _klevel("", _kx)["keys"]["4"]["detail"] == "מכשיר אחד")
+ok("מקום ריק הוא כל הבית",
+   editor._place_target({"target": {}, "exclude": []}) == {})
+_kfloors.async_get, _klabels.async_get = _kreal_floors, _kreal_labels
+
 _kb = fake_ha.FakeEntry()
 _kb.entry_id, _kb.data = "b", {"token": "T", "provider": "pbx"}
 _kb.subentries = {"x": fake_ha.FakeSubentry(

@@ -210,12 +210,14 @@ p { margin: 0 0 10px; line-height: 1.5; }
 .choice small { display: block; color: var(--secondary-text-color); font-size: 12.5px; margin-top: 1px; }
 .choice .grow { flex: 1; min-width: 0; }
 label.field { display: block; margin-bottom: 12px; font-size: 13px; color: var(--secondary-text-color); }
-input[type="text"] {
+input[type="text"], input[type="number"], select {
   display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font: inherit; font-size: 15px;
   color: var(--primary-text-color); background: var(--secondary-background-color);
   border: 1px solid var(--divider-color); border-radius: 10px; outline: none;
 }
-input[type="text"]:focus { border-color: var(--primary-color); }
+input[type="text"]:focus, input[type="number"]:focus, select:focus { border-color: var(--primary-color); }
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--primary-color); font-size: 14px; padding: 4px 0; }
 .inline { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
 .inline label.field { flex: 1; margin-bottom: 0; }
 .check { display: flex; align-items: center; gap: 10px; padding: 7px 4px; cursor: pointer; border-radius: 8px; }
@@ -644,7 +646,9 @@ class HaIvrPanel extends HTMLElement {
   }
 
   _describe(key) {
-    if (key.kind === "action") return `פעולה אחת במכשיר «${key.detail}».`;
+    if (key.kind === "action") {
+      return `פעולה אחת במכשיר «${key.detail}»${key.does ? ` — ${key.does}` : ""}.`;
+    }
     if (key.kind === "goto") return `מעביר את השיחה לשלוחה ${key.target}.`;
     if (key.kind === "assistant") return "מחבר את המתקשר לעוזר הקולי של הבית.";
     if (key.kind === "alerts") return "מקריא את ההתראות האחרונות שנשלחו לטלפון.";
@@ -744,6 +748,49 @@ class HaIvrPanel extends HTMLElement {
           <label class="field" style="margin-top:12px">שם בטלפון (לא חובה)
             <input type="text" name="name" placeholder="${esc(mode.found.name)}"></label>
           <div class="actions"><button class="btn">הוספה למקש ${esc(mode.digit)}</button></div>
+        </form>
+        ${mode.found.fixed ? `<div class="actions"><button class="btn flat" data-act="add-fixed">
+          או מקש שקובע ערך מסוים, למשל 24 מעלות</button></div>` : ""}`;
+    }
+
+    if (mode.step === "fixed") {
+      const actions = mode.fixed.actions.map((a, index) => this._choice(
+        "add-values", "mdi:tune-variant", a.label,
+        a.fields.map((f) => f.label).join(" · "), `data-index="${index}"`,
+      )).join("");
+      return `${back}
+        <h2>${badge}${esc(mode.fixed.name)}</h2>
+        <p class="muted">המקש יעשה דבר אחד, עם הערך שתקבעו עכשיו.</p>
+        <div class="choices list">${actions}</div>`;
+    }
+
+    if (mode.step === "values") {
+      const action = mode.action;
+      const fields = action.fields.map((f) => this._fieldHtml(f)).join("");
+      return `${back}
+        <h2>${badge}${esc(action.label)}</h2>
+        <form data-form="fixed">
+          ${fields}
+          <label class="field">שם בטלפון (לא חובה)
+            <input type="text" name="_name" placeholder="למשל: ${esc(mode.fixed.name)} ל-24"></label>
+          <div class="actions"><button class="btn">הוספה למקש ${esc(mode.digit)}</button></div>
+        </form>`;
+    }
+
+    if (mode.step === "places") {
+      const group = (title, name, items) => (items.length ? `<h3>${title}</h3>${items.map((i) => `
+        <label class="check"><input type="checkbox" name="${name}" value="${esc(i.id)}">
+          <span>${esc(i.name)}</span></label>`).join("")}` : "");
+      const found = mode.places;
+      return `${back}
+        <h2>${badge}אילו מקומות יחד?</h2>
+        <form data-form="places">
+          <div class="list">
+            ${group("קומות", "floor_id", found.floors)}
+            ${group("חדרים", "area_id", found.areas)}
+            ${group("תוויות", "label_id", found.labels)}
+          </div>
+          <div class="actions"><button class="btn">המשך</button></div>
         </form>`;
     }
 
@@ -752,9 +799,12 @@ class HaIvrPanel extends HTMLElement {
         "add-room", room.area_id ? "mdi:door-open" : "mdi:home-outline", room.name,
         room.kinds.map((k) => k.name).join(" · "), `data-index="${index}"`,
       )).join("");
+      const several = this._choice("add-places", "mdi:home-group", "כמה מקומות יחד",
+        "כמה חדרים, קומה שלמה או תווית");
       return `${back}
         <h2>${badge}איזה חדר?</h2>
-        <div class="choices list">${rooms || '<p class="muted">לא נמצאו חדרים עם מכשירים שאפשר להפעיל.</p>'}</div>`;
+        <div class="choices list">${rooms || '<p class="muted">לא נמצאו חדרים עם מכשירים שאפשר להפעיל.</p>'}
+          ${several}</div>`;
     }
 
     if (mode.step === "kinds") {
@@ -762,12 +812,17 @@ class HaIvrPanel extends HTMLElement {
       const kinds = room.kinds.map((k) => `
         <label class="check"><input type="checkbox" name="kind" value="${esc(k.domain)}" checked>
           <span>${esc(k.name)}<small>(${Number(k.count)})</small></span></label>`).join("");
+      const members = room.members.map((m) => `
+        <label class="check"><input type="checkbox" name="exclude" value="${esc(m.entity_id)}">
+          <span>${esc(m.name)}</span></label>`).join("");
       return `${back}
         <h2>${badge}${esc(room.name)}</h2>
         <form data-form="room">
           <h3>מה לכלול</h3>
-          ${kinds}
+          ${kinds || '<p class="muted">אין כאן מכשירים שאפשר להפעיל בטלפון.</p>'}
           ${level.can_nest ? "" : '<p class="muted">בעומק הזה אפשר לבחור סוג אחד בלבד.</p>'}
+          ${members ? `<details><summary>להשאיר מכשירים בחוץ</summary>
+            <div class="list">${members}</div></details>` : ""}
           <label class="field" style="margin-top:12px">שם בטלפון (לא חובה)
             <input type="text" name="name" placeholder="${esc(room.name)}"></label>
           <div class="actions"><button class="btn">הוספה למקש ${esc(mode.digit)}</button></div>
@@ -823,6 +878,34 @@ class HaIvrPanel extends HTMLElement {
     return `${back}
       <h2>${badge}מה יקרה כשמקישים ${esc(mode.digit)}?</h2>
       <div class="choices">${choices.join("")}</div>`;
+  }
+
+  _fieldHtml(field) {
+    const name = esc(field.name);
+    const star = field.required ? "" : " (לא חובה)";
+    if (field.type === "boolean") {
+      return `<label class="check"><input type="checkbox" name="${name}">
+        <span>${esc(field.label)}</span></label>`;
+    }
+    if (field.type === "select") {
+      const options = field.options.map((o) =>
+        `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+      return `<label class="field">${esc(field.label)}${star}
+        <select name="${name}"><option value=""></option>${options}</select></label>`;
+    }
+    if (field.type === "number") {
+      const range = field.min !== null && field.max !== null
+        ? ` (${field.min}–${field.max}${field.unit ? ` ${esc(field.unit)}` : ""})` : "";
+      const attrs = [
+        field.min !== null ? `min="${field.min}"` : "",
+        field.max !== null ? `max="${field.max}"` : "",
+        `step="${field.step || "any"}"`,
+      ].join(" ");
+      return `<label class="field">${esc(field.label)}${range}${star}
+        <input type="number" name="${name}" dir="ltr" ${attrs}></label>`;
+    }
+    return `<label class="field">${esc(field.label)}${star}
+      <input type="text" name="${name}"></label>`;
   }
 
   _buildHtml() {
@@ -989,8 +1072,11 @@ class HaIvrPanel extends HTMLElement {
         return;
       }
       case "add-back": {
-        const before = { caps: "device", kinds: "room" }[mode.step] || "what";
-        this._setMode({ ...mode, step: before });
+        const before = {
+          caps: "device", fixed: "caps", values: "fixed",
+          places: "room", kinds: mode.places ? "places" : "room",
+        }[mode.step] || "what";
+        this._setMode({ ...mode, step: before, places: before === "room" ? null : mode.places });
         return;
       }
       case "add-step": {
@@ -1014,8 +1100,26 @@ class HaIvrPanel extends HTMLElement {
         if (found) this._setMode({ ...mode, step: "caps", found });
         return;
       }
-      case "add-room":
-        this._setMode({ ...mode, step: "kinds", room: mode.rooms[Number(data.index)] });
+      case "add-room": {
+        const picked = mode.rooms[Number(data.index)];
+        const room = await this._call("place", {
+          args: { target: picked.area_id ? { area_id: [picked.area_id] } : {} },
+        });
+        if (room) this._setMode({ ...mode, step: "kinds", room, places: null });
+        return;
+      }
+      case "add-places": {
+        const places = await this._call("places");
+        if (places) this._setMode({ ...mode, step: "places", places });
+        return;
+      }
+      case "add-fixed": {
+        const fixed = await this._call("actions", { args: { entity_id: mode.found.entity_id } });
+        if (fixed) this._setMode({ ...mode, step: "fixed", fixed });
+        return;
+      }
+      case "add-values":
+        this._setMode({ ...mode, step: "values", action: mode.fixed.actions[Number(data.index)] });
         return;
       case "add-part":
         if (level.kind === "plan") await this._add("capability", { ident: data.ident });
@@ -1105,7 +1209,38 @@ class HaIvrPanel extends HTMLElement {
           this._say("בעומק הזה אפשר לבחור סוג אחד בלבד.");
           return;
         }
-        await this._add("room", { area_id: mode.room.area_id, domains, name: text("name") });
+        await this._add("room", {
+          target: mode.room.target, exclude: data.getAll("exclude"), domains, name: text("name"),
+        });
+        return;
+      }
+      case "places": {
+        const target = {};
+        for (const key of ["floor_id", "area_id", "label_id"]) {
+          const ids = data.getAll(key);
+          if (ids.length) target[key] = ids;
+        }
+        if (!Object.keys(target).length) {
+          this._say("סמנו לפחות מקום אחד.");
+          return;
+        }
+        const room = await this._call("place", { args: { target } });
+        if (room) this._setMode({ ...mode, step: "kinds", room });
+        return;
+      }
+      case "fixed": {
+        const values = {};
+        for (const field of mode.action.fields) {
+          if (field.type === "boolean") {
+            if (data.get(field.name)) values[field.name] = true;
+          } else if (text(field.name) !== "") {
+            values[field.name] = text(field.name);
+          }
+        }
+        await this._add("action", {
+          entity_id: mode.fixed.entity_id, action: mode.action.action,
+          data: values, name: text("_name"),
+        });
         return;
       }
       case "submenu":
