@@ -320,10 +320,6 @@ class _Session:
             return
 
         digit = _find_digit(payload)
-        if digit is not None and self._satellite is not None and self._satellite.dictating:
-            # בהכתבה המקשים שייכים לה: סולמית מסיימת, 1/2/0 באישור.
-            await self._satellite.on_dictation_key(digit)
-            return
         if digit is not None:
             _LOGGER.debug("Stream: key press on channel: %s", digit)
             # הקשה באמצע הקראה = המתקשר רוצה לקטוע.
@@ -391,18 +387,6 @@ class _Session:
                 message=(pending.message or "")[:200],
             )
             self.hass.async_create_task(self._deliver(pending))
-            return
-
-        from . import dictation  # noqa: PLC0415
-
-        ticket = dictation.claim(
-            self.hass, self.entry.entry_id, self._call_id, self._caller
-        )
-        if ticket is not None and self._satellite is not None:
-            _LOGGER.info("Stream: this call is a dictation")
-            history.record("stream.dictation", provider=self._provider,
-                           call_id=self._call_id)
-            self.hass.async_create_task(self._satellite.run_dictation(ticket))
             return
 
         self._open_input()
@@ -504,9 +488,6 @@ class _Session:
         await self._finish(command)
 
     # ------------------------------------------------------------------
-
-    async def clear_playback(self) -> None:
-        await self._clear_playback()
 
     async def _clear_playback(self) -> None:
         """ריקון חוצץ ההשמעה אצל הספק.

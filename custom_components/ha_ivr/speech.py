@@ -39,6 +39,15 @@ STATE_WORDS: dict[str, str] = {
     "mowing": "מכסח", "error": "בתקלה",
 }
 
+# מצבים שהמשמעות שלהם תלויה בדומיין. אוטומציה "דולקת" היא אוטומציה
+# מופעלת, ותסריט "דולק" הוא תסריט שרץ עכשיו.
+DOMAIN_STATE_WORDS: dict[tuple[str, str], str] = {
+    ("automation", "on"): "מופעלת",
+    ("automation", "off"): "מושבתת",
+    ("script", "on"): "רץ",
+    ("script", "off"): "לא רץ",
+}
+
 # מילים שאחריהן אין טעם להקריא יחידה או תקציר.
 NO_DETAIL = frozenset({"unavailable", "unknown"})
 
@@ -72,10 +81,12 @@ def state_word(state, hass=None) -> str:
     hass = hass or i18n.bound()
     raw = str(state.state)
     lowered = raw.lower()
+    domain = _domain(state)
+    if found := DOMAIN_STATE_WORDS.get((domain, lowered)):
+        return found
     if lowered in STATE_WORDS:
         return STATE_WORDS[lowered]
 
-    domain = _domain(state)
     if hass is not None and domain:
         entry = _registry(hass, getattr(state, "entity_id", ""))
         found = i18n.state_name(
@@ -284,6 +295,8 @@ def speak_state(state, hass=None) -> list[Say]:
 def speak_word(raw: str, domain: str = "") -> list[Say]:
     """מילת המצב בלבד, בלי יחידות — לסיכום של קבוצה."""
     lowered = raw.lower()
+    if found := DOMAIN_STATE_WORDS.get((domain, lowered)):
+        return [Say("text", found)]
     if lowered in STATE_WORDS:
         return [Say("text", STATE_WORDS[lowered])]
     hass = i18n.bound()

@@ -23,7 +23,6 @@ import custom_components.ha_ivr as core  # noqa: E402
 from custom_components.ha_ivr import (  # noqa: E402
     config_flow as cf,
     diagnostics,
-    dictation,
     i18n,
     registry,
     security,
@@ -265,34 +264,14 @@ ok("אחרי עצירה אין מאזין רשום", shass.bus.listeners == [])
 ok("והמטמון נמחק", caps.cache(shass) is None)
 
 # ----------------------------------------------------------------------
-# פריקה: כרטיסים וטיימרים
+# פריקה: מוני החסימה
 # ----------------------------------------------------------------------
 
-
-class _Node:
-    entity = "todo.list"
-    action = "todo.add_item"
-    dictate = {"field": "item", "max_length": 0}
-    data = {}
-    say = "רשימה"
-
-
-class _Ctx:
-    call_id = "c1"
-    caller = "0501234567"
-
-
 uhass = fake_ha.FakeHass()
-uentry = sip_entry("u1")
-uentry.subentries = {}
-dictation.async_start(uhass, uentry, _Node(), "1", _Ctx())
-ok("כרטיס נשמר", len(dictation._store(uhass)) == 1)
 security.record_failure(uhass, "u1", "c1", "0501234567")
-dictation.clear(uhass, "u1")
 security.clear(uhass, "u1")
-ok("ניקוי של הרשומה: אין כרטיס ואין טיימר",
-   dictation._store(uhass) == {})
-ok("ואין מונה חסימה", "u1" not in (uhass.data.get(security._DATA_KEY) or {}))
+ok("ניקוי של הרשומה: אין מונה חסימה",
+   "u1" not in (uhass.data.get(security._DATA_KEY) or {}))
 
 # הפריקה עצמה: הרשומה האחרונה מורידה גם את המשותף.
 lhass = fake_ha.FakeHass()
@@ -311,10 +290,8 @@ async def _unload_platforms(entry, platforms):
 lhass.config_entries.async_unload_platforms_or_raise = _unload_platforms
 lentry.runtime_data = core.IvrRuntime(driver=SIP, platforms=["sensor"])
 core._shared_start(lhass)
-dictation.async_start(lhass, lentry, _Node(), "1", _Ctx())
 run(core.async_unload_entry(lhass, lentry))
 ok("unload פורק את הפלטפורמות מ-runtime_data", unloaded == [["sensor"]])
-ok("unload מנקה כרטיסים", dictation._store(lhass) == {})
 ok("unload של האחרונה: אין מאזין ואין מטמון",
    lhass.bus.listeners == [] and caps.cache(lhass) is None)
 

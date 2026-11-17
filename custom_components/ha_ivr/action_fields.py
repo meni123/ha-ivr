@@ -23,6 +23,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
+    selector as ha_selector,
 )
 from homeassistant.helpers.service import async_get_all_descriptions
 
@@ -34,8 +35,8 @@ _LOGGER = logging.getLogger(__name__)
 # שדות שאינם רלוונטיים לשלוחה: המכשיר כבר נבחר בשלב קודם.
 IGNORED_FIELDS = frozenset({"entity_id", "device_id", "area_id", "target", "label_id"})
 
-# סוגי בוררים שניתן להציג בטופס הגדרה בצורה אמינה.
-SUPPORTED_SELECTORS = frozenset({"number", "select", "text", "boolean"})
+# שדה קוד אינו מוצג בטופס ואינו נשמר לעולם. הוא נאסף בהקשה בשיחה.
+SECRET_FIELDS = frozenset({"code"})
 
 # שדות שהטווח שלהם נקבע לפי הישות ולא לפי התיאור הגנרי. תיאור
 # `climate.set_temperature` מכריז על 0 עד 250 — הטווח התיאורטי של
@@ -145,18 +146,19 @@ def _flatten_fields(raw: Any) -> dict[str, Any]:
 
 
 def field_is_supported(spec: dict[str, Any]) -> bool:
-    """האם ניתן להציג את השדה בטופס ההגדרה."""
-    selector = spec.get("selector")
-    if not isinstance(selector, dict):
-        return False
+    """האם ניתן להציג את השדה בטופס ההגדרה.
 
-    # בורר בחירה ללא אפשרויות ייראה כרשימה ריקה, ולכן אינו נחשב נתמך.
-    # זה קורה כאשר האפשרויות תלויות בישות ולא הושלמו ממאפייניה.
+    כל בורר של Home Assistant מוצג בטופס כמו במסך האוטומציות. היוצא
+    מן הכלל: בורר בחירה בלי אפשרויות, כשהן תלויות בישות שאינה מדווחת
+    עליהן — רשימה ריקה אינה שדה.
+    """
+    selector = spec.get("selector")
+    if not isinstance(selector, dict) or not selector:
+        return False
     if "select" in selector:
         config = selector.get("select") or {}
         return bool(config.get("options"))
-
-    return any(key in SUPPORTED_SELECTORS for key in selector)
+    return True
 
 
 def action_is_usable(fields: dict[str, dict[str, Any]]) -> bool:
@@ -220,7 +222,11 @@ def build_field_selector(spec: dict[str, Any]) -> Any:
     if "boolean" in selector:
         return BooleanSelector()
 
-    return TextSelector()
+    # שאר הבוררים (שעה, צבע, משך, מדיה, אובייקט) כמו שהם, בבורר של HA.
+    try:
+        return ha_selector(selector)
+    except (vol.Invalid, KeyError, TypeError):
+        return TextSelector()
 
 
 def build_fields_schema(
@@ -359,7 +365,7 @@ def build_label_map(fields: dict[str, dict[str, Any]]) -> dict[str, str]:
     used: set[str] = set()
 
     for name, spec in fields.items():
-        if not field_is_supported(spec):
+        if name in SECRET_FIELDS or not field_is_supported(spec):
             continue
         label = field_label(name, spec)
         # במקרה נדיר של שתי תוויות זהות, נשמר ייחוד לפי השם הטכני.

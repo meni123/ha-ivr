@@ -115,9 +115,6 @@ class _AssistSession:
         self.exiting = True
         self.done.set()
 
-    async def clear_playback(self) -> None:
-        self._call.flush()
-
     async def close(self, reason: str) -> None:
         """העוזר ויתר — שתיקה ממושכת או כשל. חוזרים לתפריט, והוא
         כבר יודע לסיים שיחה שאיש אינו מקיש בה."""
@@ -198,13 +195,8 @@ class SipCallSession:
                 return  # סיום: הושמע, ומנתקים.
 
             # בקו ישיר אין שלוחות: כל מעבר מחבר לעוזר הקולי, יהיה היעד
-            # שנכתב בפריט אשר יהיה — או להכתבה, אם התפריט שמר כרטיס.
-            from . import dictation  # noqa: PLC0415
-
-            ticket = dictation.claim(
-                self.hass, self._entry.entry_id, call.call_id, call.caller
-            )
-            if await self._assist(ticket):
+            # שנכתב בפריט אשר יהיה.
+            if await self._assist():
                 return
             path, digit, empties = (), None, 0
             self._drop_keys()
@@ -277,8 +269,8 @@ class SipCallSession:
 
     # ---- העוזר הקולי ----
 
-    async def _assist(self, ticket=None) -> bool:
-        """מחבר את המתקשר לעוזר, או להכתבה. True אם השיחה נגמרה שם."""
+    async def _assist(self) -> bool:
+        """מחבר את המתקשר לעוזר. True אם השיחה נגמרה שם."""
         call = self._call
         session = _AssistSession(call)
         line = next(
@@ -323,12 +315,8 @@ class SipCallSession:
         call.on_audio = on_audio
         filler = asyncio.ensure_future(fill())
         history.record("sip.assist", caller=call.caller, line=line.entity_id)
-        runner = None
         try:
-            if ticket is not None:
-                runner = asyncio.ensure_future(line.run_dictation(ticket))
-            else:
-                await line.begin()
+            await line.begin()
             async with asyncio.timeout(minutes * 60 if minutes > 0 else None):
                 await self._assist_keys(session, line, exit_keys)
         except TimeoutError:
@@ -338,11 +326,7 @@ class SipCallSession:
         finally:
             call.on_audio = None
             filler.cancel()
-            if runner is not None and not runner.done():
-                runner.cancel()
-            await asyncio.gather(
-                filler, *([runner] if runner is not None else []), return_exceptions=True
-            )
+            await asyncio.gather(filler, return_exceptions=True)
             line.detach(session)
         if session.gone:
             return True
@@ -363,11 +347,7 @@ class SipCallSession:
                     if not key.done():
                         key.cancel()
                         await asyncio.gather(key, return_exceptions=True)
-                if not key.done() or key.cancelled():
-                    continue
-                if getattr(line, "dictating", False):
-                    await line.on_dictation_key(key.result())
-                elif key.result() in exit_keys:
+                if key.done() and not key.cancelled() and key.result() in exit_keys:
                     await line.request_leave()
         finally:
             if not done.done():

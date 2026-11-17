@@ -1,4 +1,4 @@
-"""גילוי היכולות, קודים, הפעלה, שגיאות, הקראה, נעילה והכתבה.
+"""גילוי היכולות, קודים, הפעלה, שגיאות, הקראה ונעילה.
 
 כל מה שנוסף כדי שהתפריט יציע רק מה שהמכשיר באמת יודע לעשות, ויגיד
 למתקשר בדיוק מה קרה. רץ מול ה-HA המזויף, כמו `run_live.py`.
@@ -9,7 +9,6 @@ python3 tests/run_capabilities.py
 from __future__ import annotations
 
 import asyncio
-import re
 import sys
 import types
 from pathlib import Path
@@ -25,7 +24,6 @@ fake_ha.install()
 from custom_components.ha_ivr import (  # noqa: E402
     call as call_mod,
     capabilities as caps,
-    dictation,
     i18n,
     menu,
     security,
@@ -33,7 +31,6 @@ from custom_components.ha_ivr import (  # noqa: E402
     speech,
     tree,
 )
-from custom_components.ha_ivr.model import CallContext  # noqa: E402
 
 PASS = FAIL = 0
 
@@ -125,6 +122,28 @@ DESCRIPTIONS = {
             "fields": {"media": {"required": True, "selector": {"media": {}}}},
         },
     },
+    # כמו ב-services.yaml של core (2026.11).
+    "automation": {
+        "turn_on": {"target": {"entity": {"domain": "automation"}}},
+        "turn_off": {"target": {"entity": {"domain": "automation"}},
+                     "fields": {"stop_actions": {"default": True,
+                                                 "selector": {"boolean": None}}}},
+        "toggle": {"target": {"entity": {"domain": "automation"}}},
+        "trigger": {"target": {"entity": {"domain": "automation"}},
+                    "fields": {"skip_condition": {"default": True,
+                                                  "selector": {"boolean": None}}}},
+        "reload": {},
+    },
+    "script": {
+        "turn_on": {"target": {"entity": {"domain": "script"}}},
+        "turn_off": {"target": {"entity": {"domain": "script"}}},
+        "toggle": {"target": {"entity": {"domain": "script"}}},
+    },
+    "weather": {
+        "get_forecasts": {"target": {"entity": {"domain": "weather"}},
+                          "fields": {"type": {"required": True, "selector": {
+                              "select": {"options": ["daily", "hourly"]}}}}},
+    },
     "homeassistant": {
         "turn_on": {"target": {}, "fields": {}},
         "turn_off": {"target": {}, "fields": {}},
@@ -175,7 +194,11 @@ hass = fake_ha.FakeHass({
     "notify.phone": fake_ha.FakeState("unknown"),
     "media_player.tv": fake_ha.FakeState("off"),
     "group.lights": fake_ha.FakeState("on", entity_id=["light.a"]),
+    "automation.night": fake_ha.FakeState("on", friendly_name="לילה"),
+    "script.coffee": fake_ha.FakeState("off", friendly_name="קפה"),
+    "weather.home": fake_ha.FakeState("sunny"),
 })
+fake_ha.FakeServices.READ_ONLY = {("weather", "get_forecasts")}
 hass.services.async_services = lambda: {
     d: {a: None for a in actions} for d, actions in DESCRIPTIONS.items()
 }
@@ -226,8 +249,28 @@ ok("דוד: מצב הפעלה נמצא מ-operation_list",
    and boiler["set_operation_mode"].options == ("eco", "electric", "off"))
 
 phone = discover("notify.phone")
-ok("התראה: הכתבה", phone["send_message"].kind == smart.KIND_TEXT
-   and phone["send_message"].field_name == "message")
+ok("התראה: טקסט חובה הוא ערך קבוע (אין הקשה של טקסט)",
+   phone["send_message"].kind == smart.KIND_FIXED)
+
+auto = discover("automation.night")
+ok("אוטומציה: הרצה, הפעלה, השבתה והחלפה",
+   {"trigger", "turn_on", "turn_off", "toggle"} <= set(auto) and "reload" not in auto)
+ok("הרצת אוטומציה היא פעולה פשוטה ולא שאלת כן/לא על התנאים",
+   auto["trigger"].kind == smart.KIND_SIMPLE
+   and auto["turn_off"].kind == smart.KIND_SIMPLE)
+ok("ולכל פעולה של אוטומציה שם אחר",
+   len({auto[a].label for a in ("trigger", "turn_on", "turn_off", "toggle")}) == 4
+   and auto["trigger"].label == "הרצה עכשיו")
+ok("תסריט: הרצה ועצירה",
+   discover("script.coffee")["turn_on"].label == "הרצה"
+   and discover("script.coffee")["turn_off"].label == "עצירה")
+ok("set_ בלי שדה שאפשר להקיש הוא ערך קבוע ולא פעולה ריקה",
+   run(smart._classify(hass, "climate", "set_temperature", {
+       "target_temp_low": {"selector": {"number": {"min": 7, "max": 35}}},
+       "target_temp_high": {"selector": {"number": {"min": 7, "max": 35}}},
+   }, "climate.x")).kind == smart.KIND_FIXED)
+ok("פעולה שרק מחזירה מידע אינה מוצעת (SupportsResponse.ONLY)",
+   "get_forecasts" not in discover("weather.home"))
 ok("מדיה: שדה media חובה הוא ערך קבוע בלבד",
    discover("media_player.tv")["play_media"].kind == smart.KIND_FIXED)
 
@@ -292,11 +335,8 @@ ok("קוד 1111 נקלט כולו (אין סינון הקשה כפולה באי�
 
 text_raw = {"digit": "2", "kind": "text", "action": "send_message", "label": "הודעה",
             "field": "message"}
-ok("הכתבה אינה נבנית בקו בלי סטרימינג",
-   menu._smart_child(hass, "notify.phone", False, text_raw, {"stream": False}) is None)
-ok("ונבנית בקו עם סטרימינג",
-   menu._smart_child(hass, "notify.phone", False, text_raw, {"stream": True})["dictate"]
-   == {"field": "message"})
+ok("תוכנית ישנה עם הכתבה אינה נבנית, והספרה נשארת ריקה",
+   menu._smart_child(hass, "notify.phone", False, text_raw, {}) is None)
 
 # ======================================================================
 print("\n== אימות ביצוע ==")
@@ -460,49 +500,15 @@ ok("עשר דחיות ממספרים חסויים חוסמות את הקו ופ�
    security.blocked(h4, "e2", "new", "") and any("code_lockout" in k for k in fake_ha.ISSUES))
 ok("המספר ביומן מוסתר", security.mask("0501234567") == "***4567")
 
-# ======================================================================
-print("\n== כרטיס הכתבה ==")
-# ======================================================================
-
-from custom_components.ha_ivr import registry  # noqa: E402
-from custom_components.ha_ivr.providers import sip as sip_driver  # noqa: E402
-
-registry.register(sip_driver)
-entry = fake_ha.FakeEntry(data={"token": "T", "provider": "sip"})
-hd = fake_ha.FakeHass(entries=[entry])
-dnode = tree.build({"say": "הודעה", "entity": "notify.phone", "action": "send_message",
-                    "dictate": {"field": "message", "max_length": 20}})
-ctx = CallContext(call_id="abc", caller="0501234567", did="", path=("2",), digit="2", step=2)
-
-
-async def _ticket_flow():
-    goto = dictation.async_start(hd, entry, dnode, ("2",), ctx)
-    first = dictation.claim(hd, "entry1", "", "+972501234567")
-    second = dictation.claim(hd, "entry1", "abc", "0501234567")
-    goto2 = dictation.async_start(hd, entry, dnode, ("2",), ctx)
-    goto3 = dictation.async_start(hd, entry, dnode, ("2",), ctx)
-    count = len(dictation._store(hd))
-    by_id = dictation.claim(hd, "entry1", "abc", "")
-    return goto, first, second, goto2, goto3, count, by_id
-
-
-goto, first, second, goto2, goto3, count, by_id = run(_ticket_flow())
-ok("קו ישיר: מעבר להכתבה", goto is not None)
-ok("הכרטיס נשלף לפי מספר מנורמל", first is not None and first.max_length == 20)
-ok("ושליפה היא חד-פעמית", second is None)
-ok("כרטיס חדש לאותו מתקשר מחליף את הקודם", count == 1)
-ok("שליפה לפי מזהה שיחה", by_id is not None)
-
-
-async def _expiry():
-    dictation.TICKET_TTL = 0.05
-    dictation.async_start(hd, entry, dnode, ("2",), ctx)
-    await asyncio.sleep(0.15)
-    return len(dictation._store(hd))
-
-
-ok("כרטיס שאיש לא שלף פג מעצמו", run(_expiry()) == 0)
-ok("תמלול של פיסוק בלבד הוא שקט", dictation.clean(" . , ! ") == "")
+ok("אוטומציה מוקראת כמופעלת או מושבתת, לא כדולקת",
+   speech.state_word(types.SimpleNamespace(
+       entity_id="automation.night", state="on", attributes={})) == "מופעלת"
+   and speech.speak_word("off", "automation")[0].data == "מושבתת")
+hrun = fake_ha.FakeHass({"automation.night": fake_ha.FakeState("on")})
+trig = run(call_mod.async_call_one(hrun, "automation.night", "trigger", {}))
+ok("אחרי הרצת אוטומציה שומעים 'בוצע', לא את המצב שלה",
+   trig.status == call_mod.OK and trig.state is None
+   and hrun.services.calls == [("automation", "trigger", {"entity_id": "automation.night"})])
 
 from custom_components.ha_ivr.model import speakable  # noqa: E402
 

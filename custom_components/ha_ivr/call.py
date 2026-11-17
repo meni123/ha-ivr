@@ -296,7 +296,9 @@ async def async_call_one(
 
         _clear_issues(hass, entry_id, entity_id, f"{svc_domain}.{svc}")
         if not wait:
-            return Outcome(OK, state=hass.states.get(entity_id), total=1, done=1)
+            # הרצת אוטומציה, סצנה או לחיצה אינן משנות מצב שיש טעם להקריא.
+            # המתקשר שומע "בוצע", לא "האוטומציה כרגע מופעלת".
+            return Outcome(OK, state=None, total=1, done=1)
         try:
             new = await asyncio.wait_for(asyncio.shield(future), STATE_CHANGE_TIMEOUT)
             return Outcome(OK, state=new or hass.states.get(entity_id), total=1, done=1)

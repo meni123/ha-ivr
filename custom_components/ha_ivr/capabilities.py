@@ -8,8 +8,8 @@
 `get_services_for_target`, וכאן מפעילים אותם באותה צורה.
 
 כאן גם ההחלטות שאינן תלויות בטלפון: האם פעולה דורשת קוד ואיך
-מקישים אותו, ואילו שדות אפשר לאסוף בהקשה, בהכתבה או רק כערך
-קבוע שנקבע מראש בהגדרה.
+מקישים אותו, ואילו שדות אפשר לאסוף בהקשה או רק כערך קבוע
+שנקבע מראש בהגדרה.
 """
 
 from __future__ import annotations
@@ -29,15 +29,6 @@ _LOGGER = logging.getLogger(__name__)
 # סגורה: שירות עתידי בלי מסנן לא ייכנס לקבוצה מעצמו.
 GROUP_ACTIONS: tuple[str, ...] = ("turn_on", "turn_off", "toggle")
 GROUP_ACTION_DOMAIN = "homeassistant"
-
-# שדות שמכילים טקסט חופשי שאפשר להכתיב בקול. שדה חובה מסוג טקסט
-# נכלל תמיד; אלה גם כשאינם חובה, כי בלעדיהם הפעולה אינה עושה דבר.
-DICTATION_FIELDS: dict[tuple[str, str], str] = {
-    ("notify", "send_message"): "message",
-    ("todo", "add_item"): "item",
-    ("tts", "speak"): "message",
-    ("conversation", "process"): "text",
-}
 
 # בוררים שאפשר להקיש בטלפון: בחירה, כן/לא, מספר.
 DIALABLE_SELECTORS = frozenset({"select", "boolean", "number"})
@@ -427,33 +418,6 @@ def selector_kind(spec: dict) -> str:
     if not isinstance(selector, dict) or not selector:
         return ""
     return next(iter(selector))
-
-
-def dictation_field(domain: str, action: str, fields: dict) -> str:
-    """השדה שמקבל טקסט מוכתב, או מחרוזת ריקה."""
-    if (name := DICTATION_FIELDS.get((domain, action))) and name in fields:
-        return name
-    required_text = [
-        name for name, spec in fields.items()
-        if spec.get("required") and selector_kind(spec) == "text"
-        and name != CODE_FIELD
-    ]
-    return required_text[0] if len(required_text) == 1 else ""
-
-
-def needs_fixed(fields: dict, *, skip: tuple[str, ...] = ()) -> bool:
-    """האם יש שדה חובה שאי אפשר להקיש בטלפון.
-
-    שעה, צבע, אובייקט, מדיה — רק ערך קבוע שנקבע מראש בלוח.
-    """
-    for name, spec in fields.items():
-        if name in skip or not spec.get("required"):
-            continue
-        kind = selector_kind(spec)
-        if kind in DIALABLE_SELECTORS:
-            continue
-        return True
-    return False
 
 
 # ----------------------------------------------------------------------

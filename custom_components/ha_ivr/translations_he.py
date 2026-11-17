@@ -117,6 +117,23 @@ ACTION_NAMES: Final[dict[str, str]] = {
     "generate_image": "יצירת תמונה",
 }
 
+# שמות שתלויים בדומיין. "הדלקה" של אוטומציה מטעה: היא מאפשרת אותה
+# ואינה מריצה דבר, ו-HA עצמו מתרגם גם אותה וגם את `trigger` כ"הפעלה".
+# בטלפון אין מסך שיבהיר, ולכן כל פעולה כאן נשמעת אחרת.
+DOMAIN_ACTION_NAMES: Final[dict[tuple[str, str], str]] = {
+    ("automation", "trigger"): "הרצה עכשיו",
+    ("automation", "turn_on"): "הפעלת האוטומציה",
+    ("automation", "turn_off"): "השבתת האוטומציה",
+    ("automation", "toggle"): "הפעלה או השבתה",
+    ("script", "turn_on"): "הרצה",
+    ("script", "turn_off"): "עצירה",
+    ("script", "toggle"): "הרצה או עצירה",
+    ("scene", "turn_on"): "הפעלת הסצנה",
+    ("update", "install"): "התקנת העדכון",
+    ("update", "skip"): "דילוג על העדכון",
+    ("update", "clear_skipped"): "ביטול הדילוג",
+}
+
 # --- שמות שדות ---
 FIELD_NAMES: Final[dict[str, str]] = {
     "temperature": "טמפרטורה",
@@ -187,7 +204,7 @@ FIELD_NAMES: Final[dict[str, str]] = {
     "instructions": "הוראות",
     "task_name": "שם המשימה",
     "stop_actions": "עצירת פעולות",
-    "skip_condition": "תנאי דילוג",
+    "skip_condition": "דילוג על תנאים",
     "conversation_id": "מזהה שיחה",
 }
 
@@ -331,6 +348,8 @@ def translate_action(action: str, domain: str = "") -> str:
     """
     if "." in action:
         domain, action = action.split(".", 1)
+    if found := DOMAIN_ACTION_NAMES.get((domain, action)):
+        return found
     if found := ACTION_NAMES.get(action):
         return found
     if domain and (found := i18n.spoken_action(domain, action)):

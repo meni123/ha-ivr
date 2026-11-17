@@ -188,7 +188,9 @@ def install() -> None:
     ha = _module("homeassistant")
     ha.__path__ = []
     _module("homeassistant.core", HomeAssistant=_Any, Context=_Any,
-            callback=_passthrough, ServiceCall=_Any, Event=_Any)
+            callback=_passthrough, ServiceCall=_Any, Event=_Any,
+            SupportsResponse=types.SimpleNamespace(
+                NONE="none", OPTIONAL="optional", ONLY="only"))
     # ההיררכיה כמו ב-core: ServiceNotFound ו-ServiceNotSupported יורשות
     # מ-ServiceValidationError, וזו ו-Unauthorized מ-HomeAssistantError.
     class _HAE(Exception):
@@ -273,6 +275,7 @@ def install() -> None:
             TEXT="text", PASSWORD="password", EMAIL="email", URL="url", TEL="tel"),
         "SelectSelectorMode": _mode,
         "NumberSelectorMode": _mode,
+        "selector": fake_selector,
     })
     _module("homeassistant.helpers.entity", Entity=object)
     _module("homeassistant.helpers.area_registry", async_get=_Any)
@@ -501,6 +504,41 @@ def install() -> None:
     ha.components = comps
 
 
+def fake_selector(config):
+    """`selector()` של HA בקטן: בדיקת מספר, בחירה, כן/לא וטקסט. השאר
+    עובר כמו שהוא — הבדיקה האמיתית נבדקת מול Home Assistant עצמו."""
+    import voluptuous as vol
+
+    kind, cfg = next(iter(config.items()))
+    cfg = cfg or {}
+
+    def validate(value):
+        if kind == "number":
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                raise vol.Invalid("expected a number") from None
+            if cfg.get("min") is not None and number < float(cfg["min"]):
+                raise vol.Invalid("too small")
+            if cfg.get("max") is not None and number > float(cfg["max"]):
+                raise vol.Invalid("too large")
+            return number
+        if kind == "select":
+            values = [o["value"] if isinstance(o, dict) else o for o in cfg.get("options", [])]
+            if not cfg.get("custom_value") and value not in values:
+                raise vol.Invalid("not an option")
+            return value
+        if kind == "boolean":
+            return bool(value)
+        if kind == "text":
+            if not isinstance(value, str):
+                raise vol.Invalid("expected text")
+            return value
+        return value
+
+    return validate
+
+
 # ----------------------------------------------------------------------
 # עצמים מזויפים להרצה
 # ----------------------------------------------------------------------
@@ -583,6 +621,18 @@ class FakeServices:
 
     def has_service(self, *a):
         return False
+
+    def async_services(self):
+        return {}
+
+    def async_services_for_domain(self, domain):
+        return self.async_services().get(domain, {})
+
+    # פעולות שרק מחזירות מידע, שהבדיקה מזריקה: {(domain, service)}.
+    READ_ONLY: set = set()
+
+    def supports_response(self, domain, service):
+        return "only" if (domain, service) in self.READ_ONLY else "none"
 
     def async_register(self, *a, **k):
         return None

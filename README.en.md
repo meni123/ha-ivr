@@ -50,25 +50,32 @@ kept in the URL, so the browser's Back button goes up a level.
   <img src="docs/panel.png" width="720" alt="The keypad">
 </p>
 
-Click an empty key and choose what it does. The editor opens in the
-column beside the keypad, or from the bottom on a phone:
+Click an empty key and choose what it does. A dialog opens over the
+keypad, or from the bottom on a phone. Its forms and pickers are Home
+Assistant's own:
 
 <p align="center">
   <img src="docs/panel-add.png" width="720" alt="What happens on a key press">
 </p>
 
-**Device** — find it the way the Home Assistant picker does: by
-name, device, area or label. Then tick what the caller may do with it.
-When an action has several values, such as HVAC mode or fan speed, a
-second step asks which of them to offer. A key can also set one fixed
-value: "AC to 24", "light to 30 percent".
+**Device** — pick it in the Home Assistant entity picker: a light, AC,
+cover, scene, script, automation, anything in the home. Then tick what
+the caller may do with it; only actions the device really supports
+are offered, as in the automation editor. When an action has several
+values, such as HVAC mode or fan speed, a second step asks which of
+them to offer. An automation can be enabled, disabled, or run now.
+
+**Key with a fixed value** — "AC to 24", "light to 30 percent", "run
+an automation with its conditions", "add milk to the shopping list".
+Every action field is available here, drawn with the HA selector:
+time, color, duration, text, media.
 
 <p align="center">
   <img src="docs/panel-device.png" width="720" alt="Adding a device">
 </p>
 
-**Room or area** — one room, several rooms together, a floor or a
-label. Choose which kinds and which devices, then what each kind may
+**Room or area** — the whole home, or rooms, floors and labels in the
+HA pickers. Choose which kinds and which devices, then what each kind may
 do. "Add everything" skips the last step. Only
 actions every device supports are offered, and a device that joins
 the room enters the menu by itself.
@@ -77,10 +84,11 @@ the room enters the menu by itself.
   <img src="docs/panel-room-devices.png" width="720" alt="Which devices">
 </p>
 
-A key opens on click, and the ⋮ button in its corner opens the
-editor. There you change its name and value, and the ⋮ menu moves it
-to another key or menu, replaces the device or removes it. A removal
-can be undone from the notification at the bottom:
+Clicking a key opens its dialog; a key with more keys inside opens
+them, and the pencil in its corner edits it. In the dialog you change
+its name and value, move it to another key or menu, replace the
+device or remove it. A removal can be undone from the notification at
+the bottom:
 
 <p align="center">
   <img src="docs/panel-inside.png" width="720" alt="Inside a device key">

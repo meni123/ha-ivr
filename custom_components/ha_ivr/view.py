@@ -342,28 +342,6 @@ class IvrView(HomeAssistantView):
                 drv, tree_mod.collect_prompt(node, path, ctx.step, ()), cfg
             )
 
-        # הכתבה: המתקשר עובר לשלוחת הסטרימינג, שם הטקסט מוקלט, מוקרא
-        # לאישור ומופעל, ואז הוא חוזר לכאן.
-        if node.is_dictate:
-            from . import dictation  # noqa: PLC0415
-
-            goto = dictation.async_start(self.hass, entry, node, path, ctx)
-            if goto is not None:
-                self._report_call(entry, driver_id, path, node)
-                return _reply(drv, goto, cfg)
-            parent_path = path[:-1]
-            parent = tree_mod.resolve(root, parent_path) or root
-            prompt = tree_mod.prompt_for(
-                parent, parent_path, ctx.step, supports_goto=drv.SUPPORTS_GOTO
-            )
-            return _reply(
-                drv,
-                replace(prompt, messages=[
-                    Say("text", "ההכתבה אינה זמינה כרגע"), *prompt.messages,
-                ]),
-                cfg,
-            )
-
         # עלה. מבצעים, ואז מחזירים את תפריט ההורה עם התוצאה בראשו.
         #
         # לא לנווט לשום מקום. אצל ספק ששלוחת ה-API שלו יושבת

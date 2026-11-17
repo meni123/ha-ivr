@@ -147,31 +147,6 @@ def _accept_without_vad():
     return accept
 
 
-# הכתבה: כמה ניסיונות לכל שלב, ותקרת הקלטה.
-DICTATION_ATTEMPTS = 3
-DICTATION_MAX_SEC = 45.0
-DICTATION_KEY_WAIT = 12.0
-
-
-class _DictationState:
-    """מצב הכתבה אחת: הטקסט שזוהה, ומקשים שהגיעו בזמן האישור."""
-
-    def __init__(self) -> None:
-        self.text = ""
-        self.capturing = False
-        self.done = asyncio.Event()
-        self.keys: asyncio.Queue[str] = asyncio.Queue()
-
-    def begin_capture(self) -> None:
-        self.text = ""
-        self.capturing = True
-        self.done = asyncio.Event()
-
-    def drain_keys(self) -> None:
-        while not self.keys.empty():
-            self.keys.get_nowait()
-
-
 class IvrSatellite(AssistSatelliteEntity):
     """קו אחד. השיחה הפעילה נקשרת אליו, והצינור רץ דרכו."""
 
@@ -228,8 +203,6 @@ class IvrSatellite(AssistSatelliteEntity):
         # הוא הד, וה-VAD מזהה אותו כדיבור.
         self._muted = True
         self._out = asyncio.Lock()
-        # הכתבה פעילה: הצינור עוצר אחרי זיהוי הדיבור, והמקשים שלה.
-        self._dictation: _DictationState | None = None
 
     # ------------------------------------------------------------------
     # הגדרות. נקראות בזמן שימוש ולא ב-__init__, כדי שאפשר יהיה
@@ -442,10 +415,6 @@ class IvrSatellite(AssistSatelliteEntity):
                 audio = up.process(chunk) if up else resample(chunk, self._rate, PIPELINE_RATE)
                 self._turn_sec += len(audio) / (PIPELINE_RATE * 2)
                 yield audio
-                if self._dictation is not None and self._turn_sec >= DICTATION_MAX_SEC:
-                    # תקרת הקלטה. סוף הזרם ולא ביטול — כך מגיע STT_END.
-                    self._end_of_speech(tone=True)
-                    return
                 if endpointer is not None and endpointer.feed(audio):
                     _LOGGER.debug(
                         "Stream: end of turn after %.1fs (%s)",
@@ -531,21 +500,11 @@ class IvrSatellite(AssistSatelliteEntity):
             # כשהזיהוי שלנו זמין, הצינור רץ בלי VAD משלו ובלי התקרה שלו.
             vad = make_vad()
             accept = _accept_without_vad() if vad else None
-            stages: dict = {}
-            if self._dictation is not None:
-                # הכתבה: רק זיהוי דיבור. בלי כוונה ובלי תשובה.
-                from homeassistant.components.assist_pipeline import (  # noqa: PLC0415
-                    PipelineStage,
-                )
-
-                stages["end_stage"] = PipelineStage.STT
             try:
                 if accept is None:
-                    await self.async_accept_pipeline_from_satellite(
-                        self._stt_stream(vad), **stages
-                    )
+                    await self.async_accept_pipeline_from_satellite(self._stt_stream(vad))
                 else:
-                    await accept(self, self._stt_stream(vad), **stages)
+                    await accept(self, self._stt_stream(vad))
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
@@ -580,12 +539,6 @@ class IvrSatellite(AssistSatelliteEntity):
         if session is None or session.exiting:
             # השיחה בדרך החוצה. פתיחת השער כאן תתחיל תור נוסף
             # אחרי שפקודת ההעברה כבר נשלחה.
-            return
-
-        if self._dictation is not None:
-            # בהכתבה מי שפותח את הקלט הוא מנהל ההכתבה, לא סוף התור.
-            self._muted = True
-            self._dictation.done.set()
             return
 
         self._report_level()
@@ -624,15 +577,6 @@ class IvrSatellite(AssistSatelliteEntity):
 
         if self._session is None:
             # קורה בסגירה, כשהצינור פולט אירוע אחרון אחרי הניתוק.
-            return
-
-        if self._dictation is not None:
-            if event.type is PipelineEventType.STT_END:
-                text = ((event.data or {}).get("stt_output") or {}).get("text", "")
-                self._dictation.text = str(text or "")
-                self._dictation.done.set()
-            elif event.type is PipelineEventType.ERROR:
-                self._dictation.done.set()
             return
 
         if self._leaving:
@@ -1023,147 +967,6 @@ class IvrSatellite(AssistSatelliteEntity):
         if dropped:
             _LOGGER.debug("Stream: dropped %s echo frames", dropped)
 
-
-    # ------------------------------------------------------------------
-    # הכתבה: טקסט חופשי לפעולה, במקום שיחה עם העוזר
-
-    @property
-    def dictating(self) -> bool:
-        return self._dictation is not None
-
-    async def on_dictation_key(self, key: str) -> None:
-        """מקש בזמן הכתבה. סולמית מסיימת הקלטה; אחר — בחירה באישור."""
-        state = self._dictation
-        if state is None:
-            return
-        if key == "#" and state.capturing:
-            # סוף הזרם ולא ביטול: רק כך הצינור פולט STT_END עם הטקסט.
-            self._audio.put_nowait(None)
-            return
-        state.keys.put_nowait(key)
-        await self._clear_line()
-
-    async def _clear_line(self) -> None:
-        session = self._session
-        clear = getattr(session, "clear_playback", None)
-        if clear is not None:
-            with contextlib.suppress(Exception):
-                await clear()
-
-    async def run_dictation(self, ticket) -> None:
-        """הקלטה, הקראה לאישור והפעלה. בסוף — חזרה לתפריט."""
-        session = self._session
-        if session is None:
-            return
-        state = _DictationState()
-        self._dictation = state
-        try:
-            await self._dictation_flow(ticket, state)
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 — המתקשר חוזר לתפריט גם בכשל
-            _LOGGER.exception("Stream: the dictation failed")
-            with contextlib.suppress(Exception):
-                await self._dictation_say("אירעה שגיאה בהכתבה")
-        finally:
-            self._dictation = None
-        if self._session is session and not session.exiting:
-            await session.leave()
-
-    async def _dictation_flow(self, ticket, state) -> None:
-        from . import call as call_mod  # noqa: PLC0415
-        from .view import OUTCOME_WORDS  # noqa: PLC0415
-
-        while True:
-            text = await self._dictation_capture(state)
-            if not text:
-                await self._dictation_say("ההכתבה בוטלה")
-                return
-            note = ""
-            if ticket.max_length and len(text) > ticket.max_length:
-                text = text[: ticket.max_length].rstrip()
-                note = f"הטקסט קוצר ל-{ticket.max_length} תווים"
-            choice = await self._dictation_confirm(state, text, note)
-            if choice == "2":
-                continue
-            if choice != "1":
-                await self._dictation_say("ההכתבה בוטלה")
-                return
-            outcome = await call_mod.async_call_one(
-                self.hass,
-                ticket.entity_id,
-                ticket.action,
-                {**ticket.data, ticket.field: text},
-                entry_id=ticket.entry_id,
-            )
-            if outcome.succeeded:
-                await self._dictation_say("בוצע")
-            else:
-                await self._dictation_say(
-                    OUTCOME_WORDS.get(outcome.status, OUTCOME_WORDS[call_mod.ERROR])
-                )
-            _LOGGER.debug("Stream: dictation for %s ended with %s",
-                          ticket.entity_id, outcome.status)
-            del text
-            return
-
-    async def _dictation_capture(self, state) -> str:
-        """עד שלושה ניסיונות להקליט טקסט. ריק אם לא נאמר דבר."""
-        from . import dictation  # noqa: PLC0415
-
-        for attempt in range(DICTATION_ATTEMPTS):
-            await self._dictation_say(
-                "אמרו את הטקסט אחרי הצליל, ובסיום הקישו סולמית" if attempt == 0
-                else "לא נשמע טקסט. נסו שוב אחרי הצליל"
-            )
-            state.begin_capture()
-            await self._resume()
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(state.done.wait(), DICTATION_MAX_SEC + 15)
-            state.capturing = False
-            self._muted = True
-            if self._run_task is not None:
-                with contextlib.suppress(Exception):
-                    await asyncio.wait_for(asyncio.shield(self._run_task), 5)
-            text = dictation.clean(state.text)
-            if text:
-                return text
-        return ""
-
-    async def _dictation_confirm(self, state, text: str, note: str) -> str:
-        """הקראת הטקסט ובקשת הקשה: 1 אישור, 2 מחדש, 0 ביטול."""
-        prompt = (f"{note}. " if note else "") + (
-            f"הטקסט שנקלט: {text}. לאישור הקישו 1, להקלטה מחדש 2, לביטול 0"
-        )
-        for _ in range(DICTATION_ATTEMPTS):
-            state.drain_keys()
-            speak = asyncio.ensure_future(self._dictation_say(prompt))
-            key = asyncio.ensure_future(state.keys.get())
-            try:
-                await asyncio.wait({speak, key}, return_when=asyncio.FIRST_COMPLETED)
-                if not key.done():
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(asyncio.shield(key), DICTATION_KEY_WAIT)
-                choice = key.result() if key.done() and not key.cancelled() else None
-            finally:
-                for task in (speak, key):
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(speak, key, return_exceptions=True)
-            if choice in ("1", "2", "0"):
-                return choice
-            prompt = ("בחירה שאינה קיימת. " if choice else "") + (
-                "לאישור הקישו 1, להקלטה מחדש 2, לביטול 0"
-            )
-        return "0"
-
-    async def _dictation_say(self, text: str) -> None:
-        self._muted = True
-        session = self._session
-        if session is None or getattr(session, "exiting", False):
-            return
-        pcm = await self.async_synthesize(text, self._rate)
-        await self._send_audio(pcm)
 
     # ------------------------------------------------------------------
 

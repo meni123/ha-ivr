@@ -67,13 +67,6 @@ class Node:
     confirmed: bool = False
     """האם פעולה רגישה אושרה במפורש בטופס. נבדק שוב בזמן ריצה."""
 
-    dictate: dict = field(default_factory=dict)
-    """צומת שמקבל טקסט מוכתב בקול: `field`, ו-`max_length` אם ידוע.
-
-    מועבר לשלוחת הסטרימינג עם כרטיס, ושם מוקלט, מוקרא לאישור
-    ומופעל. קיים רק בקו עם סטרימינג.
-    """
-
     @property
     def is_menu(self) -> bool:
         return bool(self.items)
@@ -89,10 +82,6 @@ class Node:
     @property
     def is_group(self) -> bool:
         return bool(self.target)
-
-    @property
-    def is_dictate(self) -> bool:
-        return bool(self.dictate)
 
     @property
     def is_secret(self) -> bool:
@@ -117,7 +106,6 @@ def build(config: dict) -> Node:
         alerts=bool(config.get("alerts", False)),
         collect=dict(config.get("collect") or {}),
         confirmed=bool(config.get("confirmed", False)),
-        dictate=dict(config.get("dictate") or {}),
     )
 
 

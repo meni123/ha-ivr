@@ -82,7 +82,6 @@ def _prune(node: dict) -> bool:
         node.pop("items", None)
     return (
         bool(node.get("entity"))
-        or bool(node.get("dictate"))
         or bool(node.get("goto"))
         or bool(node.get("alerts"))
         or bool(node.get("collect"))
@@ -214,14 +213,13 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> dict:
 
 
 def _driver_flags(entry) -> dict:
-    """מה הקו יודע לעשות: סולמית בסוף קוד, והכתבה דרך סטרימינג."""
+    """מה הקו יודע לעשות: סולמית בסוף קוד."""
     try:
         driver = registry.for_entry(entry)
     except Exception:  # noqa: BLE001
         driver = None
     return {
         "terminator": bool(getattr(driver, "SUPPORTS_TERMINATOR", False)),
-        "stream": bool(getattr(driver, "SUPPORTS_STREAM", False)),
     }
 
 
@@ -230,7 +228,7 @@ def build_tree(hass: HomeAssistant, entry: ConfigEntry):
     return tree_mod.build(build_config(hass, entry))
 
 
-def _action_phrase(action: str, data: dict) -> str:
+def _action_phrase(action: str, data: dict, domain: str = "") -> str:
     """תיאור הפעולה בעברית, כולל הערכים הקבועים שלה.
 
     בלי זה כל הפריטים של אותו מכשיר נשמעים זהים בתפריט, והמתקשר
@@ -240,7 +238,7 @@ def _action_phrase(action: str, data: dict) -> str:
     if not action:
         return "סטטוס"
 
-    phrase = translate_action(action)
+    phrase = translate_action(action, domain)
 
     details = []
     for field, value in (data or {}).items():
@@ -303,7 +301,8 @@ def _apply_spoken_names(hass, root: dict) -> None:
             if child.get("_label") or not child.get("entity"):
                 continue
             phrase = _action_phrase(
-                str(child.get("action") or ""), child.get("data") or {}
+                str(child.get("action") or ""), child.get("data") or {},
+                str(child["entity"]).split(".", 1)[0],
             )
             if dedicated:
                 child["say"] = phrase
@@ -363,9 +362,8 @@ def _smart_child(
 ) -> dict | None:
     """צומת אחד מתוך התוכנית, לפי סוג היכולת.
 
-    יכולת שהקו אינו יכול לבצע — קוד שמסתיים בסולמית בקו בלי סולמית,
-    הכתבה בקו בלי סטרימינג — אינה נבנית, והספרה שלה נשארת ריקה
-    בלי להזיז את האחרות.
+    יכולת שהקו אינו יכול לבצע — קוד שמסתיים בסולמית בקו בלי סולמית —
+    אינה נבנית, והספרה שלה נשארת ריקה בלי להזיז את האחרות.
     """
     driver = driver or {}
     kind = str(raw.get("kind", ""))
@@ -395,17 +393,6 @@ def _smart_child(
         if isinstance(code, dict) and code.get("kind") not in (None, caps_mod.CODE_NONE):
             return _code_node(base, action, code, driver)
         return {**base, "action": action, "data": {}}
-
-    if kind == smart_mod.KIND_TEXT:
-        if not driver.get("stream"):
-            return None
-        field_name = str(raw.get("field", ""))
-        if not field_name:
-            return None
-        dictate = {"field": field_name}
-        if raw.get("max_length"):
-            dictate["max_length"] = int(raw["max_length"])
-        return {**base, "action": action, "data": {}, "dictate": dictate}
 
     if kind == smart_mod.KIND_CHOICE:
         field_name = str(raw.get("field", ""))

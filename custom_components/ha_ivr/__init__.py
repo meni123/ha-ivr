@@ -347,8 +347,14 @@ if _HA:
             with contextlib.suppress(Exception):
                 await stop(server)
 
+    async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """הקו הוסר: גם ביטולי ההסרה שלו כבר לא שייכים לשום דבר."""
+        from . import editor  # noqa: PLC0415
+
+        editor.clear_undo(entry.entry_id)
+
     async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-        from . import dictation, editor, history, security  # noqa: PLC0415
+        from . import history, security  # noqa: PLC0415
         from .view import reset_warnings  # noqa: PLC0415
 
         reset_warnings()
@@ -362,11 +368,10 @@ if _HA:
             platforms = _platforms(driver)
         await hass.config_entries.async_unload_platforms_or_raise(entry, platforms)
 
-        # מה שבזיכרון של הרשומה: כרטיסי הכתבה וטיימרי הפקיעה שלהם,
-        # ומוני החסימה של קודים. אחרי פריקה לא נשאר טיימר שלה.
-        dictation.clear(hass, entry.entry_id)
+        # מוני החסימה של קודים יורדים עם הרשומה. ביטולי ההסרה לא: כל
+        # כתיבה של הלוח טוענת את הרשומה מחדש, ומחיקה כאן הייתה מבטלת את
+        # הביטול לפני שהמשתמש הספיק ללחוץ עליו. הם נמחקים בהסרת הקו.
         security.clear(hass, entry.entry_id)
-        editor.clear_undo(entry.entry_id)
 
         # הרשומה האחרונה: גם המאזינים המשותפים יורדים, וההיסטוריה
         # מתנקה כדי שאבחון לא יציג שיחות של הגדרה שכבר אינה.
