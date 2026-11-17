@@ -610,7 +610,7 @@ class MenuItemFlowHandler(_PathMixin, ConfigSubentryFlow):
         options = [SelectOptionDict(value=NONE_VALUE, label="רק הקראת סטטוס")]
         domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
         if domain:
-            for name in available_actions(self.hass, domain):
+            for name in await smart_mod.async_entity_actions(self.hass, entity_id):
                 fields = await async_action_fields(self.hass, domain, name, entity_id)
                 if not action_is_usable(fields):
                     continue

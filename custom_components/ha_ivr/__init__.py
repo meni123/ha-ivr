@@ -32,8 +32,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from types import MappingProxyType
+import copy
 import logging
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,10 +90,15 @@ def build_stamp() -> str:
 try:
     from homeassistant.core import HomeAssistant
 
-    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.config_entries import ConfigEntry, ConfigEntryState
     from homeassistant.const import Platform
-    from homeassistant.core import ServiceCall
-    from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
+    from homeassistant.core import ServiceCall, callback
+    from homeassistant.exceptions import (
+        ConfigEntryError,
+        HomeAssistantError,
+        ServiceValidationError,
+    )
+    from homeassistant.helpers import config_validation as cv
 
     from . import registry
     from .const import SATELLITES, SERVICE_SEND_CALL
@@ -106,6 +114,16 @@ else:
 
 
 if _HA:
+
+    # האינטגרציה מוגדרת רק מהממשק; שורה ב-configuration.yaml נדחית עם הודעה.
+    CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+    @dataclass
+    class IvrRuntime:
+        """מה שהרשומה מחזיקה בזמן ריצה. נבנה מחדש בכל טעינה."""
+
+        driver: Any
+        platforms: list = field(default_factory=list)
 
     async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         """רישום נקודות הקצה, פעם אחת לכל HA.
@@ -129,6 +147,13 @@ if _HA:
 
         hass.http.register_view(IvrView(hass))
         hass.http.register_view(StreamView(hass))
+
+        # השירות של הדומיין ולא של רשומה: כך הוא קיים גם כשאין רשומה
+        # טעונה, ומחזיר שגיאה ברורה במקום "שירות לא נמצא".
+        hass.services.async_register(
+            DOMAIN, SERVICE_SEND_CALL, _handle_send_call(hass),
+            schema=_send_call_schema(),
+        )
 
         # הלוח הוא נוחות. כשל ברישום שלו אינו מפיל את הקווים.
         try:
@@ -199,7 +224,51 @@ if _HA:
                     ),
                 )
             hass.config_entries.async_update_entry(entry, minor_version=3)
+        if entry.minor_version < 4:
+            _migrate_line_id(hass, entry)
+            hass.config_entries.async_update_entry(entry, minor_version=4)
         return True
+
+    @callback
+    def _migrate_line_id(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """1.4: לקו שכל רשומה שלו נפרדת (SIP) יש unique_id לפי החשבון.
+
+        אידמפוטנטי: רשומה שכבר יש לה מזהה אינה נוגעת. כפילות ישנה —
+        שתי רשומות לאותו חשבון — אינה נפתרת כאן בשקט: המזהה לא נקבע,
+        ונפתחת תקלה שמבקשת למחוק אחת מהן.
+        """
+        if entry.unique_id:
+            return
+        driver = registry.for_entry(entry)
+        key = getattr(driver, "entry_key", None)
+        if key is None or not getattr(driver, "MANY_ENTRIES", False):
+            return
+        line_id = str(key(copy.deepcopy(dict(entry.options))) or "")
+        if not line_id.strip("@"):
+            return
+        other = next(
+            (
+                e for e in hass.config_entries.async_entries(DOMAIN)
+                if e.entry_id != entry.entry_id and e.unique_id == line_id
+            ),
+            None,
+        )
+        if other is not None:
+            from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
+
+            _LOGGER.warning(
+                "Entry %s duplicates the line of entry %s",
+                entry.entry_id, other.entry_id,
+            )
+            ir.async_create_issue(
+                hass, DOMAIN, f"duplicate_line_{entry.entry_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="duplicate_line",
+                translation_placeholders={"line": line_id, "other": str(other.title)},
+            )
+            return
+        hass.config_entries.async_update_entry(entry, unique_id=line_id)
 
     def _platforms(driver) -> list:
         """הפלטפורמות שהספק הזה מצדיק.
@@ -226,20 +295,15 @@ if _HA:
                 },
             )
 
+        platforms = _platforms(driver)
+        entry.runtime_data = IvrRuntime(driver=driver, platforms=platforms)
         entry.async_on_unload(entry.add_update_listener(_reload))
-
-        if not hass.services.has_service(DOMAIN, SERVICE_SEND_CALL):
-            hass.services.async_register(
-                DOMAIN, SERVICE_SEND_CALL, _handle_send_call(hass),
-                schema=_send_call_schema(),
-            )
+        _shared_start(hass)
 
         # ההתקן הראשי קודם לפלטפורמות: כל ישות מקשרת אליו לפי מזהה.
         ensure_parent_device(hass, entry)
 
-        await hass.config_entries.async_forward_entry_setups(
-            entry, _platforms(driver)
-        )
+        await hass.config_entries.async_forward_entry_setups(entry, platforms)
 
         # תחבורה שאינה HTTP, אם הספק מגדיר אותה — מאזין ה-AudioSocket
         # של מרכזייה עצמית. הליבה אינה יודעת מהי; היא רק מרימה מה
@@ -283,21 +347,72 @@ if _HA:
             with contextlib.suppress(Exception):
                 await stop(server)
 
+    async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """הקו הוסר: גם ביטולי ההסרה שלו כבר לא שייכים לשום דבר."""
+        from . import editor  # noqa: PLC0415
+
+        editor.clear_undo(entry.entry_id)
+
     async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from . import history, security  # noqa: PLC0415
         from .view import reset_warnings  # noqa: PLC0415
 
         reset_warnings()
-        driver = registry.for_entry(entry)
-        if driver is None:
-            return
+        runtime = getattr(entry, "runtime_data", None)
+        if isinstance(runtime, IvrRuntime):
+            platforms = runtime.platforms
+        else:
+            driver = registry.for_entry(entry)
+            if driver is None:
+                return
+            platforms = _platforms(driver)
+        await hass.config_entries.async_unload_platforms_or_raise(entry, platforms)
 
-        await hass.config_entries.async_unload_platforms_or_raise(
-            entry, _platforms(driver)
+        # מוני החסימה של קודים יורדים עם הרשומה. ביטולי ההסרה לא: כל
+        # כתיבה של הלוח טוענת את הרשומה מחדש, ומחיקה כאן הייתה מבטלת את
+        # הביטול לפני שהמשתמש הספיק ללחוץ עליו. הם נמחקים בהסרת הקו.
+        security.clear(hass, entry.entry_id)
+
+        # הרשומה האחרונה: גם המאזינים המשותפים יורדים, וההיסטוריה
+        # מתנקה כדי שאבחון לא יציג שיחות של הגדרה שכבר אינה.
+        loaded = [
+            e for e in hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != entry.entry_id and e.state is ConfigEntryState.LOADED
+        ]
+        if not loaded:
+            _shared_stop(hass)
+            history.clear()
+
+    @callback
+    def _shared_start(hass: HomeAssistant) -> None:
+        """מה שמשותף לכל הרשומות: מטמון היכולות ותרגומי HA. פעם אחת."""
+        shared = hass.data.setdefault(DOMAIN, {}).setdefault("shared", {})
+        if shared.get("running"):
+            return
+        from . import capabilities as caps  # noqa: PLC0415
+        from . import i18n  # noqa: PLC0415
+
+        i18n.bind(hass)
+        shared["cache_unsub"] = caps.async_setup_cache(hass)
+        i18n.async_setup_refresh(hass)
+        # התרגום נטען ברקע: עד שהוא מגיע, ההקראה נשענת על המילון המקומי.
+        hass.async_create_background_task(
+            i18n.async_load(hass), f"{DOMAIN} translations"
         )
-        # השירות יורד רק עם הרשומה האחרונה: הוא של הדומיין, לא
-        # של הרשומה, ומי שמסיר ספק אחד מתוך שניים עדיין צריך אותו.
-        if len(hass.config_entries.async_entries(DOMAIN)) <= 1:
-            hass.services.async_remove(DOMAIN, SERVICE_SEND_CALL)
+        shared["running"] = True
+
+    @callback
+    def _shared_stop(hass: HomeAssistant) -> None:
+        shared = (hass.data.get(DOMAIN) or {}).get("shared") or {}
+        if not shared.get("running"):
+            return
+        from . import i18n  # noqa: PLC0415
+
+        if unsub := shared.pop("cache_unsub", None):
+            with contextlib.suppress(Exception):
+                unsub()
+        i18n.async_unload(hass)
+        shared["running"] = False
 
     async def _reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
         """טעינה מחדש אחת לכל רצף של עדכונים.
@@ -345,16 +460,22 @@ if _HA:
             entry = hass.config_entries.async_get_entry(
                 str(call.data["config_entry_id"])
             )
-            if entry is None:
-                raise HomeAssistantError(
+            if entry is None or entry.domain != DOMAIN:
+                raise ServiceValidationError(
                     translation_domain=DOMAIN, translation_key="unknown_entry"
+                )
+            if entry.state is not ConfigEntryState.LOADED:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="entry_not_loaded",
+                    translation_placeholders={"entry": str(entry.title)},
                 )
             # `ConfigEntrySelector` אינו יודע לסנן לפי יכולת,
             # ולכן הבורר מציע גם ספק בלי מסלול יוצא. הבדיקה כאן
             # הופכת בחירה שגויה להודעה ברורה.
             driver = registry.for_entry(entry)
             if driver is None or getattr(driver, "async_notify", None) is None:
-                raise HomeAssistantError(
+                raise ServiceValidationError(
                     translation_domain=DOMAIN,
                     translation_key="provider_no_alerts",
                     translation_placeholders={
@@ -365,7 +486,7 @@ if _HA:
             raw = str(call.data["phones"])
             phones = [p for p in clean_phones(raw).split(",") if p]
             if not phones:
-                raise HomeAssistantError(
+                raise ServiceValidationError(
                     translation_domain=DOMAIN,
                     translation_key="no_valid_numbers_in",
                     translation_placeholders={"input": raw},

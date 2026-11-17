@@ -192,7 +192,15 @@ DOMAIN_NAMES: Final = {
     "ai_task": "משימת הבינה",
     "stt": "זיהוי הדיבור",
     "tts": "ההקראה",
-    "vacuum": "שואב האבק",
+    "counter": "המונה",
+    "timer": "הטיימר",
+    "input_button": "כפתור עזר",
+    "input_datetime": "תאריך ושעה",
+    "schedule": "לוח הזמנים",
+    "time": "השעה",
+    "date": "התאריך",
+    "datetime": "התאריך והשעה",
+    "image_processing": "עיבוד התמונה",
 }
 
 # שמות הסוגים כפי שהם מוצגים במסכים: ברבים, כי שם בוחרים קבוצה של
@@ -228,6 +236,11 @@ DOMAIN_TITLES: Final = {
     "calendar": "יומנים",
     "todo": "רשימות משימות",
     "alarm_control_panel": "מערכות אזעקה",
+    "counter": "מונים",
+    "timer": "טיימרים",
+    "input_button": "כפתורי עזר",
+    "update": "עדכונים",
+    "image_processing": "עיבוד תמונה",
 }
 
 

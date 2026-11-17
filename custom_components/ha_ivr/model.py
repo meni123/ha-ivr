@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Literal, Mapping
 
@@ -135,3 +136,22 @@ def say_number(
         Say("text", decimal_word),
         Say("number", frac),
     ]
+
+
+# מה שאין לו צליל: אימוג'י וסמלים (So, Sk), בוררי וריאציה ומחברי רוחב
+# אפס. Spook, למשל, מוסיף 👻 לשמות הפעולות שלו גם בעברית, ומנוע
+# ההקראה היה אומר "רוח רפאים" או משמיע שתיקה מוזרה. ניקוד נשאר.
+_SILENT = {"So", "Sk", "Cs", "Co"}
+_INVISIBLE = {"‍", "‌", "️", "︎", "⃣"}
+# סמלים שיש להם הגייה, ונשארים: מעלות, מטבע.
+_SPOKEN_SYMBOLS = set("°₪$€£")
+
+
+def speakable(text: str) -> str:
+    """טקסט בלי סמלים שאין להם הגייה, ובלי רווחים כפולים."""
+    kept = "".join(
+        ch for ch in str(text or "")
+        if ch not in _INVISIBLE
+        and (ch in _SPOKEN_SYMBOLS or unicodedata.category(ch) not in _SILENT)
+    )
+    return " ".join(kept.split())

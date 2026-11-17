@@ -21,6 +21,7 @@ import sys
 INHERITED = {
     # ConfigSubentryFlow
     "_get_entry", "_get_reconfigure_subentry", "_get_reconfigure_entry",
+    "_get_reauth_entry", "_abort_if_unique_id_mismatch",
     "_abort_if_unique_id_configured", "_async_handle_step",
     # AssistSatelliteEntity
     "_resolve_announcement_media_id", "_cancel_running_pipeline",

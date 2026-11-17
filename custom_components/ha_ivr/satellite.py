@@ -166,7 +166,12 @@ class IvrSatellite(AssistSatelliteEntity):
             if index == 0
             else f"{entry.entry_id}_satellite_{index + 1}"
         )
-        self._attr_name = "עוזר קולי" if index == 0 else f"עוזר קולי {index + 1}"
+        # השם מתורגם: "עוזר קולי", והקווים הנוספים עם מספר.
+        if index == 0:
+            self._attr_translation_key = "line"
+        else:
+            self._attr_translation_key = "line_n"
+            self._attr_translation_placeholders = {"index": str(index + 1)}
 
         # מצב השיחה. הישות חיה לאורך כל חיי הרשומה, ולכן כל אלה
         # מאופסים גם ב-`attach`.
@@ -961,6 +966,7 @@ class IvrSatellite(AssistSatelliteEntity):
                 break
         if dropped:
             _LOGGER.debug("Stream: dropped %s echo frames", dropped)
+
 
     # ------------------------------------------------------------------
 

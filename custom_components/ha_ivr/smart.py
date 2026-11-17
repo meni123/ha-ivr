@@ -20,11 +20,14 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from homeassistant.helpers.service import async_get_all_descriptions
+
+from . import capabilities as caps
 from .action_fields import (
     async_action_fields,
     async_action_name,
@@ -46,6 +49,9 @@ KIND_STATUS = "status"
 KIND_CHOICE = "choice"
 # פעולה עם שדה מספרי בטווח ידוע — איסוף ספרות.
 KIND_NUMBER = "number"
+# פעולה שיש בה שדה חובה שאי אפשר להקיש — טקסט, שעה, צבע, מדיה. מוצעת
+# רק כמקש עם ערך קבוע, שהמשתמש קובע בלוח. אינה נכנסת לתוכנית.
+KIND_FIXED = "fixed"
 
 # מזהה היכולת של הקראת המצב. אינו שם פעולה אמיתית, ולכן קבוע
 # שמור שלא יתנגש עם שירות של Home Assistant.
@@ -76,7 +82,9 @@ _ACTION_RANK: dict[str, int] = {
 # סדר הקבוצות: קודם הפעולות הפשוטות, אחריהן הקראת המצב, ואז
 # הבחירות והערכים — שהם תמיד תת-תפריט או איסוף, כלומר ארוכים
 # יותר להאזנה.
-_KIND_RANK = {KIND_SIMPLE: 0, KIND_STATUS: 1, KIND_CHOICE: 2, KIND_NUMBER: 3}
+_KIND_RANK = {
+    KIND_SIMPLE: 0, KIND_STATUS: 1, KIND_CHOICE: 2, KIND_NUMBER: 3, KIND_FIXED: 4,
+}
 
 # תחיליות שמוסרות משם הפעולה כדי למצוא את שדה הערך שלה:
 # `set_hvac_mode` פועלת על השדה `hvac_mode`, `select_source` על
@@ -106,6 +114,12 @@ class Capability:
     width: int = 0
     """כמה ספרות בדיוק צריך להקיש. 0 = הטווח אינו ברוחב קבוע."""
 
+    code: str = caps.CODE_NONE
+    """האם הפעולה דורשת קוד, ואיך מקישים אותו. ראו `capabilities`."""
+    code_width: int = 0
+    code_min: int = 0
+    code_max: int = 0
+
     def option_label(self, value: str) -> str:
         return translate_option(value)
 
@@ -115,31 +129,97 @@ class Capability:
 # ----------------------------------------------------------------------
 
 
+async def async_entity_actions(hass: HomeAssistant, entity_id: str) -> list[str]:
+    """הפעולות של הישות בדומיין שלה: מה שמסך האוטומציות מציע לה, לפי
+    מסנני `services.yaml`, בלי מה שהמדיניות מחריגה."""
+    domain = entity_id.split(".", 1)[0]
+    allowed = set(available_actions(hass, domain))
+    descriptions = await async_descriptions(hass)
+    return [
+        action
+        for svc_domain, action in await caps.async_actions_for(hass, entity_id, descriptions)
+        if svc_domain == domain and action in allowed
+    ]
+
+
+async def async_descriptions(hass: HomeAssistant) -> dict:
+    """התיאורים של כל הפעולות, או מילון ריק. בלעדיהם נשארת הקראת המצב."""
+    try:
+        return await async_get_all_descriptions(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Could not load action descriptions", exc_info=True)
+        return {}
+
+
 async def async_discover(
-    hass: HomeAssistant, entity_id: str
+    hass: HomeAssistant, entity_id: str, descriptions: dict | None = None
 ) -> list[Capability]:
     """כל מה שהישות יודעת לעשות, בסדר המומלץ.
 
-    נשען על אותו מידע שמסך האוטומציות מציג: השירותים שהדומיין
-    חושף, השדות של כל שירות, והמאפיינים של הישות עצמה. אין כאן
-    רשימה קבועה של מכשירים לתחזק.
+    נשען על אותו מידע שמסך האוטומציות מציג: הפעולות שהישות מקבלת
+    לפי מסנני היעד של `services.yaml` (כולל `supported_features`),
+    השדות שחלים עליה לפי מסנני השדות, והמאפיינים של הישות עצמה.
+    אין כאן רשימה קבועה של מכשירים לתחזק.
+
+    `descriptions` נשלף פעם אחת לאצווה ומועבר פנימה; בלעדיו נשלף כאן.
     """
     if "." not in entity_id:
         return []
     domain = entity_id.split(".", 1)[0]
 
+    store = caps.cache(hass)
+    if store is not None and (cached := store.get(entity_id)) is not None:
+        return list(cached)
+
     found: list[Capability] = [
         Capability(ident=STATUS_ID, kind=KIND_STATUS, label="הקראת מצב")
     ]
 
-    for action in available_actions(hass, domain):
-        fields = await async_action_fields(hass, domain, action, entity_id)
-        capability = await _classify(hass, domain, action, fields, entity_id)
-        if capability is not None:
-            found.append(capability)
+    if descriptions is None:
+        descriptions = await async_descriptions(hass)
+
+    try:
+        actions = await caps.async_actions_for(hass, entity_id, descriptions or {})
+    except Exception:  # noqa: BLE001 — ישות אחת אינה מפילה תפריט שלם
+        _LOGGER.debug("Could not list actions for %s", entity_id, exc_info=True)
+        actions = []
+
+    allowed = set(available_actions(hass, domain))
+    info = caps.entity_info(hass, entity_id)
+    for svc_domain, action in actions:
+        if svc_domain == domain and action not in allowed:
+            continue
+        try:
+            fields = await async_action_fields(hass, svc_domain, action, entity_id)
+            capability = await _classify(
+                hass, svc_domain, action, fields, entity_id, info
+            )
+        except Exception:  # noqa: BLE001 — פעולה אחת אינה מפילה את הגילוי
+            _LOGGER.debug("Could not classify %s.%s", svc_domain, action, exc_info=True)
+            continue
+        if capability is None:
+            continue
+        if svc_domain != domain:
+            full = f"{svc_domain}.{action}"
+            capability = replace(capability, ident=full, action=full)
+        found.append(capability)
 
     found.sort(key=_sort_key)
+    if store is not None and descriptions:
+        store.put(entity_id, tuple(found))
     return found
+
+
+def _dialable(spec: dict[str, Any]) -> bool:
+    """שדה שאפשר למלא בהקשה: בחירה עם אפשרויות, כן/לא, מספר."""
+    kind = caps.selector_kind(spec)
+    if kind == "select":
+        return field_is_supported(spec)
+    return kind in ("boolean", "number")
+
+
+def _fixed_only(action: str, label: str) -> Capability:
+    return Capability(ident=action, kind=KIND_FIXED, label=label, action=action)
 
 
 async def _classify(
@@ -148,35 +228,58 @@ async def _classify(
     action: str,
     fields: dict[str, dict[str, Any]],
     entity_id: str,
+    info: caps.EntityInfo | None = None,
 ) -> Capability | None:
-    """סיווג פעולה אחת ליכולת, או None אם אינה מתאימה לגילוי.
+    """סיווג פעולה אחת ליכולת.
 
-    פעולה שיש לה יותר משדה חובה אחד, או ששדה הערך שלה אינו חד-
-    משמעי, נשארת מחוץ לגילוי בכוונה — אפשר להוסיף אותה כפריט רגיל
-    עם הערכים שהמשתמש בוחר. ניחוש כאן היה מייצר פריט שנשמע תקין
-    ונכשל בהפעלה.
+    שדה הקוד מטופל בנפרד: אינו "שדה הערך" של הפעולה, ונאסף בהקשה
+    רגע לפני ההפעלה. שדה חובה שאי אפשר להקיש הופך את הפעולה לערך
+    קבוע בלבד. ניחוש כאן היה מייצר פריט שנשמע תקין ונכשל בהפעלה.
     """
-    supported = {n: s for n, s in fields.items() if field_is_supported(s)}
+    label = await async_action_name(hass, domain, action)
+    rule = (
+        caps.code_rule(hass, info, action, fields)
+        if info is not None
+        else caps.CodeRule(caps.CODE_NONE)
+    )
+    fields = {n: s for n, s in fields.items() if n != caps.CODE_FIELD}
+    if rule.kind == caps.CODE_UNDIALABLE:
+        # קוד של אותיות אינו ניתן להקשה. נשאר ערך קבוע בלוח.
+        return _fixed_only(action, label)
+    code_kwargs: dict[str, Any] = {}
+    if rule.kind != caps.CODE_NONE:
+        code_kwargs = {
+            "code": rule.kind,
+            "code_width": rule.width,
+            "code_min": rule.min_len,
+            "code_max": rule.max_len,
+        }
+
+    dialable = {n: s for n, s in fields.items() if _dialable(s)}
     required = [n for n, s in fields.items() if s.get("required")]
 
-    # שדה חובה שאיננו יודעים להציג — הפעולה תיכשל, ולכן אינה מוצעת.
-    if any(n not in supported for n in required):
-        return None
-    if len(required) > 1:
-        return None
+    # שדה חובה שאי אפשר להקיש, או יותר משדה חובה אחד: ערך קבוע.
+    if any(n not in dialable for n in required) or len(required) > 1:
+        return _fixed_only(action, label)
 
-    label = await async_action_name(hass, domain, action)
-    primary = _primary_field(action, supported, required)
+    primary = _primary_field(action, dialable, required)
+
+    if primary is None and fields and action.startswith("set_"):
+        # `set_*` בלי ערך אינה עושה דבר. תרמוסטט עם טווח, למשל, מקבל
+        # `set_temperature` בלי `temperature` — שני גבולות שאף אחד מהם
+        # אינו "השדה". הם נקבעים יחד, במקש עם ערך קבוע.
+        return _fixed_only(action, label)
 
     if primary is None:
-        # אין שדה ערך מובהק. אם יש שדות חובה, אי אפשר להפעיל בלעדיהם.
-        if required:
-            return None
         return Capability(
-            ident=action, kind=KIND_SIMPLE, label=label, action=action
+            ident=action, kind=KIND_SIMPLE, label=label, action=action, **code_kwargs
         )
 
-    selector = supported[primary].get("selector") or {}
+    if code_kwargs:
+        # קוד יחד עם ערך — שני איסופים ברצף. נדיר; ערך קבוע מספיק.
+        return _fixed_only(action, label)
+
+    selector = dialable[primary].get("selector") or {}
 
     if "select" in selector:
         options = tuple(
@@ -185,7 +288,7 @@ async def _classify(
         )
         options = tuple(o for o in options if o)
         if not options:
-            return None
+            return _fixed_only(action, label)
         return Capability(
             ident=action,
             kind=KIND_CHOICE,
@@ -210,16 +313,17 @@ async def _classify(
     if "number" in selector:
         low, high = entity_number_range(hass, entity_id, primary, selector["number"])
         if low is None or high is None or high <= low:
-            return None
+            return _fixed_only(action, label)
         width = _fixed_width(low, high)
         if not width:
             # טווח שאינו ברוחב קבוע — 5 היא ספרה אחת ו-100 הן שלוש,
             # ולכן אין נקודה שבה ידוע שהמתקשר סיים להקיש. במקום
             # מקש אישור, שאינו מאומת אצל כל הספקים, מוצעת רשימה
             # של ערכים עגולים. ראו `stepped_options`.
-            steps = stepped_options(low, high)
+            step = _entity_step(hass, entity_id, selector["number"])
+            steps = stepped_options(low, high, step=step)
             if not steps:
-                return None
+                return _fixed_only(action, label)
             return Capability(
                 ident=action,
                 kind=KIND_CHOICE,
@@ -241,7 +345,25 @@ async def _classify(
             width=width,
         )
 
-    return None
+    return _fixed_only(action, label)
+
+
+def _entity_step(hass: HomeAssistant, entity_id: str, config: dict | None) -> float:
+    """הצעד בין ערכים: מהישות אם היא מדווחת, אחרת מהתיאור."""
+    state = hass.states.get(entity_id)
+    attributes = state.attributes if state is not None else {}
+    for name in ("target_temp_step", "step", "percentage_step"):
+        try:
+            value = float(attributes.get(name) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            return value
+    try:
+        value = float((config or {}).get("step") or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if value > 0 else 0
 
 
 def _primary_field(
@@ -249,26 +371,25 @@ def _primary_field(
 ) -> str | None:
     """שדה הערך של הפעולה, או None אם אינו חד-משמעי.
 
-    שדה חובה יחיד הוא תמיד השדה. אחרת מנסים את המוסכמה של שם
-    הפעולה (`set_fan_mode` על `fan_mode`), ולבסוף שדה אופציונלי
-    יחיד. `light.turn_on` נופל לכאן עם עשרות שדות אופציונליים
-    ואף אחד מהם אינו "השדה" — ולכן הוא נשאר הדלקה פשוטה, וזה
-    בדיוק הרצוי.
+    `supported` כאן הוא רק מה שאפשר להקיש. שדה חובה יחיד הוא תמיד
+    השדה. אחרת רק המוסכמה של שם הפעולה (`set_fan_mode` על `fan_mode`,
+    `set_temperature` על `temperature`).
+
+    שדה אופציונלי אחר אינו "השדה" לעולם: יש לו ברירת מחדל, והפעולה
+    שלמה בלעדיו. `automation.trigger` עם `skip_condition` היא "הרץ
+    עכשיו", לא שאלת כן/לא; `scene.turn_on` עם `transition` היא הפעלת
+    הסצנה; `select.select_next` עם `cycle` היא "הבא". מי שרוצה ערך
+    אחר לשדה כזה קובע אותו במקש עם ערך קבוע.
     """
     if len(required) == 1:
-        return required[0]
+        return required[0] if required[0] in supported else None
 
     stem = action
     for prefix in _FIELD_PREFIXES:
         if stem.startswith(prefix):
             stem = stem[len(prefix):]
             break
-    if stem in supported:
-        return stem
-
-    if len(supported) == 1:
-        return next(iter(supported))
-    return None
+    return stem if stem in supported else None
 
 
 # יותר משתי ספרות אינו מוצע כהקשה. עוצמה שבין 0 ל-100 הייתה
@@ -296,7 +417,9 @@ def _fixed_width(low: float, high: float) -> int:
     return width if width <= MAX_COLLECT_WIDTH else 0
 
 
-def stepped_options(low: float, high: float, count: int = 9) -> tuple[str, ...]:
+def stepped_options(
+    low: float, high: float, count: int = 9, *, step: float = 0
+) -> tuple[str, ...]:
     """ערכים עגולים בתוך טווח, לרשימה שמוקראת בטלפון.
 
     עוצמה שבין 0 ל-100 היא 101 ערכים, ואין דרך להציע אותם. תשעה
@@ -308,14 +431,17 @@ def stepped_options(low: float, high: float, count: int = 9) -> tuple[str, ...]:
         return ()
     span = hi - lo
     raw = span / (count - 1) if count > 1 else span
+    # הצעד של הישות קובע את הכפולות: מזגן בקפיצות של 2 אינו
+    # מקבל 21. צעד שבור (0.5) אינו משנה — הערכים כאן שלמים.
+    base = int(step) if step and step >= 1 and float(step).is_integer() else 1
     # קפיצה עגולה: 5, 10, 25 וכדומה, ולא 12.5.
     for nice in (1, 2, 5, 10, 20, 25, 50, 100):
-        if nice >= raw:
-            step = nice
+        if nice * base >= raw:
+            jump = nice * base
             break
     else:
-        step = int(raw)
-    values = list(range(lo, hi + 1, max(1, step)))
+        jump = int(raw)
+    values = list(range(lo, hi + 1, max(1, jump)))
     if values and values[-1] != hi:
         values.append(hi)
     return tuple(str(v) for v in values[:count])
@@ -350,7 +476,9 @@ def build_plan(
 
     for ident in chosen:
         capability = by_ident.get(ident)
-        if capability is None:
+        # ערך קבוע בלבד אינו נכנס לתפריט של מכשיר: אין דרך להקיש לו
+        # ערך. הוא נוסף מהלוח כמקש עם ערך קבוע.
+        if capability is None or capability.kind == KIND_FIXED:
             continue
         if len(plan) >= len(MENU_DIGITS):
             _LOGGER.warning(
@@ -383,6 +511,14 @@ def build_plan(
             entry["min"] = capability.minimum
             entry["max"] = capability.maximum
             entry["width"] = capability.width
+        if capability.code != caps.CODE_NONE:
+            # רק איך מקישים — הקוד עצמו לעולם אינו נשמר.
+            entry["code"] = {
+                "kind": capability.code,
+                "width": capability.code_width,
+                "min": capability.code_min,
+                "max": capability.code_max,
+            }
         plan.append(entry)
 
     return plan
@@ -426,7 +562,7 @@ async def async_domain_is_usable(hass: HomeAssistant, domain: str) -> bool:
     if not states:
         return False
     found = await async_discover(hass, states[0].entity_id)
-    return any(c.kind != KIND_STATUS for c in found)
+    return any(c.kind not in (KIND_STATUS, KIND_FIXED) for c in found)
 
 
 # מפתחות בחירת היעד, כפי ש-`TargetSelector` שומר אותם.
@@ -595,9 +731,10 @@ async def async_discover_group(
     if not entity_ids:
         return []
 
+    descriptions = await async_descriptions(hass)
     per_entity: list[dict[str, Capability]] = []
     for entity_id in entity_ids:
-        found = await async_discover(hass, entity_id)
+        found = await async_discover(hass, entity_id, descriptions)
         per_entity.append({c.ident: c for c in found})
 
     shared = set(per_entity[0])
@@ -622,6 +759,14 @@ def _merge(ident: str, versions: list[Capability]) -> Capability | None:
     """
     first = versions[0]
     if any(v.kind != first.kind for v in versions):
+        return None
+    # קוד שונה בין החברים — אין הקשה אחת שמתאימה לכולם. וקבוצה
+    # אינה מקבלת ערך קבוע: הוא של מכשיר בודד.
+    if first.kind == KIND_FIXED:
+        return None
+    if any(
+        (v.code, v.code_width) != (first.code, first.code_width) for v in versions
+    ):
         return None
 
     if first.kind == KIND_CHOICE:

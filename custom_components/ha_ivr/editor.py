@@ -19,16 +19,24 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import logging
+import secrets
+import time
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
+
+import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant
 
 from . import menu as menu_mod
 from . import registry
+from . import capabilities as caps
 from . import smart as smart_mod
 from . import tree as tree_mod
 from .const import (
@@ -60,14 +68,12 @@ from .const import (
 )
 from .action_fields import (
     ENTITY_RANGE_ATTRIBUTES,
-    action_is_usable,
     async_action_fields,
     async_action_name,
     entity_number_range,
-    field_is_supported,
     field_label,
 )
-from .policy import available_actions, domain_is_blocked, domain_needs_confirmation
+from .policy import domain_is_blocked, domain_needs_confirmation
 from .translations_he import translate_action, translate_field, translate_option
 
 _LOGGER = logging.getLogger(__name__)
@@ -288,11 +294,18 @@ def _default_name(hass: HomeAssistant, subentry) -> str:
     return _entity_name(hass, str(subentry.data.get(CONF_TARGET_ENTITY, "") or ""))
 
 
-def _cap_name(raw: dict) -> str:
+def _subject_domain(subentry) -> str:
+    """הדומיין של המכשיר או של הקבוצה שהתוכנית שייכת להם."""
+    if subentry_kind(subentry) == SUBENTRY_TYPE_GROUP:
+        return _group_target(subentry)["domain"]
+    return str(subentry.data.get(CONF_TARGET_ENTITY, "") or "").split(".", 1)[0]
+
+
+def _cap_name(raw: dict, domain: str = "") -> str:
     action = str(raw.get("action", "") or "")
     stored = str(raw.get("label", "") or "").strip()
     if not stored or stored == action:
-        return translate_action(action) if action else "הקראת מצב"
+        return translate_action(action, domain) if action else "הקראת מצב"
     return stored
 
 
@@ -339,6 +352,7 @@ class _View:
 
         if spot.kind == "implicit":
             return {**out, "kind": "submenu", "name": f"תפריט {path}",
+                    "count": self.filled(parts),
                     "detail": _count(self.filled(parts), "מקש", "מקשים")}
 
         if spot.kind == "option":
@@ -354,8 +368,12 @@ class _View:
                 "kind": "cap",
                 "cap": kind,
                 "ident": str(raw.get("ident", "")),
-                "name": _cap_name(raw),
-                "label": _cap_name(raw),
+                "name": _cap_name(raw, _subject_domain(spot.sub)),
+                "label": _cap_name(raw, _subject_domain(spot.sub)),
+                "count": len(_options(self.hass, spot.sub, raw))
+                if kind == smart_mod.KIND_CHOICE else 0,
+                "min": raw.get("min"),
+                "max": raw.get("max"),
                 "detail": _cap_detail(
                     kind,
                     len(_options(self.hass, spot.sub, raw))
@@ -375,6 +393,7 @@ class _View:
 
         if kind == SUBENTRY_TYPE_SUBMENU:
             return {**out, "kind": "submenu", "name": label or f"תפריט {path}",
+                    "count": self.filled(parts),
                     "detail": _count(self.filled(parts), "מקש", "מקשים")}
 
         if kind in (SUBENTRY_TYPE_ITEM, SUBENTRY_TYPE_SMART):
@@ -384,17 +403,24 @@ class _View:
                 entity_id=entity_id,
                 domain=entity_id.split(".", 1)[0],
                 missing=self.hass.states.get(entity_id) is None,
+                state=_entity_state(self.hass, entity_id),
             )
             if kind == SUBENTRY_TYPE_SMART:
                 return {**out, "kind": "device", "name": fallback,
+                        "count": len(_plan(subentry)),
                         "detail": _count(len(_plan(subentry)), "פעולה", "פעולות", feminine=True)}
             stored = data.get(CONF_ACTION_DATA)
-            does = translate_action(str(data.get(CONF_ACTION, "") or ""))
+            domain = entity_id.split(".", 1)[0]
+            action = str(data.get(CONF_ACTION, "") or "")
+            does = translate_action(action, domain)
             if isinstance(stored, dict) and stored:
-                does = f"{does}: " + ", ".join(
-                    f"{translate_field(str(k))} {translate_option(str(v))}"
+                shown = [
+                    f"{translate_field(str(k), domain, action)} {_value_word(v)}"
                     for k, v in stored.items()
-                )
+                    if not isinstance(v, (dict, list))
+                ]
+                if shown:
+                    does = f"{does}: " + ", ".join(shown)
             return {**out, "kind": "action", "name": fallback, "detail": device,
                     "does": does, "fixed": isinstance(stored, dict) and bool(stored)}
 
@@ -405,6 +431,7 @@ class _View:
             )
             return {**out, "kind": "group", "name": fallback,
                     "domain": target["domain"], "missing": count == 0,
+                    "count": count,
                     "detail": _count(count, "מכשיר", "מכשירים")}
 
         if kind in (SUBENTRY_TYPE_GOTO, SUBENTRY_TYPE_ASSISTANT):
@@ -417,6 +444,24 @@ class _View:
                     "silent": node is None or not self.flags["goto"]}
 
         return {**out, "kind": "alerts", "name": fallback}
+
+
+def _targets(view: _View) -> list[dict]:
+    """כל התפריטים בקו, ליעד של "העברה ל…". הראשי ראשון, אחריו לפי נתיב."""
+    found = [{"path": "", "name": ""}]
+    paths = set()
+    for path in view.layout.owners:
+        parts = tuple(path.split("/"))
+        for depth in range(1, len(parts) + 1):
+            paths.add(parts[:depth])
+    for parts in sorted(paths):
+        if len(parts) >= MENU_MAX_DEPTH:
+            continue
+        if _level_kind(view.spot(parts)) != "menu":
+            continue
+        key = view.key(parts)
+        found.append({"path": _join(parts), "name": key["name"] if key else ""})
+    return found
 
 
 def _count(number: int, one: str, many: str, *, feminine: bool = False) -> str:
@@ -454,17 +499,49 @@ def _cap_label(capability) -> str:
     return f"{capability.label} ({detail})" if detail else capability.label
 
 
+def _code_info(capability) -> dict | None:
+    """איך מקישים את הקוד של הפעולה. None = בלי קוד. הקוד עצמו לעולם אינו כאן."""
+    if capability.code in (caps.CODE_NONE, caps.CODE_UNDIALABLE):
+        return None
+    return {
+        "end": capability.code == caps.CODE_TERMINATED,
+        "width": capability.code_width,
+        "min": capability.code_min,
+        "max": capability.code_max,
+    }
+
+
 def _cap_choice(capability) -> dict:
-    """יכולת כפי שבוחרים אותה בהוספה, עם הערכים שאפשר להציע בה."""
+    """יכולת כפי שבוחרים אותה בהוספה, עם הערכים שאפשר להציע בה.
+
+    החוזה מול הלוח: `kind` אחד מ-simple/status/choice/number/fixed.
+    `needs_fixed` = אי אפשר להקיש את הערך, ולכן היא נבחרת רק כמקש עם
+    ערך קבוע. `code` מתאר את ההקשה של קוד, בלי הקוד.
+    """
+    kind = capability.kind
     return {
         "ident": capability.ident,
+        "kind": kind,
         "label": _cap_label(capability),
         "name": capability.label,
+        "action": capability.action,
         "options": [
             {"value": value, "label": capability.option_label(value)}
             for value in capability.options
-        ] if capability.kind == smart_mod.KIND_CHOICE else [],
+        ] if kind == smart_mod.KIND_CHOICE else [],
+        "min": capability.minimum if kind == smart_mod.KIND_NUMBER else None,
+        "max": capability.maximum if kind == smart_mod.KIND_NUMBER else None,
+        "code": _code_info(capability),
+        "needs_fixed": kind == smart_mod.KIND_FIXED,
     }
+
+
+def _entity_state(hass: HomeAssistant, entity_id: str) -> str:
+    """ok, unavailable (קיים ואינו זמין), או missing (נמחק מ-Home Assistant)."""
+    state = hass.states.get(entity_id)
+    if state is None:
+        return "missing"
+    return "unavailable" if state.state == "unavailable" else "ok"
 
 
 def _picked(raw: object) -> dict[str, list[str]]:
@@ -505,11 +582,14 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
     addable = None
     if level == "plan":
         used = {str(e.get("ident", "")) for e in _plan(spot.sub)}
-        addable = [
-            {"ident": c.ident, "label": _cap_label(c)}
-            for c in await _capabilities(hass, spot.sub)
-            if c.ident not in used
-        ]
+        found = await _capabilities(hass, spot.sub)
+        # מה שהתגלה ואינו בתוכנית: לא נוסף מעצמו, רק מוצע.
+        addable = [_cap_choice(c) for c in found if c.ident not in used]
+        # מה שבתוכנית ואינו מתגלה עוד: המקש נשאר, ומסומן "לא זמין".
+        live = {c.ident for c in found}
+        for digit, key in keys.items():
+            if key and key.get("kind") == "cap":
+                key["gone"] = bool(found) and key.get("ident") not in live
     elif level == "options":
         addable = [
             {"value": value, "label": translate_option(value)}
@@ -524,6 +604,8 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
     return {
         "entry_id": entry.entry_id,
         "path": _join(parts),
+        "revision": revision(entry),
+        "targets": _targets(view),
         "kind": level,
         "self": view.key(parts),
         "crumbs": crumbs,
@@ -541,7 +623,9 @@ async def async_level(hass: HomeAssistant, entry: ConfigEntry, path: object = ""
     }
 
 
-async def async_capabilities(hass: HomeAssistant, entity_id: str) -> dict:
+async def async_capabilities(
+    hass: HomeAssistant, entity_id: str, entry: ConfigEntry | None = None
+) -> dict:
     """מה מכשיר יודע לעשות, ומה מסומן כברירת מחדל.
 
     מכשיר שיש לו פעולה אחת בלבד — כפתור, סצנה — מקבל אותה ישר על המקש,
@@ -549,15 +633,23 @@ async def async_capabilities(hass: HomeAssistant, entity_id: str) -> dict:
     """
     _check_entity(hass, entity_id)
     found = await smart_mod.async_discover(hass, entity_id)
-    active = [c for c in found if c.kind != smart_mod.KIND_STATUS]
+    active = [
+        c for c in found
+        if c.kind not in (smart_mod.KIND_STATUS, smart_mod.KIND_FIXED)
+    ]
     single = len(active) == 1 and active[0].kind == smart_mod.KIND_SIMPLE
     return {
         "entity_id": entity_id,
         "name": _entity_name(hass, entity_id),
+        "state": _entity_state(hass, entity_id),
         "capabilities": [
             {
                 **_cap_choice(c),
-                "checked": (c is active[0]) if single else index < len(MENU_DIGITS),
+                # מה שדורש ערך קבוע אינו מסומן מראש: אין לו ספרה משלו.
+                "checked": (
+                    (c is active[0]) if single
+                    else index < len(MENU_DIGITS) and c.kind != smart_mod.KIND_FIXED
+                ),
             }
             for index, c in enumerate(found)
         ],
@@ -571,68 +663,67 @@ async def async_capabilities(hass: HomeAssistant, entity_id: str) -> dict:
 # ----------------------------------------------------------------------
 
 
-def _action_field(hass: HomeAssistant, entity_id: str, name: str, spec: dict) -> dict:
-    """שדה אחד של פעולה, כפי שהלוח מצייר אותו."""
-    selector = spec.get("selector") or {}
+def _action_field(
+    hass: HomeAssistant, entity_id: str, action: str, name: str, spec: dict
+) -> dict | None:
+    """שדה אחד של פעולה, כפריט בסכמה של `ha-form`.
+
+    הבורר הוא זה של Home Assistant עצמו, ולכן הלוח מצייר כל סוג שדה
+    כמו מסך האוטומציות: שעה, צבע, משך, מדיה. רק שני דברים משתנים כאן:
+    טווח שהמכשיר מדווח (מזגן של 16 עד 30, לא 0 עד 250), ואפשרויות
+    שהושלמו מהמכשיר. None = שדה שהמכשיר אינו מדווח עליו את הטווח שלו,
+    כלומר אינו תומך בו.
+    """
+    selector = dict(spec.get("selector") or {"text": {}})
+    if "number" in selector:
+        config = dict(selector["number"] or {})
+        low, high = entity_number_range(hass, entity_id, name, config)
+        if name in ENTITY_RANGE_ATTRIBUTES and low is None:
+            return None
+        if low is not None and high is not None:
+            config.update(min=low, max=high)
+        selector["number"] = config
+    if "select" in selector and not (selector["select"] or {}).get("options"):
+        return None
     out: dict[str, Any] = {
         "name": name,
-        "label": field_label(name, spec),
+        "label": field_label(name, spec, entity_id.split(".", 1)[0], action),
         "required": bool(spec.get("required")),
+        "selector": selector,
     }
-    if "number" in selector:
-        config = selector["number"] or {}
-        low, high = entity_number_range(hass, entity_id, name, config)
-        step = config.get("step")
-        out.update(
-            type="number", min=low, max=high,
-            step=float(step) if step not in (None, "any") else None,
-            unit=str(config.get("unit_of_measurement") or ""),
-        )
-    elif "select" in selector:
-        options = []
-        for option in (selector["select"] or {}).get("options", []):
-            value = str(option.get("value", "")) if isinstance(option, dict) else str(option)
-            label = option.get("label") if isinstance(option, dict) else None
-            options.append({"value": value, "label": str(label or translate_option(value))})
-        out.update(type="select", options=options)
-    elif "boolean" in selector:
-        out["type"] = "boolean"
-    else:
-        out["type"] = "text"
+    if spec.get("default") is not None:
+        out["default"] = spec["default"]
     return out
 
 
 async def _fixed_actions(hass: HomeAssistant, entity_id: str) -> list[dict]:
     """הפעולות של המכשיר שמקבלות ערך, עם השדות של כל אחת.
 
-    פעולה בלי שדות אינה כאן: היא כבר מוצעת כיכולת רגילה של המכשיר.
+    אותן פעולות שהגילוי מציע — לפי מסנני `services.yaml` ולפי המדיניות —
+    ורק אלה שיש להן שדה. פעולה בלי שדות כבר מוצעת כיכולת רגילה. שדה
+    הקוד אינו כאן: קוד אינו נשמר לעולם, והוא נאסף בהקשה.
     """
     domain = entity_id.split(".", 1)[0]
     found = []
-    for action in available_actions(hass, domain):
+    for action in await smart_mod.async_entity_actions(hass, entity_id):
         fields = await async_action_fields(hass, domain, action, entity_id)
-        if not action_is_usable(fields):
-            continue
-        shown = [
-            _action_field(hass, entity_id, name, spec)
-            for name, spec in fields.items()
-            if field_is_supported(spec)
-        ]
-        # שדה שהטווח שלו בא מהמכשיר, והמכשיר אינו מדווח עליו — המכשיר
-        # אינו תומך בו. שדה חובה כזה מוריד את הפעולה כולה.
-        blind = [
-            f for f in shown
-            if f["name"] in ENTITY_RANGE_ATTRIBUTES and f.get("min") is None
-        ]
-        if any(f["required"] for f in blind):
-            continue
-        shown = [f for f in shown if f not in blind]
-        if shown:
-            found.append({
-                "action": action,
-                "label": await async_action_name(hass, domain, action),
-                "fields": shown,
-            })
+        shown = []
+        for name, spec in fields.items():
+            if name == caps.CODE_FIELD:
+                continue
+            field = _action_field(hass, entity_id, action, name, spec)
+            if field is None:
+                if spec.get("required"):
+                    break
+                continue
+            shown.append(field)
+        else:
+            if shown:
+                found.append({
+                    "action": action,
+                    "label": await async_action_name(hass, domain, action),
+                    "fields": shown,
+                })
     return found
 
 
@@ -646,42 +737,44 @@ async def async_actions(hass: HomeAssistant, entity_id: str) -> dict:
     }
 
 
+def _empty(value: object) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
 def _action_values(fields: list[dict], raw: object) -> dict:
-    """הערכים שנשלחו מהלוח, אחרי בדיקה מול השדות של הפעולה."""
+    """הערכים שנשלחו מהלוח, אחרי בדיקה בבורר של Home Assistant עצמו.
+
+    `selector()` הוא אותה בדיקה שרצה כשאוטומציה נשמרת: טווח, רשימה,
+    פורמט של שעה ושל צבע. מה שעובר אותה הוא בדיוק מה שהפעולה תקבל.
+    """
+    from homeassistant.helpers.selector import selector as ha_selector  # noqa: PLC0415
+
     given = raw if isinstance(raw, dict) else {}
     values: dict[str, Any] = {}
     for spec in fields:
         value = given.get(spec["name"])
-        if value is None or value == "":
+        if _empty(value):
             if spec["required"]:
                 raise EditorError("value_required", f"חסר ערך: {spec['label']}")
             continue
-        if spec["type"] == "number":
-            try:
-                number = float(value)
-            except (TypeError, ValueError):
-                raise EditorError(
-                    "bad_value", f"{spec['label']}: צריך מספר"
-                ) from None
-            low, high = spec.get("min"), spec.get("max")
-            if (low is not None and number < low) or (high is not None and number > high):
-                raise EditorError(
-                    "bad_value", f"{spec['label']}: בין {low:g} ל-{high:g}"
-                    if low is not None and high is not None
-                    else f"{spec['label']}: הערך מחוץ לטווח"
-                )
-            values[spec["name"]] = int(number) if number.is_integer() else number
-        elif spec["type"] == "select":
-            if str(value) not in {o["value"] for o in spec["options"]}:
-                raise EditorError("bad_value", f"{spec['label']}: ערך שאינו ברשימה")
-            values[spec["name"]] = str(value)
-        elif spec["type"] == "boolean":
-            values[spec["name"]] = value in (True, "true", "on", "1", 1)
-        else:
-            values[spec["name"]] = str(value).strip()
+        try:
+            value = ha_selector(spec["selector"])(value)
+        except (vol.Invalid, ValueError, TypeError):
+            raise EditorError("bad_value", _bad_value(spec)) from None
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        values[spec["name"]] = value
     if not values:
         raise EditorError("value_required", "צריך לקבוע לפחות ערך אחד")
     return values
+
+
+def _bad_value(spec: dict) -> str:
+    """הודעה על ערך שנדחה. במספר — גם הטווח, כדי שיהיה ברור מה כן."""
+    number = spec["selector"].get("number")
+    if isinstance(number, dict) and number.get("min") is not None and number.get("max") is not None:
+        return f"{spec['label']}: בין {float(number['min']):g} ל-{float(number['max']):g}"
+    return f"{spec['label']}: ערך לא תקין"
 
 
 async def _fixed_item(hass: HomeAssistant, entry: ConfigEntry, path: object):
@@ -726,12 +819,12 @@ async def async_set_values(
     subentry, chosen = await _fixed_item(hass, entry, path)
     data = subentry.data
     values = _action_values(chosen["fields"], raw)
-    device = _entity_name(hass, str(data.get(CONF_TARGET_ENTITY, "") or ""))
+    entity_id = str(data.get(CONF_TARGET_ENTITY, "") or "")
     label = str(data.get(CONF_LABEL, "") or "")
-    derived = f"{device}, {_values_text(chosen['fields'], dict(data[CONF_ACTION_DATA]))}"
+    derived = _fixed_label(hass, entity_id, chosen, dict(data[CONF_ACTION_DATA]))
     title = None
     if not label or label == derived:
-        label = f"{device}, {_values_text(chosen['fields'], values)}"
+        label = _fixed_label(hass, entity_id, chosen, values)
         title = f"{_path_of(subentry)} — {label}"
     _write(
         hass, entry, subentry,
@@ -740,20 +833,36 @@ async def async_set_values(
 
 
 def _values_text(fields: list[dict], values: dict) -> str:
-    """"טמפרטורה 24" — הערכים כפי שקוראים אותם."""
+    """"טמפרטורה 24" — הערכים כפי שקוראים אותם. ערך מורכב אינו מוקרא."""
     parts = []
     for spec in fields:
-        if spec["name"] not in values:
+        value = values.get(spec["name"])
+        if _empty(value) or isinstance(value, (dict, list)):
             continue
-        value = values[spec["name"]]
-        if spec["type"] == "select":
+        selector = spec["selector"]
+        if "select" in selector and not isinstance(value, bool):
             value = next(
-                (o["label"] for o in spec["options"] if o["value"] == value), value
+                (o.get("label", value) for o in selector["select"].get("options", [])
+                 if isinstance(o, dict) and o.get("value") == value),
+                translate_option(str(value)),
             )
-        elif spec["type"] == "boolean":
-            value = "כן" if value else "לא"
-        parts.append(f"{spec['label']} {value}")
+        parts.append(f"{spec['label']} {_value_word(value)}")
     return ", ".join(parts)
+
+
+def _value_word(value: object) -> str:
+    """ערך כפי שקוראים אותו: כן/לא במקום True/False."""
+    if isinstance(value, bool):
+        return "כן" if value else "לא"
+    return translate_option(str(value))
+
+
+def _fixed_label(hass: HomeAssistant, entity_id: str, chosen: dict, values: dict) -> str:
+    """השם שהמתקשר שומע. כן/לא לבד אינו אומר מה המקש עושה, ולכן איתו גם שם הפעולה."""
+    said = _values_text(chosen["fields"], values)
+    if not said or any(isinstance(v, bool) for v in values.values()):
+        said = ", ".join(filter(None, [chosen["label"], said]))
+    return f"{_entity_name(hass, entity_id)}, {said}"
 
 
 async def async_rooms(hass: HomeAssistant) -> list[dict]:
@@ -804,31 +913,6 @@ def _place_target(args: dict) -> dict:
     return smart_mod.clean_target(chosen)
 
 
-def _named(items) -> list[dict]:
-    return [
-        {"id": str(item_id), "name": str(name)}
-        for item_id, name in sorted(items, key=lambda pair: str(pair[1]))
-    ]
-
-
-def async_places(hass: HomeAssistant) -> dict:
-    """מה אפשר לצרף למקום אחד: קומות, חדרים ותוויות."""
-    from homeassistant.helpers import area_registry as ar  # noqa: PLC0415
-    from homeassistant.helpers import floor_registry as fr  # noqa: PLC0415
-    from homeassistant.helpers import label_registry as lr  # noqa: PLC0415
-
-    return {
-        "floors": _named(
-            (f.floor_id, f.name) for f in fr.async_get(hass).async_list_floors()
-        ),
-        "areas": _named((a.id, a.name) for a in ar.async_get(hass).async_list_areas()),
-        "labels": _named(
-            (label.label_id, label.name)
-            for label in lr.async_get(hass).async_list_labels()
-        ),
-    }
-
-
 async def async_place(hass: HomeAssistant, args: dict) -> dict:
     """מה יש במקום שנבחר: הסוגים, והמכשירים שאפשר להשאיר בחוץ."""
     target = _place_target(args)
@@ -859,7 +943,7 @@ def _group_item(hass: HomeAssistant, entry: ConfigEntry, path: object):
 
 
 def group_place(hass: HomeAssistant, entry: ConfigEntry, path: object) -> dict:
-    """המקום של קבוצה ומי שהושאר מחוץ לה, ומה אפשר לבחור במקומו."""
+    """המקום של קבוצה ומי שהושאר מחוץ לה. המקום עצמו נבחר בבוררים של HA."""
     found = _group_target(_group_item(hass, entry, path))
     domain, target = found["domain"], found["target"]
     place = {k: v for k, v in target.items() if k in smart_mod.TARGET_KEYS}
@@ -872,7 +956,6 @@ def group_place(hass: HomeAssistant, entry: ConfigEntry, path: object) -> dict:
         "exclude": [
             e for e in smart_mod.match_entities(hass, domain, place) if e not in kept
         ],
-        "places": async_places(hass),
     }
 
 
@@ -922,6 +1005,97 @@ def _retitle(title: object, path: str) -> str:
     return f"{path} — {str(title).split('— ', 1)[-1]}"
 
 
+# ----------------------------------------------------------------------
+# צילום, שחזור וביטול
+# ----------------------------------------------------------------------
+
+UNDO_SECONDS = 60
+_UNDO: dict[str, dict] = {}
+
+
+def _snapshot(entry: ConfigEntry) -> dict:
+    """כל מה שהעורך כותב: תת-הרשומות של העץ ומשפט הפתיחה של הראשי."""
+    return {
+        "intro": str(entry.options.get(CONF_INTRO, "") or ""),
+        "subs": {
+            s.subentry_id: (
+                s.subentry_type, str(s.title), copy.deepcopy(dict(s.data))
+            )
+            for s in entry.subentries.values()
+            if subentry_kind(s) in _TREE_KINDS
+        },
+    }
+
+
+def revision(entry: ConfigEntry) -> str:
+    """טביעת אצבע של העץ. משתנה בכל כתיבה, גם כזו שלא עברה בלוח."""
+    raw = json.dumps(_snapshot(entry), sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
+def _restore(hass: HomeAssistant, entry: ConfigEntry, before: dict) -> None:
+    """החזרת העץ לצילום: מה שנוסף יוצא, מה שהוסר חוזר, מה שהשתנה מתוקן."""
+    now = _snapshot(entry)
+    for ident in now["subs"].keys() - before["subs"].keys():
+        hass.config_entries.async_remove_subentry(entry, ident)
+    for ident, (kind, title, data) in before["subs"].items():
+        current = entry.subentries.get(ident)
+        if current is None:
+            _create(hass, entry, kind, title, copy.deepcopy(data))
+        elif now["subs"].get(ident) != (kind, title, data):
+            _write(hass, entry, current, copy.deepcopy(data), title)
+    if now["intro"] != before["intro"]:
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, CONF_INTRO: before["intro"]}
+        )
+
+
+async def async_atomic(hass: HomeAssistant, entry: ConfigEntry, work) -> None:
+    """שינוי שכולו נשמר או שלא נשמר ממנו דבר."""
+    before = _snapshot(entry)
+    try:
+        await work()
+    except Exception:
+        _restore(hass, entry, before)
+        raise
+
+
+def _prune_undo() -> None:
+    now = time.monotonic()
+    for token in [t for t, u in _UNDO.items() if u["expires"] <= now]:
+        del _UNDO[token]
+
+
+def remember_undo(entry: ConfigEntry, before: dict) -> str:
+    """אסימון לביטול השינוי האחרון. תקף רק כל עוד העץ לא השתנה מאז."""
+    _prune_undo()
+    token = secrets.token_urlsafe(12)
+    _UNDO[token] = {
+        "entry_id": entry.entry_id,
+        "before": before,
+        "revision": revision(entry),
+        "expires": time.monotonic() + UNDO_SECONDS,
+    }
+    return token
+
+
+def undo(hass: HomeAssistant, entry: ConfigEntry, token: str) -> None:
+    """ביטול. אחרי כל כתיבה אחרת אין ביטול: הוא היה דורס אותה."""
+    _prune_undo()
+    saved = _UNDO.pop(str(token or ""), None)
+    if saved is None or saved["entry_id"] != entry.entry_id:
+        raise EditorError("undo_expired", "כבר אי אפשר לבטל")
+    if saved["revision"] != revision(entry):
+        raise EditorError("undo_stale", "אי אפשר לבטל: התפריט השתנה מאז")
+    _restore(hass, entry, saved["before"])
+
+
+def clear_undo(entry_id: str) -> None:
+    """פריקת רשומה: האסימונים שלה כבר לא שייכים לשום דבר."""
+    for token in [t for t, u in _UNDO.items() if u["entry_id"] == entry_id]:
+        del _UNDO[token]
+
+
 def _check_entity(hass: HomeAssistant, entity_id: str) -> None:
     domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
     if not domain or hass.states.get(entity_id) is None:
@@ -941,6 +1115,20 @@ def _free_slot(hass: HomeAssistant, entry: ConfigEntry, path: object) -> tuple[s
     if _spot(hass, layout, parts).kind != "empty":
         raise EditorError("taken", f"מקש {parts[-1]} כבר תפוס")
     return parts
+
+
+def free_slot_in(hass: HomeAssistant, entry: ConfigEntry, menu: object) -> str:
+    """המקש הפנוי הראשון בתפריט, כנתיב מלא."""
+    parts = _parts(menu)
+    if len(parts) >= MENU_MAX_DEPTH:
+        raise EditorError("too_deep", "התפריט עמוק מדי למקום הזה")
+    layout = _layout(entry)
+    if _level_kind(_spot(hass, layout, parts)) != "menu":
+        raise EditorError("not_a_menu", "אי אפשר להעביר לכאן")
+    for digit in MENU_DIGITS:
+        if _spot(hass, layout, (*parts, digit)).kind == "empty":
+            return _join((*parts, digit))
+    raise EditorError("full", "אין מקש פנוי")
 
 
 def add_place_menu(
@@ -1127,9 +1315,7 @@ async def async_add(
         values = _action_values(chosen["fields"], args.get("data"))
         slot = _join(_free_slot(hass, entry, path))
         # בלי שם, המתקשר היה שומע רק את שם המכשיר — ולא מה המקש עושה.
-        spoken = name or (
-            f"{_entity_name(hass, entity_id)}, {_values_text(chosen['fields'], values)}"
-        )
+        spoken = name or _fixed_label(hass, entity_id, chosen, values)
         _create(
             hass, entry, SUBENTRY_TYPE_ITEM, f"{slot} — {spoken}",
             {

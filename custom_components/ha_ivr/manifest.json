@@ -7,6 +7,10 @@
     "stt",
     "assist_satellite"
   ],
+  "categories": [
+    "messaging_notifications.email_sms_calls",
+    "ai_voice.voice_assistants"
+  ],
   "codeowners": [
     "@meni123"
   ],
@@ -17,8 +21,9 @@
     "websocket_api"
   ],
   "documentation": "https://github.com/meni123/ha-ivr",
+  "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/meni123/ha-ivr/issues",
   "requirements": [],
-  "version": "2.0.0"
+  "version": "3.0.0"
 }

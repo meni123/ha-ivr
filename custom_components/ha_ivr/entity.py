@@ -29,6 +29,9 @@ def ensure_parent_device(hass, entry) -> str:
         config_entry_id=entry.entry_id,
         identifiers={(entry.domain, entry.entry_id)},
         name=f"תפריט טלפוני — {entry.title}",
+        # השם מתורגם לפי שפת הממשק; `name` נשאר לגיבוי.
+        translation_key="parent",
+        translation_placeholders={"title": str(entry.title)},
         manufacturer="IVR",
         model="שכבת ספק",
         entry_type=DeviceEntryType.SERVICE,

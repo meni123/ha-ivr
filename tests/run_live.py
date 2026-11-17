@@ -640,6 +640,8 @@ for _f in sorted((ROOT / "custom_components").rglob("*.py")):
 _strings = _js2.loads((_core / "strings.json").read_text("utf-8"))
 _valid_keys = (
     set(_exc_en) | set(_strings.get("selector", {})) | set(_strings.get("issues", {}))
+    | set(_strings.get("device", {}))
+    | {k for d in _strings.get("entity", {}).values() for k in d}
 )
 _missing = sorted(_used - _valid_keys)
 ok("כל מפתח שבקוד קיים במחרוזות", not _missing)
@@ -2099,10 +2101,10 @@ ok("build stamp is stable", _stamp == core.build_stamp())
 # חתימה בדיוק על קוד אחר.
 _before = _core_mod.build_stamp()
 _prov = ROOT / "custom_components" / "ha_ivr" / "providers" / "yemot.py"
-_orig = _prov.read_text("utf-8")
-_prov.write_text(_orig + "\n# touch\n")
+_orig = _prov.read_bytes()
+_prov.write_bytes(_orig + b"\n# touch\n")
 ok("build stamp covers providers", _core_mod.build_stamp() != _before)
-_prov.write_text(_orig)
+_prov.write_bytes(_orig)
 ok("build stamp returns after undo", _core_mod.build_stamp() == _before)
 
 # ======================================================================
@@ -2126,8 +2128,9 @@ ok("select_source פועל על source",
    _smart._primary_field("select_source", {"source": {}, "x": {}}, []) == "source")
 ok("שדה חובה יחיד גובר",
    _smart._primary_field("whatever", {"a": {}, "b": {}}, ["b"]) == "b")
-ok("שדה אופציונלי יחיד נבחר",
-   _smart._primary_field("volume_set", {"volume_level": {}}, []) == "volume_level")
+ok("שדה אופציונלי שאינו בשם הפעולה אינו השדה (automation.trigger)",
+   _smart._primary_field("trigger", {"skip_condition": {}}, []) is None
+   and _smart._primary_field("turn_on", {"transition": {}}, []) is None)
 ok("ריבוי שדות בלי הכרעה נשאר פשוט",
    _smart._primary_field("turn_on", {"brightness": {}, "color_name": {}}, []) is None)
 
@@ -2300,7 +2303,7 @@ ok("אוטומציה ובוררים גם לא",
    and not _pol.domain_is_groupable("todo"))
 ok("תאורה כן", _pol.domain_is_groupable("light"))
 ok("הכרזה ללוויין מסוננת כפעולה שאינה שליטה",
-   "announce" in _pol._NON_ACTIONABLE and "get_forecasts" in _pol._NON_ACTIONABLE)
+   "announce" in _pol._NON_ACTIONABLE and "reload" in _pol._NON_ACTIONABLE)
 
 # --- חיתוך יכולות בין חברי הקבוצה ---
 def _cap(kind, ident="x", **kw):
@@ -2448,9 +2451,11 @@ def _gpress(path, digit):
 
 _gh.services.calls.clear()
 _gres = _gpress("6", "1")
+# קריאה לכל חבר בנפרד ובמקביל: מכשיר תקוע אחד אינו מפיל את כולם,
+# וכל אחד נספר — "בוצע ב-3 מתוך 4".
 ok("הפעולה נשלחה לכל חברי הקבוצה",
-   any(c[2].get("entity_id") == ["light.a", "light.b", "light.c"]
-       for c in _gh.services.calls))
+   sorted(c[2].get("entity_id") for c in _gh.services.calls)
+   == ["light.a", "light.b", "light.c"])
 ok("ובדומיין של היעד",
    any(c[:2] == ("light", "turn_on") for c in _gh.services.calls))
 ok("והמתקשר שומע כמה מכשירים הושפעו", "3" in _gres.get("say", ""))
@@ -2662,7 +2667,7 @@ _KCAPS = {
 }
 
 
-async def _kdiscover(hass, entity_id):
+async def _kdiscover(hass, entity_id, descriptions=None):
     return list(_KCAPS.get(entity_id.split(".", 1)[0], []))
 
 
@@ -3008,7 +3013,8 @@ ok("המרה: ספק בלי יעד קבוע לעוזר נשאר כמות שהו�
 _kinit = (_core_dir / "__init__.py").read_text("utf-8")
 ok("ההמרה רצה בעדכון, והגרסה של הרשומה מתקדמת",
    "assistant_type(subentry, driver)" in _kinit
-   and "minor_version=3" in _kinit and _kcf.IvrConfigFlow.MINOR_VERSION == 3)
+   and "minor_version=3" in _kinit and "minor_version=4" in _kinit
+   and _kcf.IvrConfigFlow.MINOR_VERSION == 4)
 
 # --- חדרים ---
 _rooms = _krun(editor.async_rooms(_kh))
@@ -3045,44 +3051,53 @@ ok("חדר בלי מכשירים נדחה",
 from custom_components.ha_ivr import action_fields as _kaf  # noqa: E402
 
 
+_LIGHT = {"entity": {"domain": "light"}}
+_CLIMATE = {"entity": {"domain": "climate"}}
+
+
 async def _kdesc(hass):
     return {"light": {
-        "turn_on": {"name": "Turn on", "fields": {
+        "turn_on": {"name": "Turn on", "target": _LIGHT, "fields": {
             "brightness_pct": {"selector": {"number": {
                 "min": 0, "max": 100, "unit_of_measurement": "%"}}},
             # בחירה שהאפשרויות שלה תלויות במכשיר, והמכשיר אינו מדווח עליהן
             "effect": {"selector": {"select": {"options": []}}},
-            # סוג שדה שאין לו ציור בלוח
+            # צבע: הבורר של HA מצייר אותו, ו-HA בודק אותו
             "rgb_color": {"selector": {"color_rgb": None}},
             "advanced": {"fields": {
                 "transition": {"selector": {"number": {"min": 0, "max": 300}}}}},
         }},
-        "turn_off": {"name": "Turn off", "fields": {}},
+        "turn_off": {"name": "Turn off", "target": _LIGHT, "fields": {}},
     }, "climate": {
         # הטווח בא מהמזגן עצמו, והמזגן שבבדיקה אינו מדווח עליו
-        "set_temperature": {"fields": {"temperature": {
+        "set_temperature": {"target": _CLIMATE, "fields": {"temperature": {
             "required": True, "selector": {"number": {"min": 0, "max": 250}}}}},
         # האפשרויות באות מהמזגן עצמו
-        "set_fan_mode": {"fields": {"fan_mode": {
+        "set_fan_mode": {"target": _CLIMATE, "fields": {"fan_mode": {
             "required": True, "selector": {"select": {"options": []}}}}},
-        "browse_media": {"fields": {"q": {"selector": {"text": None}}}},
+        # רק מחזירה מידע (SupportsResponse.ONLY)
+        "browse_media": {"target": _CLIMATE, "fields": {"q": {"selector": {"text": None}}}},
     }}
 
 
+from custom_components.ha_ivr import smart as _ksmart  # noqa: E402
+
 _kreal_desc = _kaf.async_get_all_descriptions
 _kaf.async_get_all_descriptions = _kdesc
+_ksmart.async_get_all_descriptions = _kdesc
 _kx = fake_ha.FakeEntry()
 _kx.entry_id, _kx.data = "x2", {"token": "T", "provider": "pbx"}
 
 _kacts = _krun(editor.async_actions(_kh, "light.a"))
-ok("פעולות עם ערך: רק מה שמקבל ערך, ורק שדות שאפשר לצייר",
+ok("פעולות עם ערך: רק מה שמקבל ערך, וכל שדה שיש לו בורר",
    [a["action"] for a in _kacts["actions"]] == ["turn_on"]
    and [f["name"] for f in _kacts["actions"][0]["fields"]]
-   == ["brightness_pct", "transition"])
+   == ["brightness_pct", "rgb_color", "transition"])
 _kbright = _kacts["actions"][0]["fields"][0]
-ok("שדה מספר מגיע עם הטווח והיחידה",
-   (_kbright["type"], _kbright["min"], _kbright["max"], _kbright["unit"])
-   == ("number", 0.0, 100.0, "%") and not _kbright["required"])
+ok("שדה מספר מגיע עם הבורר של HA, הטווח והיחידה",
+   _kbright["selector"] == {"number": {
+       "min": 0.0, "max": 100.0, "unit_of_measurement": "%"}}
+   and not _kbright["required"])
 ok("מכשיר מדווח אם יש לו פעולות כאלה",
    _krun(editor.async_capabilities(_kh, "light.a"))["fixed"] is True
    and _krun(editor.async_capabilities(_kh, "button.b"))["fixed"] is False)
@@ -3125,11 +3140,12 @@ ok("פעולה שאינה מקבלת ערך אינה מוצעת כאן",
 _kreal_services = _kh.services.async_services
 _kh.services.async_services = lambda: {"climate": {
     "set_temperature": 1, "set_fan_mode": 1, "browse_media": 1}}
+fake_ha.FakeServices.READ_ONLY = {("climate", "browse_media")}
 _kclimate = _krun(editor.async_actions(_kh, "climate.s"))["actions"]
 ok("ערך שהמכשיר אינו תומך בו, ועיון במדיה, אינם מוצעים",
    [a["action"] for a in _kclimate] == ["set_fan_mode"])
 ok("רשימת הבחירה היא מה שהמכשיר עצמו מדווח",
-   [o["value"] for o in _kclimate[0]["fields"][0]["options"]]
+   [o["value"] for o in _kclimate[0]["fields"][0]["selector"]["select"]["options"]]
    == ["low", "high", "auto"])
 _kadd("5", "action", entry=_kx, entity_id="climate.s", action="set_fan_mode",
       data={"fan_mode": "high"})
@@ -3141,7 +3157,9 @@ ok("ערך שאינו ברשימה נדחה",
        _kh, _kx, "6", "action", entity_id="climate.s", action="set_fan_mode",
        data={"fan_mode": "turbo"})) == "bad_value")
 _kh.services.async_services = _kreal_services
+fake_ha.FakeServices.READ_ONLY = set()
 _kaf.async_get_all_descriptions = _kreal_desc
+_ksmart.async_get_all_descriptions = _kreal_desc
 
 # --- כמה מקומות יחד, עם החרגות ---
 _kfloors = sys.modules["homeassistant.helpers.floor_registry"]
@@ -3156,11 +3174,6 @@ _klabels.async_get = lambda hass: types.SimpleNamespace(
     async_list_labels=lambda: [], async_get_label=lambda label_id: None,
 )
 fake_ha.TARGETS[("floor_id", "f1")] = ["light.a"]
-ok("מה שאפשר לצרף: קומות, חדרים ותוויות",
-   editor.async_places(_kh) == {
-       "floors": [{"id": "f1", "name": "קומה א"}],
-       "areas": [{"id": "kit", "name": "מטבח"}],
-       "labels": []})
 _kplace = _krun(editor.async_place(
     _kh, {"target": {"area_id": ["kit"], "floor_id": ["f1"]}}))
 ok("מקום מכמה חלקים: השם, הסוגים, ומי בפנים",
@@ -3219,7 +3232,7 @@ _kgp = editor.group_place(_kh, _kx, "4")
 ok("המקום של קבוצה, ומי שמחוץ לה",
    _kgp["domain"] == "switch" and _kgp["name"] == "מתגים"
    and _kgp["target"] == {"area_id": ["kit"], "floor_id": ["f1"]}
-   and _kgp["exclude"] == ["switch.k2"] and bool(_kgp["places"]["areas"]))
+   and _kgp["exclude"] == ["switch.k2"])
 editor.update(_kh, _kx, "4", place={"target": {"area_id": ["kit"]}, "exclude": []})
 ok("מקום בלי החרגות כולל את כל המכשירים שבו",
    _ksub("4", _kx).data["target"] == {"area_id": ["kit"]}
@@ -3232,6 +3245,7 @@ ok("מקום יש רק לקבוצה",
    _kerr(lambda: editor.update(_kh, _kx, "1", place={"target": {}})) == "not_found")
 
 _kaf.async_get_all_descriptions = _kdesc
+_ksmart.async_get_all_descriptions = _kdesc
 ok("מקש עם ערך קבוע מסומן ככזה, ומקש אחר לא",
    _klevel("", _kx)["keys"]["1"]["fixed"] is True
    and not _klevel("", _kx)["keys"]["7"].get("fixed"))
@@ -3240,7 +3254,7 @@ ok("ערך קבוע: הפעולה, השדות והערכים השמורים",
    _kfx["action"]["action"] == "turn_on" and _kfx["name"] == "מנורה"
    and _kfx["values"] == {"brightness_pct": 30}
    and [f["name"] for f in _kfx["action"]["fields"]]
-   == ["brightness_pct", "transition"])
+   == ["brightness_pct", "rgb_color", "transition"])
 _krun(editor.async_set_values(_kh, _kx, "1", {"brightness_pct": "45"}))
 ok("ערך חדש נשמר, והשם שנגזר ממנו מתעדכן איתו",
    _ksub("1", _kx).data["action_data"] == {"brightness_pct": 45}
@@ -3257,6 +3271,7 @@ ok("ערך מחוץ לטווח נדחה, והערך השמור נשאר",
 ok("למקש בלי ערך קבוע אין מה לערוך",
    _kerr(lambda: editor.async_fixed(_kh, _kx, "7")) == "not_found")
 _kaf.async_get_all_descriptions = _kreal_desc
+_ksmart.async_get_all_descriptions = _kreal_desc
 _kfloors.async_get, _klabels.async_get = _kreal_floors, _kreal_labels
 
 _kb = fake_ha.FakeEntry()
@@ -3318,9 +3333,88 @@ _krun(panel.async_register(_kh, "1.0+abc"))
 _kp = fake_ha.PANELS[-1]
 ok("הלוח נרשם למנהלים בלבד, עם חותמת הבנייה",
    _kp["require_admin"] and _kp["webcomponent_name"] == "ha-ivr-panel"
-   and _kp["module_url"].endswith("panel.js?v=1.0%2Babc"))
+   and _kp["module_url"] == "/ha_ivr_static/1.0-abc/panel.js")
 ok("והעמוד קיים",
    (ROOT / "custom_components" / "ha_ivr" / "frontend" / "panel.js").is_file())
+
+# --- הלוח החדש: החלפה אטומית, עדכון אחד, וביטול ---
+def _kop(op, path="", view="", **args):
+    return _krun(panel.async_run(_kh, {
+        "op": op, "entry_id": "entry1", "path": path, "view": view,
+        "args": args}))
+
+
+_r = _kop("remove", "6") if _kop("level")["keys"]["6"] else None
+_kop("remove", "7") if _kop("level")["keys"]["7"] else None
+_r = _kop("add", "6", what="submenu", name="מטבח")
+_rev = _r["revision"]
+ok("הרמה מחזירה טביעת אצבע ורשימת תפריטים",
+   len(_rev) == 16 and {"path": "6", "name": "מטבח"} in _r["targets"]
+   and _r["targets"][0] == {"path": "", "name": ""})
+ok("ומספר מקשים מובנה, לא רק טקסט", _r["keys"]["6"]["count"] == 0)
+
+_r = _kop("update", "6", name="מטבח גדול", intro="ברוכים הבאים")
+ok("שם ופתיח נשמרים בעדכון אחד",
+   _r["keys"]["6"]["name"] == "מטבח גדול" and _r["revision"] != _rev)
+ok("הפתיח של תת-התפריט נשמר",
+   _kop("level", "6")["intro"] == "ברוכים הבאים")
+
+_before = _kop("level")
+ok("עדכון שנכשל באמצע אינו משאיר דבר",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "update", "entry_id": "entry1", "path": "6",
+       "args": {"intro": "חדש", "target": "123"}})) == "not_found"
+   and _kop("level", "6")["intro"] == "ברוכים הבאים"
+   and _kop("level")["revision"] == _before["revision"])
+
+ok("החלפה שנכשלת משאירה את המקש",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "add", "entry_id": "entry1", "path": "6",
+       "args": {"what": "submenu", "name": "", "replace": True}})) == "name_required"
+   and _kop("level")["keys"]["6"]["name"] == "מטבח גדול")
+_r = _kop("add", "6", what="submenu", name="סלון", replace=True)
+ok("והחלפה שמצליחה מחליפה במקום", _r["keys"]["6"]["name"] == "סלון")
+
+_r = _kop("remove", "6")
+_tok = _r.get("undo", "")
+ok("הסרה מחזירה אסימון ביטול", bool(_tok) and _r["keys"]["6"] is None)
+_r = _kop("undo", token=_tok)
+ok("והביטול מחזיר את המקש", _r["keys"]["6"]["name"] == "סלון")
+ok("אסימון משמש פעם אחת",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_expired")
+
+_tok = _kop("remove", "6")["undo"]
+_kop("add", "7", what="submenu", name="גינה")
+ok("אחרי כתיבה אחרת אין ביטול — הוא היה דורס אותה",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_stale"
+   and _kop("level")["keys"]["7"]["name"] == "גינה")
+
+_tok = _kop("remove", "7")["undo"]
+editor.clear_undo("entry1")
+ok("פריקה מוחקת את האסימונים",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_expired")
+
+_tok = _kop("add", "7", what="submenu", name="גינה") and _kop("remove", "7")["undo"]
+editor._UNDO[_tok]["expires"] = 0
+ok("ואסימון שפג אינו מבטל",
+   _kerr(lambda: panel.async_run(_kh, {
+       "op": "undo", "entry_id": "entry1", "args": {"token": _tok}}))
+   == "undo_expired")
+
+_kfree = [d for d, k in _kop("level")["keys"].items() if k is None]
+_kop("add", _kfree[0], what="submenu", name="יעד")
+_kop("add", _kfree[1], what="submenu", name="נודד")
+_r = _kop("move", _kfree[1], to=_kfree[0], into=True)
+ok("העברה לתפריט אחר נוחתת על המקש הפנוי הראשון בו",
+   _kop("level", _kfree[0])["keys"]["1"]["name"] == "נודד"
+   and _r["keys"][_kfree[1]] is None)
+_kop("remove", _kfree[0])
 
 # --- טעינה מחדש אחת לרצף של כתיבות ---
 _kh.data = {"ha_ivr": {}}

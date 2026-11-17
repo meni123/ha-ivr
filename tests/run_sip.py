@@ -607,7 +607,7 @@ async def test_line() -> None:
 
     call.send(TONE * 4)
     ok("זמן ההשמעה נמדד לפי התור",
-       0.3 < call.playout_end() - asyncio.get_running_loop().time() <= 0.4)
+       0.3 < call.playout_end() - asyncio.get_running_loop().time() <= 0.4 + 1e-6)
     ok("מה שנשלח נשמע אצל המתקשר", await until(lambda: leg.media.voiced() >= 15))
     ok("ובקודק שסוכם", all(p.pt == 8 for p in leg.media.packets))
     call.send(TONE * 20)
@@ -1259,12 +1259,11 @@ async def test_stack() -> None:
     entry.options = {**good, "sip_password": "wrong"}
     transport = await sipdrv.async_start_transport(hass, entry)
     issue = f"sip_line_{entry.entry_id}"
-    ok("סיסמה שגויה פותחת תקלה",
-       await until(lambda: issue in fake_ha.ISSUES)
-       and fake_ha.ISSUES[issue]["translation_key"] == "sip_auth_failed"
-       and fake_ha.ISSUES[issue]["translation_placeholders"] == {"server": HOST})
+    ok("סיסמה שגויה פותחת reauth ולא תקלה",
+       await until(lambda: entry.reauths > 0) and issue not in fake_ha.ISSUES)
     await sipdrv.async_stop_transport(transport)
-    ok("והיא נסגרת כשהקו נעצר", issue not in fake_ha.ISSUES)
+    ok("ואין תקלה פתוחה כשהקו נעצר", issue not in fake_ha.ISSUES)
+    ok("reauth שואל רק את הסיסמה", sipdrv.REAUTH_FIELDS == ("sip_password",))
     sipdrv.SipLine = SipLine
     prov.close()
 

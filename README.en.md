@@ -42,30 +42,41 @@ with a separate menu tree, token and entities.
 
 **The keypad** is a page in the Home Assistant sidebar that draws a
 phone keypad. Each key is what the caller gets when they press it,
-and what they hear is shown beside it. The interface is in Hebrew.
+and what they hear is shown beside it. The interface follows the
+Home Assistant language (Hebrew or English), and the menu location is
+kept in the URL, so the browser's Back button goes up a level.
 
 <p align="center">
   <img src="docs/panel.png" width="720" alt="The keypad">
 </p>
 
-Click an empty key and choose what it does:
+Click an empty key and choose what it does. A dialog opens over the
+keypad, or from the bottom on a phone. Its forms and pickers are Home
+Assistant's own:
 
 <p align="center">
   <img src="docs/panel-add.png" width="720" alt="What happens on a key press">
 </p>
 
-**Device** — pick a device and tick what the caller may do with it.
-When an action has several values, such as HVAC mode or fan speed, a
-second step asks which of them to offer. A key can also set one fixed
-value: "AC to 24", "light to 30 percent".
+**Device** — pick it in the Home Assistant entity picker: a light, AC,
+cover, scene, script, automation, anything in the home. Then tick what
+the caller may do with it; only actions the device really supports
+are offered, as in the automation editor. When an action has several
+values, such as HVAC mode or fan speed, a second step asks which of
+them to offer. An automation can be enabled, disabled, or run now.
+
+**Key with a fixed value** — "AC to 24", "light to 30 percent", "run
+an automation with its conditions", "add milk to the shopping list".
+Every action field is available here, drawn with the HA selector:
+time, color, duration, text, media.
 
 <p align="center">
   <img src="docs/panel-device.png" width="720" alt="Adding a device">
 </p>
 
-**Whole room** — one room, several rooms together, a floor or a
-label. Choose which kinds of devices, which devices, and what each
-kind may do. "Add now" skips the choices and takes everything. Only
+**Room or area** — the whole home, or rooms, floors and labels in the
+HA pickers. Choose which kinds and which devices, then what each kind may
+do. "Add everything" skips the last step. Only
 actions every device supports are offered, and a device that joins
 the room enters the menu by itself.
 
@@ -73,8 +84,11 @@ the room enters the menu by itself.
   <img src="docs/panel-room-devices.png" width="720" alt="Which devices">
 </p>
 
-A key opens on click. Inside it you rename, drag to another key and
-remove:
+Clicking a key opens its dialog; a key with more keys inside opens
+them, and the pencil in its corner edits it. In the dialog you change
+its name and value, move it to another key or menu, replace the
+device or remove it. A removal can be undone from the notification at
+the bottom:
 
 <p align="center">
   <img src="docs/panel-inside.png" width="720" alt="Inside a device key">
@@ -211,6 +225,11 @@ Several lines can be added — one entry per account. For an account
 that is already registered on a PBX or another phone, create a
 separate SIP user: two registrations of one account steal calls from
 each other.
+
+A password the provider rejects later shows up on the integration card
+as a request to sign in again: enter the current password, and it is
+checked before it is saved. A changed server or port is updated with
+"Reconfigure" on the same card.
 
 ---
 
@@ -360,7 +379,12 @@ this section before enabling it.
 - An action allow-list, checked before any other stage
 - Caller-number filtering — the strongest layer available
 - A line cap and a call-length cap, as a ceiling against abuse
-- Secrets redacted in the log, the history buffer and the diagnostics file
+- Secrets redacted in the log, the history buffer and the diagnostics file,
+  and so are phone numbers and SIP addresses inside free text
+- A lock or alarm code is dialled during the call and never stored.
+  Three rejections in one call lock code actions until it ends; repeated
+  guessing from one number, or from several numbers together, blocks
+  them for fifteen minutes
 
 ### The token is a password
 

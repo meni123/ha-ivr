@@ -25,7 +25,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import registry
 from .entity import child_device_info
@@ -99,6 +99,10 @@ class IvrNotify(NotifyEntity):
         )
 
 
+# אין קריאות החוצה מהישויות: הכול מגיע בדחיפה, ואין מה לסדר בתור.
+PARALLEL_UPDATES = 0
+
+
 def _notifier(entry):
     """`async_notify` של הדרייבר של הרשומה, או None."""
     driver = registry.for_entry(entry)
@@ -108,7 +112,7 @@ def _notifier(entry):
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """ישות לכל נמען שהוגדר, אם הספק יודע לחייג."""
     if _notifier(entry) is None:

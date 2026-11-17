@@ -1,15 +1,16 @@
 """תרגום לעברית של שמות פעולות, שדות וערכים.
 
-Home Assistant מחזיר בצד השרת את המפתחות הטכניים בלבד. התרגום שמוצג
-במסך האוטומציות נעשה בצד הלקוח, מקובצי התרגום של הממשק, ולכן אין דרך
-לקבל אותו מהשרת. המילונים כאן מספקים תרגום למה שנמצא בשימוש נפוץ.
-
-מפתח שאינו מופיע כאן מוצג בשמו הטכני, וזו נפילה חזרה תקינה.
+הניסוח כאן נכתב להקראה בטלפון ("הדלקה", "על קירור") ולכן קודם.
+כל מה שאינו כאן מגיע מהתרגום הרשמי של Home Assistant, דרך
+`helpers.translation` (ראו `i18n.py`), ורק אם גם שם אין — השם
+הטכני.
 """
 
 from __future__ import annotations
 
 from typing import Final
+
+from . import i18n
 
 # --- שמות פעולות ---
 ACTION_NAMES: Final[dict[str, str]] = {
@@ -116,6 +117,23 @@ ACTION_NAMES: Final[dict[str, str]] = {
     "generate_image": "יצירת תמונה",
 }
 
+# שמות שתלויים בדומיין. "הדלקה" של אוטומציה מטעה: היא מאפשרת אותה
+# ואינה מריצה דבר, ו-HA עצמו מתרגם גם אותה וגם את `trigger` כ"הפעלה".
+# בטלפון אין מסך שיבהיר, ולכן כל פעולה כאן נשמעת אחרת.
+DOMAIN_ACTION_NAMES: Final[dict[tuple[str, str], str]] = {
+    ("automation", "trigger"): "הרצה עכשיו",
+    ("automation", "turn_on"): "הפעלת האוטומציה",
+    ("automation", "turn_off"): "השבתת האוטומציה",
+    ("automation", "toggle"): "הפעלה או השבתה",
+    ("script", "turn_on"): "הרצה",
+    ("script", "turn_off"): "עצירה",
+    ("script", "toggle"): "הרצה או עצירה",
+    ("scene", "turn_on"): "הפעלת הסצנה",
+    ("update", "install"): "התקנת העדכון",
+    ("update", "skip"): "דילוג על העדכון",
+    ("update", "clear_skipped"): "ביטול הדילוג",
+}
+
 # --- שמות שדות ---
 FIELD_NAMES: Final[dict[str, str]] = {
     "temperature": "טמפרטורה",
@@ -186,7 +204,7 @@ FIELD_NAMES: Final[dict[str, str]] = {
     "instructions": "הוראות",
     "task_name": "שם המשימה",
     "stop_actions": "עצירת פעולות",
-    "skip_condition": "תנאי דילוג",
+    "skip_condition": "דילוג על תנאים",
     "conversation_id": "מזהה שיחה",
 }
 
@@ -321,17 +339,36 @@ def field_unit(field: str) -> str:
     return FIELD_UNITS.get(field, "")
 
 
-def translate_action(action: str) -> str:
-    """שם הפעולה בעברית, או השם הטכני אם אין תרגום."""
-    return ACTION_NAMES.get(action, action)
+def translate_action(action: str, domain: str = "") -> str:
+    """שם הפעולה בעברית.
+
+    קודם הניסוח המקומי, שנכתב להקראה בטלפון ("הדלקה" ולא "הפעלה").
+    אחר כך התרגום הרשמי של HA לפעולה בדומיין שלה, ולבסוף שם קריא.
+    פעולה מדומיין אחר נשמרת כ-`homeassistant.turn_on`.
+    """
+    if "." in action:
+        domain, action = action.split(".", 1)
+    if found := DOMAIN_ACTION_NAMES.get((domain, action)):
+        return found
+    if found := ACTION_NAMES.get(action):
+        return found
+    if domain and (found := i18n.spoken_action(domain, action)):
+        return found
+    return action
 
 
-def translate_field(field: str) -> str:
-    """שם השדה בעברית, או השם הטכני אם אין תרגום."""
-    return FIELD_NAMES.get(field, field)
+def translate_field(field: str, domain: str = "", action: str = "") -> str:
+    """שם השדה בעברית: הניסוח המקומי, התרגום הרשמי, או השם הטכני."""
+    if found := FIELD_NAMES.get(field):
+        return found
+    if domain and action and (found := i18n.spoken_field(domain, action, field)):
+        return found
+    return field
 
 
-def translate_option(option: str) -> str:
+def translate_option(
+    option: str, domain: str = "", field: str = "", translation_key: str = ""
+) -> str:
     """ערך בחירה בעברית, או הערך המקורי אם אין תרגום.
 
     מכשירים מדווחים על אותו ערך בשתי צורות — `medium low` ו-
@@ -354,4 +391,7 @@ def translate_option(option: str) -> str:
         # נשמעת גרוע יותר מאנגלית עקבית.
         if all(t != p for t, p in zip(translated, parts)):
             return " ".join(translated)
+    # התרגום הרשמי, לפי ההקשר: מאפיין, מצב או בורר בדומיין הזה.
+    if domain and (found := i18n.spoken_option(domain, field, raw, translation_key)):
+        return found
     return raw

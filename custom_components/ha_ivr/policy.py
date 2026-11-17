@@ -7,13 +7,13 @@
 
 from __future__ import annotations
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 
 from .const import BLOCKED_DOMAINS, CONFIRM_DOMAINS
 
-# פעולות שאין טעם להציע אותן כפעולת שלוחה: כאלה שאינן משנות מצב,
-# כאלה שרק כותבות קובץ, וכאלה שהן תחזוקה פנימית. משותף לכולן
-# שמתקשר שלוחץ עליהן בטלפון אינו יכול לדעת מה קרה.
+# פעולות שאין טעם להציע אותן כפעולת שלוחה: תחזוקה פנימית, עריכת
+# הגדרות, ותזמור של עוזר קולי. פעולות שרק מחזירות מידע אינן כאן:
+# הן מסוננות לפי `SupportsResponse.ONLY` (ראו `available_actions`).
 _NON_ACTIONABLE = frozenset(
     {
         "reload",
@@ -22,32 +22,15 @@ _NON_ACTIONABLE = frozenset(
         "set_location",
         "check_config",
         "save_persistent_states",
+        # יצירה ומחיקה של הגדרות (סצנה חדשה, התראה מתמשכת).
         "create",
+        "delete",
         "dismiss",
         "dismiss_all",
         # דיווח מיקום מאפליקציה, לא שליטה במכשיר.
         "see",
-        # כותבות קובץ לדיסק. אין לכך ביטוי בשיחה.
-        "snapshot",
-        "record",
-        # שאילתות קריאה בלבד.
-        "get_events",
-        "get_items",
-        # תחזוקה ובקרת גרסאות. התקנת עדכון מתוך תפריט טלפוני,
-        # בלי לראות במה מדובר ובלי דרך לחזור, אינה פעולה שראוי
-        # להציע בהקשה אחת.
-        "install",
-        "skip",
-        "clear_skipped",
-        "clear_cache",
-        # תחזית היא קריאה בלבד.
-        "get_forecast",
-        "get_forecasts",
-        # עיון וחיפוש בספריית מדיה מחזירים רשימה, לא מנגנים דבר.
-        "browse_media",
-        "search_media",
-        # תזמור של עוזר קולי, לא שליטה במכשיר. וגם: ה-IVR עצמו
-        # הוא המתקשר, ולכן הכרזה ללוויין באמצע שיחה חסרת פשר.
+        # ה-IVR עצמו הוא המתקשר, ולכן הכרזה ללוויין באמצע שיחה חסרת
+        # פשר.
         "announce",
         "start_conversation",
         "ask_question",
@@ -125,8 +108,19 @@ def available_actions(hass: HomeAssistant, domain: str) -> list[str]:
     """
     if domain_is_blocked(domain):
         return []
-    # async_services מחזיר מילון של כל הדומיינים והשירותים שלהם.
-    # זו הדרך היציבה לשאול אילו פעולות דומיין חושף בפועל.
-    domain_services = hass.services.async_services().get(domain, {})
-    actions = [name for name in domain_services if name not in _NON_ACTIONABLE]
-    return sorted(actions)
+    domain_services = hass.services.async_services_for_domain(domain)
+    return sorted(
+        name
+        for name in domain_services
+        if name not in _NON_ACTIONABLE and not _read_only(hass, domain, name)
+    )
+
+
+def _read_only(hass: HomeAssistant, domain: str, action: str) -> bool:
+    """פעולה שרק מחזירה מידע (`get_forecasts`, `get_items`).
+
+    Home Assistant דוחה קריאה כזו בלי `return_response`, ולמתקשר
+    אין דרך לשמוע את התשובה. ההכרזה היא של מי שרשם את הפעולה, ולכן
+    היא חלה גם על פעולות של אינטגרציות שאיש לא מכיר כאן מראש.
+    """
+    return hass.services.supports_response(domain, action) == SupportsResponse.ONLY

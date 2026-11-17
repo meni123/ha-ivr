@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -119,6 +120,15 @@ async def _menu_schema(hass, driver, current: dict[str, Any]) -> vol.Schema:
     return vol.Schema(fields)
 
 
+def _line_id(driver, options: dict[str, Any]) -> str | None:
+    """המזהה של קו, לספק שכל רשומה שלו היא קו נפרד. None לשאר."""
+    key = getattr(driver, "entry_key", None)
+    if key is None or not getattr(driver, "MANY_ENTRIES", False):
+        return None
+    line_id = str(key(options) or "")
+    return line_id if line_id.strip("@") else None
+
+
 def _line_taken(hass, driver, user_input: dict[str, Any], skip: str) -> bool:
     """האם הקו שבטופס כבר מוגדר ברשומה אחרת של אותו ספק."""
     key = getattr(driver, "entry_key", None)
@@ -165,7 +175,8 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     # 2: ישות חכמה היא מכשיר, ותפריט אזור הוא תת-תפריט.
     # 3: העוזר הקולי הוא סוג משלו ולא מעבר עם יעד מוסכם.
-    MINOR_VERSION = 3
+    # 4: לקו SIP יש unique_id, ותת-רשומות מסומנות בגרסת התוכנית.
+    MINOR_VERSION = 4
 
     def __init__(self) -> None:
         self._provider = ""
@@ -197,6 +208,11 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
             errors = await _menu_errors(self.hass, driver, user_input)
             if not errors:
                 saved = _menu_save(driver, user_input)
+                # קו שכל רשומה שלו נפרדת מזוהה לפי החשבון. כך HA עצמו
+                # חוסם כפילות, ו-reauth אינו יכול לשמור חשבון אחר.
+                if (line_id := _line_id(driver, saved)) is not None:
+                    await self.async_set_unique_id(line_id)
+                    self._abort_if_unique_id_configured()
                 title = getattr(driver, "entry_title", None)
                 return self.async_create_entry(
                     title=(
@@ -213,6 +229,85 @@ class IvrConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="settings",
             data_schema=await _menu_schema(self.hass, driver, user_input or {}),
+            errors=errors,
+        )
+
+    # ------------------------------------------------------------------
+    # reauth: הקו נדחה בהרשמה. רק פרטי ההתחברות נשאלים מחדש.
+    # ------------------------------------------------------------------
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        ensure_registered()
+        entry = self._get_reauth_entry()
+        driver = registry.for_entry(entry)
+        fields = tuple(getattr(driver, "REAUTH_FIELDS", ()) or ())
+        if driver is None or not fields:
+            return self.async_abort(reason="reauth_unsupported")
+        current = dict(entry.options)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            merged = {**current, **{k: user_input.get(k, "") for k in fields}}
+            errors = await _menu_errors(self.hass, driver, merged, entry.entry_id)
+            if not errors:
+                options = {**current, **driver.menu_save(merged)}
+                if (line_id := _line_id(driver, options)) is not None:
+                    await self.async_set_unique_id(line_id)
+                    self._abort_if_unique_id_mismatch()
+                # טעינה אחת בדיוק: כשמשהו השתנה המאזין טוען, וכשלא —
+                # טוענים כאן, כדי שהקו ינסה להירשם שוב.
+                if options == current:
+                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
+                return self.async_update_and_abort(entry, options=options)
+
+        schema = driver.menu_fields({**current, **(user_input or {})})
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {k: v for k, v in schema.items() if str(k) in fields}
+            ),
+            errors=errors,
+            description_placeholders={"title": entry.title},
+        )
+
+    # ------------------------------------------------------------------
+    # reconfigure: הגדרות הספק של רשומה קיימת, מכרטיס האינטגרציה.
+    # ------------------------------------------------------------------
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        ensure_registered()
+        entry = self._get_reconfigure_entry()
+        driver = registry.for_entry(entry)
+        if driver is None:
+            return self.async_abort(reason="reconfigure_unsupported")
+        current = dict(entry.options)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors = await _menu_errors(self.hass, driver, user_input, entry.entry_id)
+            if not errors:
+                options = {**current, **_menu_save(driver, user_input)}
+                # חשבון אחר הוא קו אחר: מוסיפים אותו כרשומה חדשה.
+                if (line_id := _line_id(driver, options)) is not None:
+                    await self.async_set_unique_id(line_id)
+                    self._abort_if_unique_id_mismatch()
+                # בלי טעינה כאן: המאזין של הרשומה טוען כשמשהו השתנה.
+                return self.async_update_and_abort(entry, options=options)
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=await _menu_schema(
+                self.hass, driver, {**current, **(user_input or {})}
+            ),
             errors=errors,
         )
 
@@ -317,9 +412,15 @@ class IvrOptionsFlow(OptionsFlow):
                 self.hass, driver, user_input, self.config_entry.entry_id
             )
             if not errors:
-                return self.async_create_entry(
-                    data={**current, **_menu_save(driver, user_input)}
-                )
+                options = {**current, **_menu_save(driver, user_input)}
+                # חשבון שהוחלף כאן מעדכן גם את המזהה, אחרת reauth
+                # הבא היה נעצר על אי-התאמה.
+                line_id = _line_id(driver, options)
+                if line_id is not None and line_id != self.config_entry.unique_id:
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry, unique_id=line_id
+                    )
+                return self.async_create_entry(data=options)
 
         return self.async_show_form(
             step_id="menu_settings",
